@@ -1,12 +1,15 @@
 import os
 import sqlite3
+import subprocess
 import uuid
 
 from celery import Celery
+from datetime import datetime
 from flask import Flask, g, json, jsonify, request
 
 
 MIME_TYPE = "application/json"
+ISO_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 STATE_UNKNOWN = "UNKNOWN"
 STATE_QUEUED = "QUEUED"
@@ -100,16 +103,54 @@ def make_error(status_code, message):
     }), mimetype=MIME_TYPE, status=status_code)
 
 
+def update_run_state(c, db, run_id, state):
+    c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
+    db.commit()
+
+
 @celery.task()
 def run_workflow(run_id):
     db = get_db()
     c = db.cursor()
 
-    c.execute("UPDATE runs SET state = ? WHERE id = ?", (STATE_INITIALIZING, str(run_id)))
+    update_run_state(c, db, run_id, STATE_INITIALIZING)
+
+    # TODO: Initialization, file downloading, etc.
+
+    wdl_runner = subprocess.Popen(["toil-wdl-runner", "TODO", "TODO"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    update_run_state(c, db, run_id, STATE_RUNNING)
+
+    try:
+        output, errors = wdl_runner.communicate(timeout=60 * 60 * 24)  # TODO: Configurable timeout, not one day
+        return_code = wdl_runner.returncode
+
+        # TODO: Upload data if return_code == 0
+
+        update_run_state(c, db, run_id, STATE_EXECUTOR_ERROR if return_code != 0 else STATE_COMPLETE)
+
+        # TODO: Output
+
+    except subprocess.TimeoutExpired:
+        wdl_runner.kill()
+        # TODO: Status, Output
+        output, errors = wdl_runner.communicate()
+        return_code = wdl_runner.returncode
+
+        update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+
+    c.execute("SELECT run_log FROM runs WHERE id = ?", (str(run_id),))
+    run_run_log = c.fetchone()
+    # TODO: Handle None error
+
+    run_log_id = run_run_log[0]
+
+    c.execute("UPDATE run_logs SET end_time = ?, exit_code = ? WHERE id = ?",
+              (datetime.utcnow().strftime(ISO_FORMAT), return_code, run_log_id))
     db.commit()
 
+    # TODO: Status
     # TODO
-    # TODO: Check status
 
 
 @application.route("/runs", methods=["GET", "POST"])
@@ -211,8 +252,8 @@ def run_detail(run_id):
             "cmd": run["rl.cmd"],
             "start_time": run["rl.start_time"],
             "end_time": run["rl.end_time"],
-            "stdout": run["rl.stdout"],
-            "stderr": run["rl.stderr"],
+            "stdout": run["rl.stdout"],  # TODO
+            "stderr": run["rl.stderr"],  # TODO
             "exit_code": run["rl.exit_code"]
         },
         "task_logs": [{
