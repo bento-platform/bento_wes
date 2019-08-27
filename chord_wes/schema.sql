@@ -9,8 +9,8 @@ CREATE TABLE runs (
     state TEXT NOT NULL,    -- enum
     run_log TEXT,           -- Foreign key to run log UUID
     outputs TEXT,           -- TODO
-    FOREIGN KEY (request) REFERENCES run_requests,
-    FOREIGN KEY (run_log) REFERENCES run_logs
+    FOREIGN KEY (request) REFERENCES run_requests ON DELETE CASCADE,
+    FOREIGN KEY (run_log) REFERENCES run_logs ON DELETE CASCADE
 );
 
 CREATE TABLE run_requests (
@@ -42,5 +42,5 @@ CREATE TABLE task_logs (
     stdout TEXT NOT NULL,        -- URL
     stderr TEXT NOT NULL,        -- URL
     exit_code INTEGER NOT NULL,  -- Exit code
-    FOREIGN KEY (run_id) REFERENCES runs
+    FOREIGN KEY (run_id) REFERENCES runs ON DELETE CASCADE
 );
