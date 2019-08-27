@@ -1,13 +1,14 @@
 DROP TABLE IF EXISTS runs;
 DROP TABLE IF EXISTS run_requests;
+DROP TABLE IF EXISTS run_logs;
+DROP TABLE IF EXISTS task_logs;
 
 CREATE TABLE runs (
     id TEXT PRIMARY KEY,    -- UUID
     request TEXT NOT NULL,  -- Original request message used to initiate execution
     state TEXT NOT NULL,    -- enum
-    run_log TEXT, -- TODO
-    task_logs TEXT, -- TODO
-    outputs TEXT, -- TODO
+    run_log TEXT,           -- Foreign key to run log UUID
+    outputs TEXT,           -- TODO
     FOREIGN KEY (request) REFERENCES run_requests,
     FOREIGN KEY (run_log) REFERENCES run_logs
 );

@@ -3,5 +3,6 @@ env/
 *.wdl
 *.vcf*
 *.json
+*.db
 .idea/workspace.xml
 .idea/dataSources*
