@@ -1,0 +1,7 @@
+__pycache__
+env/
+*.wdl
+*.vcf*
+*.json
+.idea/workspace.xml
+.idea/dataSources*
