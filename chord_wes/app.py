@@ -6,6 +6,7 @@ import uuid
 from celery import Celery
 from datetime import datetime
 from flask import Flask, g, json, jsonify, request
+from urllib.parse import urljoin
 
 
 MIME_TYPE = "application/json"
@@ -40,9 +41,11 @@ def make_celery(app):
 application = Flask(__name__)
 application.config.from_mapping(
     CHORD_SERVICES=os.environ.get("CHORD_SERVICES", "chord_services.json"),
+    CHORD_URL=os.environ.get("CHORD_URL", "http://127.0.0.1:5000/"),
     CELERY_RESULT_BACKEND="redis://",  # TODO
     CELERY_BROKER_URL="redis://",  # TODO
-    DATABASE=os.environ.get("DATABASE", "chord_wes.db")
+    DATABASE=os.environ.get("DATABASE", "chord_wes.db"),
+    SERVICE_BASE_URL=os.environ.get("SERVICE_BASE_URL", "/")
 )
 celery = make_celery(application)
 
@@ -109,7 +112,7 @@ def update_run_state(c, db, run_id, state):
 
 
 @celery.task()
-def run_workflow(run_id):
+def run_workflow(run_id, run_request):
     db = get_db()
     c = db.cursor()
 
@@ -117,7 +120,14 @@ def run_workflow(run_id):
 
     # TODO: Initialization, file downloading, etc.
 
-    wdl_runner = subprocess.Popen(["toil-wdl-runner", "TODO", "TODO"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    cmd = ["toil-wdl-runner", "TODO", "TODO"]
+    wdl_runner = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    run_log_id = uuid.uuid4()
+    c.execute("INSERT INTO run_logs (id, name, cmd, start_time) VALUES (?, ?, ?, ?)",
+              (str(run_log_id), "TODO", " ".join(cmd), datetime.utcnow().strftime(ISO_FORMAT)))
+    c.execute("UPDATE runs SET run_log = ? WHERE id = ?", (str(run_log_id), str(run_id)))
+    db.commit()
 
     update_run_state(c, db, run_id, STATE_RUNNING)
 
@@ -139,14 +149,8 @@ def run_workflow(run_id):
 
         update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
 
-    c.execute("SELECT run_log FROM runs WHERE id = ?", (str(run_id),))
-    run_run_log = c.fetchone()
-    # TODO: Handle None error
-
-    run_log_id = run_run_log[0]
-
-    c.execute("UPDATE run_logs SET end_time = ?, exit_code = ? WHERE id = ?",
-              (datetime.utcnow().strftime(ISO_FORMAT), return_code, run_log_id))
+    c.execute("UPDATE run_logs SET end_time = ?, stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
+              (datetime.utcnow().strftime(ISO_FORMAT), output.read(), errors.read(), return_code, run_log_id))
     db.commit()
 
     # TODO: Status
@@ -203,7 +207,9 @@ def run_list():
             # TODO: figure out timeout
             # TODO: retry policy
             c.execute("UPDATE runs SET state = ? WHERE id = ?", (STATE_QUEUED, str(run_id)))
-            run_workflow.delay(run_id)
+            run_workflow.delay(run_id, {
+                "workflow_url": workflow_url
+            })
             db.commit()
 
             # TODO
@@ -252,8 +258,14 @@ def run_detail(run_id):
             "cmd": run["rl.cmd"],
             "start_time": run["rl.start_time"],
             "end_time": run["rl.end_time"],
-            "stdout": run["rl.stdout"],  # TODO
-            "stderr": run["rl.stderr"],  # TODO
+            "stdout": urljoin(
+                urljoin(application.config["CHORD_URL"], application.config["SERVICE_BASE_URL"] + "/"),
+                "runs/{}/stdout".format(run["r.id"])
+            ),
+            "stderr": urljoin(
+                urljoin(application.config["CHORD_URL"], application.config["SERVICE_BASE_URL"] + "/"),
+                "runs/{}/stderr".format(run["r.id"])
+            ),
             "exit_code": run["rl.exit_code"]
         },
         "task_logs": [{
@@ -267,6 +279,28 @@ def run_detail(run_id):
         } for task in c.fetchall()],
         "outputs": {}  # TODO: ?
     })
+
+
+def get_stream(c, stream, run_id):
+    c.execute("SELECT * FROM runs AS r, run_logs AS rl WHERE r.id = ? AND r.run_log = rl.id", (str(run_id),))
+
+    run = c.fetchone()
+    if run is None:
+        return make_error(404, "Not found")
+
+    return application.response_class(response=run["rl.{}".format(stream)], mimetype="text/plain", status=200)
+
+
+@application.route("/runs/<uuid:run_id>/stdout", methods=["GET"])
+def run_stdout(run_id):
+    db = get_db()
+    return get_stream(db.cursor(), "stdout", run_id)
+
+
+@application.route("/runs/<uuid:run_id>/stderr", methods=["GET"])
+def run_stderr(run_id):
+    db = get_db()
+    return get_stream(db.cursor(), "stderr", run_id)
 
 
 @application.route("/runs/<uuid:run_id>/cancel", methods=["POST"])

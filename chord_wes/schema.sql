@@ -22,14 +22,14 @@ CREATE TABLE run_requests (
 );
 
 CREATE TABLE run_logs (
-    id TEXT PRIMARY KEY,        -- UUID
-    name TEXT NOT NULL,         -- Workflow name
-    cmd TEXT NOT NULL,          -- Command used to execute the workflow
-    start_time TEXT NOT NULL,   -- Time started (ISO 8601, UTC)
-    end_time TEXT NOT NULL,     -- Completed, failed, or canceled  (ISO 8601, UTC)
-    stdout TEXT NOT NULL,       -- URL
-    stderr TEXT NOT NULL,       -- URL
-    exit_code INTEGER NOT NULL  -- Exit code
+    id TEXT PRIMARY KEY,                  -- UUID
+    name TEXT NOT NULL,                   -- Workflow name
+    cmd TEXT NOT NULL,                    -- Command used to execute the workflow
+    start_time TEXT NOT NULL DEFAULT '',  -- Time started (ISO 8601, UTC)
+    end_time TEXT NOT NULL DEFAULT '',    -- Completed, failed, or canceled  (ISO 8601, UTC)
+    stdout TEXT NOT NULL DEFAULT '',      -- Contents
+    stderr TEXT NOT NULL DEFAULT '',      -- Contents
+    exit_code INTEGER DEFAULT NULL        -- Exit code
 );
 
 CREATE TABLE task_logs (
