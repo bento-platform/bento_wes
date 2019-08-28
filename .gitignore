@@ -4,5 +4,6 @@ env/
 *.vcf*
 *.json
 *.db
+toilwdl_compiled.py
 .idea/workspace.xml
 .idea/dataSources*

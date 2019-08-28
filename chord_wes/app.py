@@ -28,6 +28,8 @@ STATE_SYSTEM_ERROR = "SYSTEM_ERROR"
 STATE_CANCELED = "CANCELED"
 STATE_CANCELING = "CANCELING"
 
+REDIS_PATH = ""  # TODO
+
 
 def make_celery(app):
     c = Celery(app.import_name, backend=app.config["CELERY_RESULT_BACKEND"], broker=app.config["CELERY_BROKER_URL"])
@@ -134,8 +136,11 @@ def run_workflow(self, run_id, run_request, workflow_name):
         return
 
     tmp_dir = application.config["SERVICE_TEMP"]
-    workflow_path = os.path.join(tmp_dir, "workflow_{}.wdl".format(str(urlsafe_b64encode(bytes(workflow_url)))))
-    workflow_params_path = os.path.join(tmp_dir, "params_{}.wdl".format(run_id))
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    workflow_path = os.path.join(tmp_dir, "workflow_{}.wdl".format(
+        str(urlsafe_b64encode(bytes(workflow_url, encoding="utf-8")), encoding="utf-8")))
+    workflow_params_path = os.path.join(tmp_dir, "params_{}.json".format(run_id))
     # TODO: Check UUID collision
 
     with open(workflow_params_path, "w") as wpf:
@@ -153,7 +158,6 @@ def run_workflow(self, run_id, run_request, workflow_name):
 
     # Download or move workflow if needed
 
-    os.makedirs(tmp_dir)
     if not os.path.exists(workflow_path):
         # If the workflow has not been downloaded, download it
         # TODO: Auth
@@ -179,7 +183,7 @@ def run_workflow(self, run_id, run_request, workflow_name):
 
     # Start run
 
-    wdl_runner = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    wdl_runner = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
     update_run_state(c, db, run_id, STATE_RUNNING)
     c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?",
               (datetime.utcnow().strftime(ISO_FORMAT), str(run_log_id)))
@@ -205,7 +209,7 @@ def run_workflow(self, run_id, run_request, workflow_name):
         update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
 
     c.execute("UPDATE run_logs SET end_time = ?, stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
-              (datetime.utcnow().strftime(ISO_FORMAT), output.read(), errors.read(), return_code, run_log_id))
+              (datetime.utcnow().strftime(ISO_FORMAT), output, errors, return_code, str(run_log_id)))
     db.commit()
 
     # Final steps: check status and report results
@@ -232,7 +236,7 @@ def run_list():
             assert "workflow_type_version" in request.form
             assert "workflow_engine_parameters" in request.form
             assert "workflow_url" in request.form
-            assert "workflow_attachment" in request.form
+            # assert "workflow_attachment" in request.form  # TODO: Fix
             assert "tags" in request.form
 
             workflow_params = json.loads(request.form["workflow_params"])
@@ -240,10 +244,11 @@ def run_list():
             workflow_type_version = request.form["workflow_type_version"].strip()
             workflow_engine_parameters = json.loads(request.form["workflow_engine_parameters"])
             workflow_url = request.form["workflow_url"].lower()
-            workflow_attachment_list = request.files.getlist("workflow_attachment")  # TODO
+            # workflow_attachment_list = request.files.getlist("workflow_attachment")  # TODO
             tags = json.loads(request.form["tags"])
 
             workflow_name = tags["workflow_name"] if "workflow_name" in tags else workflow_url
+            workflow_chord_metadata = tags["workflow_chord_metadata"] if "workflow_chord_metadata" in tags else {}
 
             # Don't accept anything (ex. CWL) other than WDL
             assert workflow_type == "WDL"
@@ -298,41 +303,49 @@ def run_detail(run_id):
     db = get_db()
     c = db.cursor()
 
-    c.execute("SELECT * FROM runs AS r, run_requests AS rr, run_logs AS rl "
-              "WHERE r.id = ? AND r.request = rr.id AND r.run_log = rl.id",
-              (str(run_id),))
+    c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
     run = c.fetchone()
 
     if run is None:
         return make_error(404, "Not found")
 
+    c.execute("SELECT * from run_requests WHERE id = ?", (run["request"],))
+    run_request = c.fetchone()
+    # TODO: Can be None
+
+    c.execute("SELECT * from run_logs WHERE id = ?", (run["run_log"],))
+    run_log = c.fetchone()
+    # TODO: Can be None
+
     c.execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
 
+    print(dict(run))
+
     return jsonify({
-        "run_id": run["r.id"],
+        "run_id": run["id"],
         "request": {
-            "workflow_params": json.loads(run["rr.workflow_params"]),
-            "workflow_type": run["rr.workflow_type"],
-            "workflow_type_version": run["rr.workflow_type_version"],
-            "workflow_engine_parameters": {},
-            "workflow_url": run["rr.workflow_url"],
+            "workflow_params": json.loads(run_request["workflow_params"]),
+            "workflow_type": run_request["workflow_type"],
+            "workflow_type_version": run_request["workflow_type_version"],
+            "workflow_engine_parameters": {},  # TODO
+            "workflow_url": run_request["workflow_url"],
             "tags": {}
         },
-        "state": run["r.state"],
+        "state": run["state"],
         "run_log": {
-            "name": run["rl.name"],
-            "cmd": run["rl.cmd"],
-            "start_time": run["rl.start_time"],
-            "end_time": run["rl.end_time"],
+            "name": run_log["name"],
+            "cmd": run_log["cmd"],
+            "start_time": run_log["start_time"],
+            "end_time": run_log["end_time"],
             "stdout": urljoin(
                 urljoin(application.config["CHORD_URL"], application.config["SERVICE_BASE_URL"] + "/"),
-                "runs/{}/stdout".format(run["r.id"])
+                "runs/{}/stdout".format(run["id"])
             ),
             "stderr": urljoin(
                 urljoin(application.config["CHORD_URL"], application.config["SERVICE_BASE_URL"] + "/"),
-                "runs/{}/stderr".format(run["r.id"])
+                "runs/{}/stderr".format(run["id"])
             ),
-            "exit_code": run["rl.exit_code"]
+            "exit_code": run_log["exit_code"]
         },
         "task_logs": [{
             "name": task["name"],
@@ -354,7 +367,7 @@ def get_stream(c, stream, run_id):
     if run is None:
         return make_error(404, "Not found")
 
-    return application.response_class(response=run["rl.{}".format(stream)], mimetype="text/plain", status=200)
+    return application.response_class(response=run[stream], mimetype="text/plain", status=200)
 
 
 @application.route("/runs/<uuid:run_id>/stdout", methods=["GET"])
