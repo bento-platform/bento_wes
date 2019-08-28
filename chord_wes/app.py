@@ -1,5 +1,6 @@
 import os
 import requests
+import shutil
 import sqlite3
 import subprocess
 import uuid
@@ -13,6 +14,7 @@ from urllib.parse import urljoin, urlparse
 
 MIME_TYPE = "application/json"
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+ALLOWED_WORKFLOW_URL_SCHEMES = ("http", "https", "file")
 
 STATE_UNKNOWN = "UNKNOWN"
 STATE_QUEUED = "QUEUED"
@@ -115,45 +117,61 @@ def update_run_state(c, db, run_id, state):
 
 
 @celery.task(bind=True)
-def run_workflow(self, run_id, run_request):
+def run_workflow(self, run_id, run_request, workflow_name):
     db = get_db()
     c = db.cursor()
 
     update_run_state(c, db, run_id, STATE_INITIALIZING)
 
+    workflow_params = run_request["workflow_params"]
     workflow_url = run_request["workflow_url"]
+    parsed_workflow_url = urlparse(workflow_url)  # TODO: Handle errors
 
-    if urlparse(workflow_url).scheme not in ("http", "https"):
+    if parsed_workflow_url.scheme not in ALLOWED_WORKFLOW_URL_SCHEMES:
         # TODO: Handle file://
         update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
         return
 
     tmp_dir = application.config["SERVICE_TEMP"]
-    filename = "workflow_{}.wdl".format(str(urlsafe_b64encode(bytes(workflow_url))))
-    cmd = ["toil-wdl-runner", os.path.join(tmp_dir, filename), "TODO"]
+    workflow_path = os.path.join(tmp_dir, "workflow_{}.wdl".format(str(urlsafe_b64encode(bytes(workflow_url)))))
+    workflow_params_path = os.path.join(tmp_dir, "params_{}.wdl".format(run_id))
+    # TODO: Check UUID collision
+
+    with open(workflow_params_path, "w") as wpf:
+        json.dump(workflow_params, wpf)
+
+    cmd = ["toil-wdl-runner", workflow_path, workflow_params_path]
 
     # Create run log
 
     run_log_id = uuid.uuid4()
-    c.execute("INSERT INTO run_logs (id, name, cmd, celery_id) VALUES (?, ?, ?, ?, ?)",
-              (str(run_log_id), "TODO", " ".join(cmd), self.request.id))
+    c.execute("INSERT INTO run_logs (id, name, cmd, celery_id) VALUES (?, ?, ?, ?)",
+              (str(run_log_id), workflow_name, " ".join(cmd), self.request.id))
     c.execute("UPDATE runs SET run_log = ? WHERE id = ?", (str(run_log_id), str(run_id)))
     db.commit()
 
-    # Download workflow if needed
+    # Download or move workflow if needed
 
     os.makedirs(tmp_dir)
-    if not os.path.exists(os.path.join(tmp_dir, filename)):
+    if not os.path.exists(workflow_path):
         # If the workflow has not been downloaded, download it
         # TODO: Auth
-        wr = requests.get(workflow_url)
-        if wr.status_code == 200:
-            with open(os.path.join(tmp_dir, filename), "wb") as nwf:
-                nwf.write(wr.content)
+        if parsed_workflow_url.scheme in ("http", "https"):
+            wr = requests.get(workflow_url)
+            if wr.status_code == 200:
+                with open(workflow_path, "wb") as nwf:
+                    nwf.write(wr.content)
+            else:
+                # Network issues
+                update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+                return
         else:
-            # Network issues
-            update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
-            return
+            # file://
+            # TODO: SPEC: MAKE SURE COPIED FILES AREN'T OUTSIDE OF ALLOWED AREAS!
+            # TODO: SECURITY FLAW
+            shutil.copyfile(parsed_workflow_url.path, workflow_path)
+
+    # TODO: Validate WDL
 
     # TODO: Initialization, input file downloading, etc.
 
@@ -188,8 +206,16 @@ def run_workflow(self, run_id, run_request):
               (datetime.utcnow().strftime(ISO_FORMAT), output.read(), errors.read(), return_code, run_log_id))
     db.commit()
 
-    # TODO: Status
-    # TODO
+    # Final steps: check status and report results
+
+    c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
+    run = c.fetchone()  # TODO: What if it's gone? Hope not
+    if run["state"] == STATE_COMPLETE:
+        # TODO: Upload results to data service or report them some other way
+        pass
+    else:
+        # TODO: Report error somehow
+        pass
 
 
 @application.route("/runs", methods=["GET", "POST"])
@@ -215,6 +241,8 @@ def run_list():
             workflow_attachment_list = request.files.getlist("workflow_attachment")  # TODO
             tags = json.loads(request.form["tags"])
 
+            workflow_name = tags["workflow_name"] if "workflow_name" in tags else workflow_url
+
             # Don't accept anything (ex. CWL) other than WDL
             assert workflow_type == "WDL"
             assert workflow_type_version == "1.0"
@@ -228,7 +256,7 @@ def run_list():
             req_id = uuid.uuid4()
             run_id = uuid.uuid4()
 
-            # Will be updated to queued once submitted
+            # Will be updated to STATE_ QUEUED once submitted
             c.execute("INSERT INTO run_requests (id, workflow_params, workflow_type, workflow_type_version, "
                       "workflow_url) VALUES (?, ?, ?, ?, ?)",
                       (str(req_id), json.dumps(workflow_params), workflow_type, workflow_type_version, workflow_url))
@@ -244,8 +272,9 @@ def run_list():
             c.execute("UPDATE runs SET state = ? WHERE id = ?", (STATE_QUEUED, str(run_id)))
             db.commit()
             run_workflow.delay(run_id, {
+                "workflow_params": workflow_params,
                 "workflow_url": workflow_url
-            })
+            }, workflow_name)
 
             # TODO
 
