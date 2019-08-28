@@ -151,6 +151,7 @@ def run_workflow(self, run_id, run_request, workflow_name):
     # Create run log
     # TODO: Should we create the run log at the same time as run request and run?
     #  Could generate command from name earlier, since it's passed in as an argument.
+    #  Maybe command should be left null until the command is actually ran.
 
     run_log_id = uuid.uuid4()
     c.execute("INSERT INTO run_logs (id, name, cmd, celery_id) VALUES (?, ?, ?, ?)",
