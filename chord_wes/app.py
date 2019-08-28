@@ -1,3 +1,4 @@
+import chord_wes
 import os
 import requests
 import shutil
@@ -426,4 +427,15 @@ def run_status(run_id):
 # TODO: Not compatible with GA4GH WES due to conflict with GA4GH service-info (preferred)
 @application.route("/service_info", methods=["GET"])
 def service_info():
-    pass
+    return jsonify({
+        "id": "ca.distributedgenomics.chord_wes",  # TODO: Should be globally unique?
+        "name": "CHORD WES",  # TODO: Should be globally unique?
+        "type": "ca.distributedgenomics:chord_wes:{}".format(chord_wes.__version__),  # TODO
+        "description": "Workflow execution service for a CHORD application.",
+        "organization": {
+            "name": "GenAP",
+            "url": "https://genap.ca/"
+        },
+        "contactUrl": "mailto:david.lougheed@mail.mcgill.ca",
+        "version": chord_wes.__version__
+    })
