@@ -149,6 +149,8 @@ def run_workflow(self, run_id, run_request, workflow_name):
     cmd = ["toil-wdl-runner", workflow_path, workflow_params_path]
 
     # Create run log
+    # TODO: Should we create the run log at the same time as run request and run?
+    #  Could generate command from name earlier, since it's passed in as an argument.
 
     run_log_id = uuid.uuid4()
     c.execute("INSERT INTO run_logs (id, name, cmd, celery_id) VALUES (?, ?, ?, ?)",
@@ -303,6 +305,8 @@ def run_detail(run_id):
     db = get_db()
     c = db.cursor()
 
+    # Runs and run requests are created at the same time, so if either of them is missing throw a 404.
+
     c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
     run = c.fetchone()
 
@@ -311,15 +315,16 @@ def run_detail(run_id):
 
     c.execute("SELECT * from run_requests WHERE id = ?", (run["request"],))
     run_request = c.fetchone()
-    # TODO: Can be None
+
+    if run_request is None:
+        return make_error(404, "Not found")
+
+    # Runs logs may not be present yet, since they're only created when the worker accepts the task.
 
     c.execute("SELECT * from run_logs WHERE id = ?", (run["run_log"],))
     run_log = c.fetchone()
-    # TODO: Can be None
 
     c.execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
-
-    print(dict(run))
 
     return jsonify({
         "run_id": run["id"],
@@ -346,7 +351,7 @@ def run_detail(run_id):
                 "runs/{}/stderr".format(run["id"])
             ),
             "exit_code": run_log["exit_code"]
-        },
+        } if run_log is not None else None,  # Clients should handle null run logs
         "task_logs": [{
             "name": task["name"],
             "cmd": task["cmd"],
