@@ -130,6 +130,18 @@ def run_workflow(self, run_id, run_request):
 
     tmp_dir = application.config["SERVICE_TEMP"]
     filename = "workflow_{}.wdl".format(str(urlsafe_b64encode(bytes(workflow_url))))
+    cmd = ["toil-wdl-runner", os.path.join(tmp_dir, filename), "TODO"]
+
+    # Create run log
+
+    run_log_id = uuid.uuid4()
+    c.execute("INSERT INTO run_logs (id, name, cmd, celery_id) VALUES (?, ?, ?, ?, ?)",
+              (str(run_log_id), "TODO", " ".join(cmd), self.request.id))
+    c.execute("UPDATE runs SET run_log = ? WHERE id = ?", (str(run_log_id), str(run_id)))
+    db.commit()
+
+    # Download workflow if needed
+
     os.makedirs(tmp_dir)
     if not os.path.exists(os.path.join(tmp_dir, filename)):
         # If the workflow has not been downloaded, download it
@@ -145,16 +157,14 @@ def run_workflow(self, run_id, run_request):
 
     # TODO: Initialization, input file downloading, etc.
 
-    cmd = ["toil-wdl-runner", os.path.join(tmp_dir, filename), "TODO"]
+    # Start run
+
     wdl_runner = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    run_log_id = uuid.uuid4()
-    c.execute("INSERT INTO run_logs (id, name, cmd, start_time, celery_id) VALUES (?, ?, ?, ?, ?)",
-              (str(run_log_id), "TODO", " ".join(cmd), datetime.utcnow().strftime(ISO_FORMAT), self.request.id))
-    c.execute("UPDATE runs SET run_log = ? WHERE id = ?", (str(run_log_id), str(run_id)))
-    db.commit()
-
     update_run_state(c, db, run_id, STATE_RUNNING)
+    c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?",
+              (datetime.utcnow().strftime(ISO_FORMAT), str(run_log_id)))
+
+    # Wait for output
 
     try:
         output, errors = wdl_runner.communicate(timeout=60 * 60 * 24)  # TODO: Configurable timeout, not one day
@@ -260,8 +270,8 @@ def run_detail(run_id):
     c.execute("SELECT * FROM runs AS r, run_requests AS rr, run_logs AS rl "
               "WHERE r.id = ? AND r.request = rr.id AND r.run_log = rl.id",
               (str(run_id),))
-
     run = c.fetchone()
+
     if run is None:
         return make_error(404, "Not found")
 
@@ -308,8 +318,8 @@ def run_detail(run_id):
 
 def get_stream(c, stream, run_id):
     c.execute("SELECT * FROM runs AS r, run_logs AS rl WHERE r.id = ? AND r.run_log = rl.id", (str(run_id),))
-
     run = c.fetchone()
+
     if run is None:
         return make_error(404, "Not found")
 
@@ -333,7 +343,37 @@ def run_cancel(run_id):
     # TODO: Check if already completed
     # TODO: Check if run log exists
     # TODO: from celery.task.control import revoke; revoke(celery_id, terminate=True)
-    pass
+    db = get_db()
+    c = db.cursor()
+
+    c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
+    run = c.fetchone()
+
+    if run is None:
+        return make_error(404, "Not found")
+
+    if run["state"] in (STATE_CANCELING, STATE_CANCELED):
+        return make_error(500, "Already cancelled")
+
+    if run["state"] in (STATE_SYSTEM_ERROR, STATE_EXECUTOR_ERROR):
+        return make_error(500, "Already terminated with error")
+
+    if run["state"] == STATE_COMPLETE:
+        return make_error(500, "Already completed")
+
+    c.execute("SELECT * FROM run_logs WHERE id = ?", (run["run_log"],))
+    run_log = c.fetchone()
+
+    if run_log is None:
+        return make_error(500, "No run log present")
+
+    if run_log["celery_id"] is None:
+        return make_error(500, "No Celery ID present")
+
+    celery.control.revoke(run_log["celery_id"])
+    update_run_state(c, db, run["id"], STATE_CANCELING)
+
+    # TODO: wait for revocation / failure and update status...
 
 
 @application.route("/runs/<uuid:run_id>/status", methods=["GET"])
@@ -342,8 +382,8 @@ def run_status(run_id):
     c = db.cursor()
 
     c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
-
     run = c.fetchone()
+
     if run is None:
         return make_error(404, "Not found")
 
