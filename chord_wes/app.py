@@ -172,6 +172,7 @@ def run_workflow(self, run_id, run_request, workflow_name):
             shutil.copyfile(parsed_workflow_url.path, workflow_path)
 
     # TODO: Validate WDL
+    # TODO: SECURITY: MAKE SURE NOTHING REFERENCED IS OUTSIDE OF ALLOWED AREAS!
 
     # TODO: Initialization, input file downloading, etc.
 
