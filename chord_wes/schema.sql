@@ -29,7 +29,10 @@ CREATE TABLE run_logs (
     end_time TEXT NOT NULL DEFAULT '',    -- Completed, failed, or canceled  (ISO 8601, UTC)
     stdout TEXT NOT NULL DEFAULT '',      -- Contents
     stderr TEXT NOT NULL DEFAULT '',      -- Contents
-    exit_code INTEGER DEFAULT NULL        -- Exit code
+    exit_code INTEGER DEFAULT NULL,       -- Exit code
+
+    -- Non-standard columns
+    celery_id INTEGER DEFAULT NULL        -- UUID task ID from Celery
 );
 
 CREATE TABLE task_logs (

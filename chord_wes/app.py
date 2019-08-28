@@ -1,12 +1,14 @@
 import os
+import requests
 import sqlite3
 import subprocess
 import uuid
 
+from base64 import urlsafe_b64encode
 from celery import Celery
 from datetime import datetime
 from flask import Flask, g, json, jsonify, request
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 
 MIME_TYPE = "application/json"
@@ -45,7 +47,8 @@ application.config.from_mapping(
     CELERY_RESULT_BACKEND="redis://",  # TODO
     CELERY_BROKER_URL="redis://",  # TODO
     DATABASE=os.environ.get("DATABASE", "chord_wes.db"),
-    SERVICE_BASE_URL=os.environ.get("SERVICE_BASE_URL", "/")
+    SERVICE_BASE_URL=os.environ.get("SERVICE_BASE_URL", "/"),
+    SERVICE_TEMP=os.environ.get("SERVICE_TEMP", "tmp")
 )
 celery = make_celery(application)
 
@@ -111,21 +114,43 @@ def update_run_state(c, db, run_id, state):
     db.commit()
 
 
-@celery.task()
-def run_workflow(run_id, run_request):
+@celery.task(bind=True)
+def run_workflow(self, run_id, run_request):
     db = get_db()
     c = db.cursor()
 
     update_run_state(c, db, run_id, STATE_INITIALIZING)
 
-    # TODO: Initialization, file downloading, etc.
+    workflow_url = run_request["workflow_url"]
 
-    cmd = ["toil-wdl-runner", "TODO", "TODO"]
+    if urlparse(workflow_url).scheme not in ("http", "https"):
+        # TODO: Handle file://
+        update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+        return
+
+    tmp_dir = application.config["SERVICE_TEMP"]
+    filename = "workflow_{}.wdl".format(str(urlsafe_b64encode(bytes(workflow_url))))
+    os.makedirs(tmp_dir)
+    if not os.path.exists(os.path.join(tmp_dir, filename)):
+        # If the workflow has not been downloaded, download it
+        # TODO: Auth
+        wr = requests.get(workflow_url)
+        if wr.status_code == 200:
+            with open(os.path.join(tmp_dir, filename), "wb") as nwf:
+                nwf.write(wr.content)
+        else:
+            # Network issues
+            update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+            return
+
+    # TODO: Initialization, input file downloading, etc.
+
+    cmd = ["toil-wdl-runner", os.path.join(tmp_dir, filename), "TODO"]
     wdl_runner = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     run_log_id = uuid.uuid4()
-    c.execute("INSERT INTO run_logs (id, name, cmd, start_time) VALUES (?, ?, ?, ?)",
-              (str(run_log_id), "TODO", " ".join(cmd), datetime.utcnow().strftime(ISO_FORMAT)))
+    c.execute("INSERT INTO run_logs (id, name, cmd, start_time, celery_id) VALUES (?, ?, ?, ?, ?)",
+              (str(run_log_id), "TODO", " ".join(cmd), datetime.utcnow().strftime(ISO_FORMAT), self.request.id))
     c.execute("UPDATE runs SET run_log = ? WHERE id = ?", (str(run_log_id), str(run_id)))
     db.commit()
 
@@ -207,10 +232,10 @@ def run_list():
             # TODO: figure out timeout
             # TODO: retry policy
             c.execute("UPDATE runs SET state = ? WHERE id = ?", (STATE_QUEUED, str(run_id)))
+            db.commit()
             run_workflow.delay(run_id, {
                 "workflow_url": workflow_url
             })
-            db.commit()
 
             # TODO
 
@@ -305,6 +330,9 @@ def run_stderr(run_id):
 
 @application.route("/runs/<uuid:run_id>/cancel", methods=["POST"])
 def run_cancel(run_id):
+    # TODO: Check if already completed
+    # TODO: Check if run log exists
+    # TODO: from celery.task.control import revoke; revoke(celery_id, terminate=True)
     pass
 
 
