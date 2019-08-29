@@ -123,7 +123,7 @@ def update_run_state(c, db, run_id, state):
 
 
 @celery.task(bind=True)
-def run_workflow(self, run_id, run_request):
+def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestion_url):
     db = get_db()
     c = db.cursor()
 
@@ -235,12 +235,32 @@ def run_workflow(self, run_id, run_request):
     db.commit()
 
     # Final steps: check status and report results
+    #  - re-fetch run to check its updated state
 
     c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
     run = c.fetchone()  # TODO: What if it's gone? Hope not
+    if run is None:
+        update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+        return
+
     if run["state"] == STATE_COMPLETE:
-        # TODO: Upload results to data service or report them some other way
-        pass
+        try:
+            # TODO: Verify ingestion URL (vulnerability??)
+            r = requests.post(workflow_ingestion_url, {
+                "workflow_metadata": json.dumps(workflow_metadata),
+                "workflow_output_locations": []  # TODO
+            })
+
+            if str(r.status_code)[0] != "2":  # If non-2XX error code
+                # Ingestion failed for some reason
+                update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+
+        except requests.exceptions.ConnectionError:
+            # Ingestion failed due to a network error
+            # TODO: Retry a few times...
+            # TODO: Report error somehow
+            update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+
     else:
         # TODO: Report error somehow
         pass
@@ -269,8 +289,9 @@ def run_list():
             # workflow_attachment_list = request.files.getlist("workflow_attachment")  # TODO
             tags = json.loads(request.form["tags"])
 
-            workflow_name = tags["workflow_name"] if "workflow_name" in tags else workflow_url
-            workflow_chord_metadata = tags["workflow_chord_metadata"] if "workflow_chord_metadata" in tags else {}
+            workflow_name = tags.get("chord_workflow_name", default=workflow_url)
+            workflow_metadata = tags.get("chord_workflow_metadata", default={})
+            workflow_ingestion_url = tags.get("chord_ingestion_url", default=None)
 
             # Don't accept anything (ex. CWL) other than WDL
             assert workflow_type == "WDL"
@@ -306,7 +327,7 @@ def run_list():
             run_workflow.delay(run_id, {
                 "workflow_params": workflow_params,
                 "workflow_url": workflow_url
-            })
+            }, workflow_metadata, workflow_ingestion_url)
 
             # TODO
 
