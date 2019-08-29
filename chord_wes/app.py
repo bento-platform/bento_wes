@@ -14,7 +14,6 @@ from urllib.parse import urljoin, urlparse
 
 
 MIME_TYPE = "application/json"
-ISO_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 ALLOWED_WORKFLOW_URL_SCHEMES = ("http", "https", "file")
 ALLOWED_WORKFLOW_REQUEST_SCHEMES = ("http", "https")
 
@@ -122,6 +121,10 @@ def update_run_state(c, db, run_id, state):
     db.commit()
 
 
+def iso_now():
+    return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")  # ISO date format
+
+
 @celery.task(bind=True)
 def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestion_url):
     db = get_db()
@@ -207,43 +210,33 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
 
     wdl_runner = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
     update_run_state(c, db, run_id, STATE_RUNNING)
-    c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?",
-              (datetime.utcnow().strftime(ISO_FORMAT), run["run_log"]))
+    c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]))
 
     # Wait for output
 
+    timed_out = False
+
     try:
         output, errors = wdl_runner.communicate(timeout=WORKFLOW_TIMEOUT)
-        return_code = wdl_runner.returncode
-
-        # TODO: Upload data if return_code == 0
-
-        update_run_state(c, db, run_id, STATE_EXECUTOR_ERROR if return_code != 0 else STATE_COMPLETE)
-
-        # TODO: Output
+        exit_code = wdl_runner.returncode
 
     except subprocess.TimeoutExpired:
         wdl_runner.kill()
         # TODO: Status, Output
         output, errors = wdl_runner.communicate()
-        return_code = wdl_runner.returncode
+        exit_code = wdl_runner.returncode
 
-        update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+        timed_out = True
 
-    c.execute("UPDATE run_logs SET end_time = ?, stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
-              (datetime.utcnow().strftime(ISO_FORMAT), output, errors, return_code, run["run_log"]))
+    # TODO: Output object...
+
+    c.execute("UPDATE run_logs SET stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
+              (output, errors, exit_code, run["run_log"]))
     db.commit()
 
-    # Final steps: check status and report results
-    #  - re-fetch run to check its updated state
+    # Final steps: check exit code and report results
 
-    c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
-    run = c.fetchone()  # TODO: What if it's gone? Hope not
-    if run is None:
-        update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
-        return
-
-    if run["state"] == STATE_COMPLETE:
+    if exit_code == 0 and not timed_out:
         try:
             # TODO: Verify ingestion URL (vulnerability??)
             r = requests.post(workflow_ingestion_url, {
@@ -254,6 +247,12 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
             if str(r.status_code)[0] != "2":  # If non-2XX error code
                 # Ingestion failed for some reason
                 update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+                return
+
+            c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (iso_now(), run["run_log"]))
+            db.commit()
+
+            update_run_state(c, db, run_id, STATE_COMPLETE)
 
         except requests.exceptions.ConnectionError:
             # Ingestion failed due to a network error
@@ -261,9 +260,13 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
             # TODO: Report error somehow
             update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
 
+    elif exit_code == 1 and not timed_out:
+        # TODO: Report error somehow
+        update_run_state(c, db, run_id, STATE_EXECUTOR_ERROR)
+
     else:
         # TODO: Report error somehow
-        pass
+        update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
 
 
 @application.route("/runs", methods=["GET", "POST"])
