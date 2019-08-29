@@ -24,7 +24,7 @@ CREATE TABLE run_requests (
 CREATE TABLE run_logs (
     id TEXT PRIMARY KEY,                  -- UUID
     name TEXT NOT NULL,                   -- Workflow name
-    cmd TEXT NOT NULL,                    -- Command used to execute the workflow
+    cmd TEXT NOT NULL DEFAULT '',         -- Command used to execute the workflow
     start_time TEXT NOT NULL DEFAULT '',  -- Time started (ISO 8601, UTC)
     end_time TEXT NOT NULL DEFAULT '',    -- Completed, failed, or canceled  (ISO 8601, UTC)
     stdout TEXT NOT NULL DEFAULT '',      -- Contents

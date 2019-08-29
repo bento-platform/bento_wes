@@ -16,6 +16,9 @@ from urllib.parse import urljoin, urlparse
 MIME_TYPE = "application/json"
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 ALLOWED_WORKFLOW_URL_SCHEMES = ("http", "https", "file")
+ALLOWED_WORKFLOW_REQUEST_SCHEMES = ("http", "https")
+
+WORKFLOW_TIMEOUT = 60 * 60 * 24  # 24 hours
 
 STATE_UNKNOWN = "UNKNOWN"
 STATE_QUEUED = "QUEUED"
@@ -120,9 +123,19 @@ def update_run_state(c, db, run_id, state):
 
 
 @celery.task(bind=True)
-def run_workflow(self, run_id, run_request, workflow_name):
+def run_workflow(self, run_id, run_request):
     db = get_db()
     c = db.cursor()
+
+    # Fetch run from the database, checking that it exists
+
+    c.execute("SELECT run_log FROM runs WHERE id = ?", (str(run_id),))
+    run = c.fetchone()
+    if run is None:
+        update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+        return
+
+    # Begin initialization (loading / downloading files)
 
     update_run_state(c, db, run_id, STATE_INITIALIZING)
 
@@ -130,8 +143,9 @@ def run_workflow(self, run_id, run_request, workflow_name):
     workflow_url = run_request["workflow_url"]
     parsed_workflow_url = urlparse(workflow_url)  # TODO: Handle errors
 
+    # Check that the URL scheme is something that can be either moved or downloaded
+
     if parsed_workflow_url.scheme not in ALLOWED_WORKFLOW_URL_SCHEMES:
-        # TODO: Handle file://
         update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
         return
 
@@ -143,20 +157,18 @@ def run_workflow(self, run_id, run_request, workflow_name):
     workflow_params_path = os.path.join(tmp_dir, "params_{}.json".format(run_id))
     # TODO: Check UUID collision
 
+    # Store input strings for the WDL file in a JSON file in the temporary folder
+
+    # TODO: Delete them after running the workflow
     with open(workflow_params_path, "w") as wpf:
         json.dump(workflow_params, wpf)
 
     cmd = ["toil-wdl-runner", workflow_path, workflow_params_path]
 
-    # Create run log
-    # TODO: Should we create the run log at the same time as run request and run?
-    #  Could generate command from name earlier, since it's passed in as an argument.
-    #  Maybe command should be left null until the command is actually ran.
+    # Update run log with command and Celery ID
 
-    run_log_id = uuid.uuid4()
-    c.execute("INSERT INTO run_logs (id, name, cmd, celery_id) VALUES (?, ?, ?, ?)",
-              (str(run_log_id), workflow_name, " ".join(cmd), self.request.id))
-    c.execute("UPDATE runs SET run_log = ? WHERE id = ?", (str(run_log_id), str(run_id)))
+    c.execute("UPDATE run_logs SET cmd = ?, celery_id = ? WHERE id = ?",
+              (" ".join(cmd), self.request.id, run["run_log"]))
     db.commit()
 
     # Download or move workflow if needed
@@ -164,15 +176,22 @@ def run_workflow(self, run_id, run_request, workflow_name):
     if not os.path.exists(workflow_path):
         # If the workflow has not been downloaded, download it
         # TODO: Auth
-        if parsed_workflow_url.scheme in ("http", "https"):
-            wr = requests.get(workflow_url)
-            if wr.status_code == 200:
-                with open(workflow_path, "wb") as nwf:
-                    nwf.write(wr.content)
-            else:
+        if parsed_workflow_url.scheme in ALLOWED_WORKFLOW_REQUEST_SCHEMES:
+            try:
+                wr = requests.get(workflow_url)
+                if wr.status_code == 200:
+                    with open(workflow_path, "wb") as nwf:
+                        nwf.write(wr.content)
+                else:
+                    # Request issues
+                    update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+                    return
+
+            except requests.exceptions.ConnectionError:
                 # Network issues
                 update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
                 return
+
         else:
             # file://
             # TODO: SPEC: MAKE SURE COPIED FILES AREN'T OUTSIDE OF ALLOWED AREAS!
@@ -189,12 +208,12 @@ def run_workflow(self, run_id, run_request, workflow_name):
     wdl_runner = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
     update_run_state(c, db, run_id, STATE_RUNNING)
     c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?",
-              (datetime.utcnow().strftime(ISO_FORMAT), str(run_log_id)))
+              (datetime.utcnow().strftime(ISO_FORMAT), run["run_log"]))
 
     # Wait for output
 
     try:
-        output, errors = wdl_runner.communicate(timeout=60 * 60 * 24)  # TODO: Configurable timeout, not one day
+        output, errors = wdl_runner.communicate(timeout=WORKFLOW_TIMEOUT)
         return_code = wdl_runner.returncode
 
         # TODO: Upload data if return_code == 0
@@ -212,7 +231,7 @@ def run_workflow(self, run_id, run_request, workflow_name):
         update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
 
     c.execute("UPDATE run_logs SET end_time = ?, stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
-              (datetime.utcnow().strftime(ISO_FORMAT), output, errors, return_code, str(run_log_id)))
+              (datetime.utcnow().strftime(ISO_FORMAT), output, errors, return_code, run["run_log"]))
     db.commit()
 
     # Final steps: check status and report results
@@ -265,13 +284,16 @@ def run_list():
 
             req_id = uuid.uuid4()
             run_id = uuid.uuid4()
+            log_id = uuid.uuid4()
 
             # Will be updated to STATE_ QUEUED once submitted
             c.execute("INSERT INTO run_requests (id, workflow_params, workflow_type, workflow_type_version, "
                       "workflow_url) VALUES (?, ?, ?, ?, ?)",
                       (str(req_id), json.dumps(workflow_params), workflow_type, workflow_type_version, workflow_url))
+            c.execute("INSERT INTO run_logs (id, name) VALUES (?, ?)", (str(log_id), workflow_name))
             c.execute("INSERT INTO runs (id, request, state, run_log, outputs) VALUES (?, ?, ?, ?, ?)",
-                      (str(run_id), str(req_id), STATE_UNKNOWN, None, json.dumps({})))  # TODO: What goes in output?
+                      (str(run_id), str(req_id), STATE_UNKNOWN, str(log_id), json.dumps({})))
+            # TODO: What goes in output?
             db.commit()
 
             # TODO
@@ -284,7 +306,7 @@ def run_list():
             run_workflow.delay(run_id, {
                 "workflow_params": workflow_params,
                 "workflow_url": workflow_url
-            }, workflow_name)
+            })
 
             # TODO
 
@@ -306,7 +328,7 @@ def run_detail(run_id):
     db = get_db()
     c = db.cursor()
 
-    # Runs and run requests are created at the same time, so if either of them is missing throw a 404.
+    # Runs, run requests, and run logs are created at the same time, so if either of them is missing throw a 404.
 
     c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
     run = c.fetchone()
@@ -320,10 +342,11 @@ def run_detail(run_id):
     if run_request is None:
         return make_error(404, "Not found")
 
-    # Runs logs may not be present yet, since they're only created when the worker accepts the task.
-
     c.execute("SELECT * from run_logs WHERE id = ?", (run["run_log"],))
     run_log = c.fetchone()
+
+    if run_log is None:
+        return make_error(404, "Not found")
 
     c.execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
 
@@ -352,7 +375,7 @@ def run_detail(run_id):
                 "runs/{}/stderr".format(run["id"])
             ),
             "exit_code": run_log["exit_code"]
-        } if run_log is not None else None,  # Clients should handle null run logs
+        },
         "task_logs": [{
             "name": task["name"],
             "cmd": task["cmd"],
