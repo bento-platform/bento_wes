@@ -205,7 +205,7 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
 
     # Run the WDL with the Toil runner, placing all outputs into the job directory
 
-    cmd = ["toil-wdl-runner", workflow_path, workflow_params_path, "-o", run_dir]
+    cmd = ("toil-wdl-runner", workflow_path, workflow_params_path, "-o", run_dir)
 
     # Update run log with command and Celery ID
 
@@ -542,6 +542,8 @@ def run_cancel(run_id):
 
     if run_log["celery_id"] is None:
         return make_error(500, "No Celery ID present")
+
+    # TODO: This only removes it from the queue... what if it's already executing?
 
     celery.control.revoke(run_log["celery_id"])
     update_run_state(db, c, run["id"], STATE_CANCELING)
