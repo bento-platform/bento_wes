@@ -1,5 +1,7 @@
+import chord_lib.ingestion
 import chord_wes
 import os
+import re
 import requests
 import shutil
 import sqlite3
@@ -31,6 +33,9 @@ STATE_CANCELED = "CANCELED"
 STATE_CANCELING = "CANCELING"
 
 REDIS_PATH = ""  # TODO
+
+# Spec: https://software.broadinstitute.org/wdl/documentation/spec#whitespace-strings-identifiers-constants
+WDL_WORKSPACE_NAME_REGEX = re.compile(r"workflow\s+([a-zA-Z][a-zA-Z0-9_]+)")
 
 
 def make_celery(app):
@@ -203,6 +208,23 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
 
     # TODO: Validate WDL
     # TODO: SECURITY: MAKE SURE NOTHING REFERENCED IS OUTSIDE OF ALLOWED AREAS!
+    # TODO: SECURITY: Maybe don't allow external downloads, only run things in the container?
+
+    # Find "real" (WDL) workflow name from WDL file
+    with open(workflow_path, "r") as wdf:
+        wdl_contents = wdf.read()
+        workflow_name_match = WDL_WORKSPACE_NAME_REGEX.search(wdl_contents)
+
+        if not workflow_name_match:
+            # Invalid/non-workflow-specifying WDL file
+            # TODO: Validate before this
+            update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+            return
+
+        workflow_name = workflow_name_match.group(1)
+
+    # TODO: To avoid having multiple names, we should maybe only set this once?
+    c.execute("UPDATE run_logs SET name = ? WHERE id = ?", (run["run_log"],))
 
     # TODO: Initialization, input file downloading, etc.
 
@@ -217,21 +239,18 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
     timed_out = False
 
     try:
-        output, errors = wdl_runner.communicate(timeout=WORKFLOW_TIMEOUT)
+        stdout, stderr = wdl_runner.communicate(timeout=WORKFLOW_TIMEOUT)
         exit_code = wdl_runner.returncode
 
     except subprocess.TimeoutExpired:
         wdl_runner.kill()
-        # TODO: Status, Output
-        output, errors = wdl_runner.communicate()
+        stdout, stderr = wdl_runner.communicate()
         exit_code = wdl_runner.returncode
 
         timed_out = True
 
-    # TODO: Output object...
-
     c.execute("UPDATE run_logs SET stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
-              (output, errors, exit_code, run["run_log"]))
+              (stdout, stderr, exit_code, run["run_log"]))
     db.commit()
 
     # Final steps: check exit code and report results
@@ -239,9 +258,23 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
     if exit_code == 0 and not timed_out:
         try:
             # TODO: Verify ingestion URL (vulnerability??)
+
+            output_params = chord_lib.ingestion.make_output_params(workflow_name, workflow_params,
+                                                                   workflow_metadata["inputs"])
+
+            workflow_outputs = {}
+            for f in workflow_metadata["outputs"]:
+                workflow_outputs[f] = chord_lib.ingestion.output_file_name(f, output_params)
+
+            c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run_id)))
+
+            # TODO: Just post run ID, fetch rest from the WES service?
+
             r = requests.post(workflow_ingestion_url, {
+                "workflow_name": workflow_name,
                 "workflow_metadata": json.dumps(workflow_metadata),
-                "workflow_output_locations": []  # TODO
+                "workflow_outputs": workflow_outputs,
+                "workflow_params": json.dumps(workflow_params)
             })
 
             if str(r.status_code)[0] != "2":  # If non-2XX error code
@@ -304,7 +337,9 @@ def run_list():
             assert isinstance(workflow_engine_parameters, dict)
             assert isinstance(tags, dict)
 
-            # TODO
+            # TODO: Use JSON schemas for workflow params / engine parameters / tags
+
+            # Begin creating the job after validating the request
 
             req_id = uuid.uuid4()
             run_id = uuid.uuid4()
@@ -317,12 +352,8 @@ def run_list():
             c.execute("INSERT INTO run_logs (id, name) VALUES (?, ?)", (str(log_id), workflow_name))
             c.execute("INSERT INTO runs (id, request, state, run_log, outputs) VALUES (?, ?, ?, ?, ?)",
                       (str(run_id), str(req_id), STATE_UNKNOWN, str(log_id), json.dumps({})))
-            # TODO: What goes in output?
             db.commit()
 
-            # TODO
-
-            # TODO: arguments
             # TODO: figure out timeout
             # TODO: retry policy
             c.execute("UPDATE runs SET state = ? WHERE id = ?", (STATE_QUEUED, str(run_id)))
@@ -331,8 +362,6 @@ def run_list():
                 "workflow_params": workflow_params,
                 "workflow_url": workflow_url
             }, workflow_metadata, workflow_ingestion_url)
-
-            # TODO
 
             return jsonify({"run_id": str(run_id)})
 
