@@ -158,20 +158,24 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
         return
 
     tmp_dir = application.config["SERVICE_TEMP"]
-    os.makedirs(tmp_dir, exist_ok=True)
+    job_dir = os.path.join(tmp_dir, str(run_id))
+
+    os.makedirs(job_dir, exist_ok=True)
 
     workflow_path = os.path.join(tmp_dir, "workflow_{}.wdl".format(
         str(urlsafe_b64encode(bytes(workflow_url, encoding="utf-8")), encoding="utf-8")))
-    workflow_params_path = os.path.join(tmp_dir, "params_{}.json".format(run_id))
+    workflow_params_path = os.path.join(job_dir, "params.json")
     # TODO: Check UUID collision
 
     # Store input strings for the WDL file in a JSON file in the temporary folder
-
     # TODO: Delete them after running the workflow
+
     with open(workflow_params_path, "w") as wpf:
         json.dump(workflow_params, wpf)
 
-    cmd = ["toil-wdl-runner", workflow_path, workflow_params_path]
+    # Run the WDL with the Toil runner, placing all outputs into the job directory
+
+    cmd = ["toil-wdl-runner", workflow_path, workflow_params_path, "-o", job_dir]
 
     # Update run log with command and Celery ID
 
@@ -211,6 +215,7 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
     # TODO: SECURITY: Maybe don't allow external downloads, only run things in the container?
 
     # Find "real" (WDL) workflow name from WDL file
+
     with open(workflow_path, "r") as wdf:
         wdl_contents = wdf.read()
         workflow_name_match = WDL_WORKSPACE_NAME_REGEX.search(wdl_contents)
@@ -264,7 +269,7 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
 
             workflow_outputs = {}
             for f in workflow_metadata["outputs"]:
-                workflow_outputs[f] = chord_lib.ingestion.output_file_name(f, output_params)
+                workflow_outputs[f] = os.path.join(job_dir, chord_lib.ingestion.output_file_name(f, output_params))
 
             c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run_id)))
 
