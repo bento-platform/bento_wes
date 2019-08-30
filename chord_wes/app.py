@@ -298,6 +298,8 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
             output_params = chord_lib.ingestion.make_output_params(workflow_name, workflow_params,
                                                                    workflow_metadata["inputs"])
 
+            # TODO: Allow outputs to be served over different URL schemes instead of just an absolute file location
+
             workflow_outputs = {}
             for f in workflow_metadata["outputs"]:
                 workflow_outputs[f] = os.path.abspath(
