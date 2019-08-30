@@ -393,8 +393,9 @@ def run_list():
 
             # Will be updated to STATE_ QUEUED once submitted
             c.execute("INSERT INTO run_requests (id, workflow_params, workflow_type, workflow_type_version, "
-                      "workflow_url) VALUES (?, ?, ?, ?, ?)",
-                      (str(req_id), json.dumps(workflow_params), workflow_type, workflow_type_version, workflow_url))
+                      "workflow_url, tags) VALUES (?, ?, ?, ?, ?, ?)",
+                      (str(req_id), json.dumps(workflow_params), workflow_type, workflow_type_version, workflow_url,
+                       json.dumps(tags)))
             c.execute("INSERT INTO run_logs (id, name) VALUES (?, ?)", (str(log_id), workflow_name))
             c.execute("INSERT INTO runs (id, request, state, run_log, outputs) VALUES (?, ?, ?, ?, ?)",
                       (str(run_id), str(req_id), STATE_UNKNOWN, str(log_id), json.dumps({})))
@@ -457,7 +458,7 @@ def run_detail(run_id):
             "workflow_type_version": run_request["workflow_type_version"],
             "workflow_engine_parameters": {},  # TODO
             "workflow_url": run_request["workflow_url"],
-            "tags": {}
+            "tags": json.loads(run_request["tags"])
         },
         "state": run["state"],
         "run_log": {
@@ -484,7 +485,7 @@ def run_detail(run_id):
             "stderr": task["stderr"],
             "exit_code": task["exit_code"]
         } for task in c.fetchall()],
-        "outputs": {}  # TODO: ?
+        "outputs": json.loads(run["outputs"])
     })
 
 

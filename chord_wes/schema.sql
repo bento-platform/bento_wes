@@ -18,7 +18,8 @@ CREATE TABLE run_requests (
     workflow_params TEXT NOT NULL,              -- JSON
     workflow_type TEXT NOT NULL DEFAULT 'WDL',  -- CWL or >>WDL<<
     workflow_type_version TEXT NOT NULL DEFAULT '1.0',
-    workflow_url TEXT NOT NULL                  -- URL to WDL file
+    workflow_url TEXT NOT NULL,                 -- URL to WDL file
+    tags TEXT NOT NULL DEFAULT '{}'             -- JSON
 );
 
 CREATE TABLE run_logs (
