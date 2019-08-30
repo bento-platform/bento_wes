@@ -121,13 +121,29 @@ def make_error(status_code, message):
     }), mimetype=MIME_TYPE, status=status_code)
 
 
-def update_run_state(c, db, run_id, state):
+def update_run_state(db, c, run_id, state):
     c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
     db.commit()
 
 
 def iso_now():
     return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")  # ISO date format
+
+
+def finish_run(db, c, run_id, run_log_id, run_dir, state):
+    c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (iso_now(), run_log_id))
+    db.commit()
+
+    update_run_state(db, c, run_id, state)
+
+    if run_dir is None:
+        return
+
+    # Clean up any run files at the end, after they've been either copied or "rejected" due to some failure.
+    # TODO: SECURITY: Check run_dir
+    # TODO: May want to keep them around for a retry depending on how the retry operation will work.
+
+    shutil.rmtree(run_dir, ignore_errors=True)
 
 
 @celery.task(bind=True)
@@ -140,12 +156,19 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
     c.execute("SELECT run_log FROM runs WHERE id = ?", (str(run_id),))
     run = c.fetchone()
     if run is None:
-        update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+        print("Cannot find run {}".format(run_id))
+        return
+
+    # Check run log exists
+
+    c.execute("SELECT * FROM run_logs WHERE id = ?", (run["run_log"],))
+    if c.fetchone() is None:
+        print("Cannot find run log {} for run {}".format(run["run_log"], run_id))
         return
 
     # Begin initialization (loading / downloading files)
 
-    update_run_state(c, db, run_id, STATE_INITIALIZING)
+    update_run_state(db, c, run_id, STATE_INITIALIZING)
 
     workflow_params = run_request["workflow_params"]
     workflow_url = run_request["workflow_url"]
@@ -154,28 +177,27 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
     # Check that the URL scheme is something that can be either moved or downloaded
 
     if parsed_workflow_url.scheme not in ALLOWED_WORKFLOW_URL_SCHEMES:
-        update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+        finish_run(db, c, run_id, run["run_log"], None, STATE_SYSTEM_ERROR)
         return
 
     tmp_dir = application.config["SERVICE_TEMP"]
-    job_dir = os.path.join(tmp_dir, str(run_id))
+    run_dir = os.path.join(tmp_dir, str(run_id))
 
-    os.makedirs(job_dir, exist_ok=True)
+    os.makedirs(run_dir, exist_ok=True)
 
     workflow_path = os.path.join(tmp_dir, "workflow_{}.wdl".format(
         str(urlsafe_b64encode(bytes(workflow_url, encoding="utf-8")), encoding="utf-8")))
-    workflow_params_path = os.path.join(job_dir, "params.json")
+    workflow_params_path = os.path.join(run_dir, "params.json")
     # TODO: Check UUID collision
 
     # Store input strings for the WDL file in a JSON file in the temporary folder
-    # TODO: Delete them after running the workflow
 
     with open(workflow_params_path, "w") as wpf:
         json.dump(workflow_params, wpf)
 
     # Run the WDL with the Toil runner, placing all outputs into the job directory
 
-    cmd = ["toil-wdl-runner", workflow_path, workflow_params_path, "-o", job_dir]
+    cmd = ["toil-wdl-runner", workflow_path, workflow_params_path, "-o", run_dir]
 
     # Update run log with command and Celery ID
 
@@ -196,18 +218,19 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
                         nwf.write(wr.content)
                 else:
                     # Request issues
-                    update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+                    finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
                     return
 
             except requests.exceptions.ConnectionError:
                 # Network issues
-                update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+                finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
                 return
 
         else:
             # file://
             # TODO: SPEC: MAKE SURE COPIED FILES AREN'T OUTSIDE OF ALLOWED AREAS!
             # TODO: SECURITY FLAW
+            # TODO: Handle exceptions
             shutil.copyfile(parsed_workflow_url.path, workflow_path)
 
     # TODO: Validate WDL
@@ -223,7 +246,7 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
         if not workflow_name_match:
             # Invalid/non-workflow-specifying WDL file
             # TODO: Validate before this
-            update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+            finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
             return
 
         workflow_name = workflow_name_match.group(1)
@@ -236,7 +259,7 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
     # Start run
 
     wdl_runner = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
-    update_run_state(c, db, run_id, STATE_RUNNING)
+    update_run_state(db, c, run_id, STATE_RUNNING)
     c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]))
 
     # Wait for output
@@ -269,7 +292,7 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
 
             workflow_outputs = {}
             for f in workflow_metadata["outputs"]:
-                workflow_outputs[f] = os.path.join(job_dir, chord_lib.ingestion.output_file_name(f, output_params))
+                workflow_outputs[f] = os.path.join(run_dir, chord_lib.ingestion.output_file_name(f, output_params))
 
             c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run_id)))
 
@@ -284,27 +307,27 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
 
             if str(r.status_code)[0] != "2":  # If non-2XX error code
                 # Ingestion failed for some reason
-                update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+                finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
                 return
 
             c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (iso_now(), run["run_log"]))
             db.commit()
 
-            update_run_state(c, db, run_id, STATE_COMPLETE)
+            finish_run(db, c, run_id, run["run_log"], run_dir, STATE_COMPLETE)
 
         except requests.exceptions.ConnectionError:
             # Ingestion failed due to a network error
             # TODO: Retry a few times...
             # TODO: Report error somehow
-            update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+            finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
 
     elif exit_code == 1 and not timed_out:
         # TODO: Report error somehow
-        update_run_state(c, db, run_id, STATE_EXECUTOR_ERROR)
+        finish_run(db, c, run_id, run["run_log"], run_dir, STATE_EXECUTOR_ERROR)
 
     else:
         # TODO: Report error somehow
-        update_run_state(c, db, run_id, STATE_SYSTEM_ERROR)
+        finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
 
 
 @application.route("/runs", methods=["GET", "POST"])
@@ -502,7 +525,7 @@ def run_cancel(run_id):
         return make_error(500, "No Celery ID present")
 
     celery.control.revoke(run_log["celery_id"])
-    update_run_state(c, db, run["id"], STATE_CANCELING)
+    update_run_state(db, c, run["id"], STATE_CANCELING)
 
     # TODO: wait for revocation / failure and update status...
 
