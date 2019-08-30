@@ -361,7 +361,7 @@ def run_list():
             workflow_params = json.loads(request.form["workflow_params"])
             workflow_type = request.form["workflow_type"].upper().strip()
             workflow_type_version = request.form["workflow_type_version"].strip()
-            workflow_engine_parameters = json.loads(request.form["workflow_engine_parameters"])
+            workflow_engine_parameters = json.loads(request.form["workflow_engine_parameters"])  # TODO: Unused
             workflow_url = request.form["workflow_url"].lower()
             # workflow_attachment_list = request.files.getlist("workflow_attachment")  # TODO
             tags = json.loads(request.form["tags"])
@@ -393,9 +393,9 @@ def run_list():
 
             # Will be updated to STATE_ QUEUED once submitted
             c.execute("INSERT INTO run_requests (id, workflow_params, workflow_type, workflow_type_version, "
-                      "workflow_url, tags) VALUES (?, ?, ?, ?, ?, ?)",
-                      (str(req_id), json.dumps(workflow_params), workflow_type, workflow_type_version, workflow_url,
-                       json.dumps(tags)))
+                      "workflow_engine_parameters, workflow_url, tags) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                      (str(req_id), json.dumps(workflow_params), workflow_type, workflow_type_version,
+                       json.dumps(workflow_engine_parameters), workflow_url, json.dumps(tags)))
             c.execute("INSERT INTO run_logs (id, name) VALUES (?, ?)", (str(log_id), workflow_name))
             c.execute("INSERT INTO runs (id, request, state, run_log, outputs) VALUES (?, ?, ?, ?, ?)",
                       (str(run_id), str(req_id), STATE_UNKNOWN, str(log_id), json.dumps({})))
@@ -456,7 +456,7 @@ def run_detail(run_id):
             "workflow_params": json.loads(run_request["workflow_params"]),
             "workflow_type": run_request["workflow_type"],
             "workflow_type_version": run_request["workflow_type_version"],
-            "workflow_engine_parameters": {},  # TODO
+            "workflow_engine_parameters": json.loads(run_request["workflow_engine_parameters"]),  # TODO
             "workflow_url": run_request["workflow_url"],
             "tags": json.loads(run_request["tags"])
         },

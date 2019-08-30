@@ -8,18 +8,19 @@ CREATE TABLE runs (
     request TEXT NOT NULL,  -- Original request message used to initiate execution
     state TEXT NOT NULL,    -- enum
     run_log TEXT,           -- Foreign key to run log UUID
-    outputs TEXT,           -- TODO
+    outputs TEXT,           -- Outputs from the run  TODO: formal spec for this?
     FOREIGN KEY (request) REFERENCES run_requests ON DELETE CASCADE,
     FOREIGN KEY (run_log) REFERENCES run_logs ON DELETE CASCADE
 );
 
 CREATE TABLE run_requests (
-    id TEXT PRIMARY KEY,                        -- UUID
-    workflow_params TEXT NOT NULL,              -- JSON
-    workflow_type TEXT NOT NULL DEFAULT 'WDL',  -- CWL or >>WDL<<
-    workflow_type_version TEXT NOT NULL DEFAULT '1.0',
-    workflow_url TEXT NOT NULL,                 -- URL to WDL file
-    tags TEXT NOT NULL DEFAULT '{}'             -- JSON
+    id TEXT PRIMARY KEY,                                    -- UUID
+    workflow_params TEXT NOT NULL,                          -- JSON
+    workflow_type TEXT NOT NULL DEFAULT 'WDL',              -- CWL or >>WDL<<
+    workflow_type_version TEXT NOT NULL DEFAULT '1.0',      -- Version of workflow language specification
+    workflow_engine_parameters TEXT NOT NULL DEFAULT '{}',  -- JSON
+    workflow_url TEXT NOT NULL,                             -- URL to WDL file
+    tags TEXT NOT NULL DEFAULT '{}'                         -- JSON
 );
 
 CREATE TABLE run_logs (
