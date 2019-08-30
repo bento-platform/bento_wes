@@ -147,9 +147,17 @@ def finish_run(db, c, run_id, run_log_id, run_dir, state):
 
 
 @celery.task(bind=True)
-def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestion_url):
+def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestion_url, dataset_id):
     db = get_db()
     c = db.cursor()
+
+    # Check that workflow ingestion URL is set
+
+    if workflow_ingestion_url is None:
+        print("An ingestion URL must be set.")
+        return
+
+    # TODO: Check workflow_ingestion_url is valid
 
     # Fetch run from the database, checking that it exists
 
@@ -252,7 +260,7 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
         workflow_name = workflow_name_match.group(1)
 
     # TODO: To avoid having multiple names, we should maybe only set this once?
-    c.execute("UPDATE run_logs SET name = ? WHERE id = ?", (run["run_log"],))
+    c.execute("UPDATE run_logs SET name = ? WHERE id = ?", (workflow_name, run["run_log"],))
 
     # TODO: Initialization, input file downloading, etc.
 
@@ -292,16 +300,19 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
 
             workflow_outputs = {}
             for f in workflow_metadata["outputs"]:
-                workflow_outputs[f] = os.path.join(run_dir, chord_lib.ingestion.output_file_name(f, output_params))
+                workflow_outputs[f] = os.path.abspath(
+                    os.path.join(run_dir, chord_lib.ingestion.output_file_name(f, output_params)))
 
             c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run_id)))
 
             # TODO: Just post run ID, fetch rest from the WES service?
+            # TODO: This is CHORD-specific, move it out into a callback or something...
 
             r = requests.post(workflow_ingestion_url, {
+                "dataset_id": dataset_id,
                 "workflow_name": workflow_name,
                 "workflow_metadata": json.dumps(workflow_metadata),
-                "workflow_outputs": workflow_outputs,
+                "workflow_outputs": json.dumps(workflow_outputs),
                 "workflow_params": json.dumps(workflow_params)
             })
 
@@ -353,9 +364,12 @@ def run_list():
             # workflow_attachment_list = request.files.getlist("workflow_attachment")  # TODO
             tags = json.loads(request.form["tags"])
 
-            workflow_name = tags.get("chord_workflow_name", default=workflow_url)
-            workflow_metadata = tags.get("chord_workflow_metadata", default={})
-            workflow_ingestion_url = tags.get("chord_ingestion_url", default=None)
+            # TODO: Move CHORD-specific stuff out somehow
+
+            workflow_name = tags.get("workflow_name", workflow_url)
+            workflow_metadata = tags.get("workflow_metadata", {})
+            workflow_ingestion_url = tags.get("ingestion_url", None)
+            dataset_id = tags.get("dataset_id", None)
 
             # Don't accept anything (ex. CWL) other than WDL
             assert workflow_type == "WDL"
@@ -364,6 +378,8 @@ def run_list():
             assert isinstance(workflow_params, dict)
             assert isinstance(workflow_engine_parameters, dict)
             assert isinstance(tags, dict)
+
+            dataset_id = str(uuid.UUID(dataset_id))  # Check and standardize dataset ID
 
             # TODO: Use JSON schemas for workflow params / engine parameters / tags
 
@@ -389,7 +405,7 @@ def run_list():
             run_workflow.delay(run_id, {
                 "workflow_params": workflow_params,
                 "workflow_url": workflow_url
-            }, workflow_metadata, workflow_ingestion_url)
+            }, workflow_metadata, workflow_ingestion_url, dataset_id)
 
             return jsonify({"run_id": str(run_id)})
 
