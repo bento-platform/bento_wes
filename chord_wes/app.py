@@ -569,7 +569,7 @@ def run_status(run_id):
 
 
 # TODO: Not compatible with GA4GH WES due to conflict with GA4GH service-info (preferred)
-@application.route("/service_info", methods=["GET"])
+@application.route("/service-info", methods=["GET"])
 def service_info():
     return jsonify({
         "id": "ca.distributedgenomics.chord_wes",  # TODO: Should be globally unique?
