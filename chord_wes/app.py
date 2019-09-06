@@ -241,8 +241,6 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
 
     else:
         # file://
-        # TODO: SPEC: MAKE SURE COPIED FILES AREN'T OUTSIDE OF ALLOWED AREAS!
-        # TODO: SECURITY FLAW
         # TODO: Handle exceptions
         shutil.copyfile(parsed_workflow_url.path, workflow_path)
 
