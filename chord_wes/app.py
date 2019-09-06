@@ -60,7 +60,8 @@ application.config.from_mapping(
     CELERY_BROKER_URL=os.environ.get("CELERY_BROKER_URL", "redis://"),
     DATABASE=os.environ.get("DATABASE", "chord_wes.db"),
     SERVICE_BASE_URL=os.environ.get("SERVICE_BASE_URL", "/"),
-    SERVICE_TEMP=os.environ.get("SERVICE_TEMP", "tmp")
+    SERVICE_TEMP=os.environ.get("SERVICE_TEMP", "tmp"),
+    WOM_TOOL_LOCATION=os.environ.get("WOM_TOOL_LOCATION", "womtool.jar")
 )
 celery = make_celery(application)
 
@@ -245,7 +246,26 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
         # TODO: Handle exceptions
         shutil.copyfile(parsed_workflow_url.path, workflow_path)
 
-    # TODO: Validate WDL
+    # Validate WDL, listing dependencies
+    #  - since Toil doesn't support imports right now, any dependencies will result in an error
+
+    vr = subprocess.Popen(["java", "-jar", application.config["WOM_TOOL_LOCATION"], "validate", "-1", workflow_path],
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
+
+    v_out, _v_err = vr.communicate()
+
+    if vr.returncode != 0:
+        # Validation error with WDL file
+        # TODO: Add some stdout or stderr to logs?
+        finish_run(db, c, run_id, run["run_log"], run_dir, STATE_EXECUTOR_ERROR)
+        return
+
+    if "None" not in v_out:  # No dependencies
+        # Toil can't process WDL dependencies right now  TODO
+        # TODO: Add some stdout or stderr to logs?
+        finish_run(db, c, run_id, run["run_log"], run_dir, STATE_EXECUTOR_ERROR)
+        return
+
     # TODO: SECURITY: MAKE SURE NOTHING REFERENCED IS OUTSIDE OF ALLOWED AREAS!
     # TODO: SECURITY: Maybe don't allow external downloads, only run things in the container?
 
