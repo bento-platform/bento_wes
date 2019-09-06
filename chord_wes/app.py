@@ -12,6 +12,7 @@ from base64 import urlsafe_b64encode
 from celery import Celery
 from datetime import datetime
 from flask import Flask, g, json, jsonify, request
+from typing import Optional
 from urllib.parse import urljoin, urlparse
 
 
@@ -115,7 +116,7 @@ with application.app_context():
         update_db()
 
 
-def make_error(status_code, message):
+def make_error(status_code: int, message: str):
     return application.response_class(response=json.dumps({
         "msg": message,
         "status_code": status_code
@@ -148,13 +149,14 @@ def finish_run(db, c, run_id, run_log_id, run_dir, state):
 
 
 @celery.task(bind=True)
-def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestion_url, dataset_id):
+def run_workflow(self, run_id: uuid.UUID, run_request: dict, chord_mode: bool, c_workflow_metadata: dict,
+                 c_workflow_ingestion_url: Optional[str], c_dataset_id: Optional[str]):
     db = get_db()
     c = db.cursor()
 
-    # Check that workflow ingestion URL is set
+    # Check that workflow ingestion URL is set if CHORD mode is on
 
-    if workflow_ingestion_url is None:
+    if chord_mode and c_workflow_ingestion_url is None:
         print("An ingestion URL must be set.")
         return
 
@@ -315,35 +317,36 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
 
     if exit_code == 0 and not timed_out:
         try:
-            # TODO: Verify ingestion URL (vulnerability??)
+            if chord_mode:
+                # TODO: Verify ingestion URL (vulnerability??)
 
-            output_params = chord_lib.ingestion.make_output_params(workflow_name, workflow_params,
-                                                                   workflow_metadata["inputs"])
+                output_params = chord_lib.ingestion.make_output_params(workflow_name, workflow_params,
+                                                                       c_workflow_metadata["inputs"])
 
-            # TODO: Allow outputs to be served over different URL schemes instead of just an absolute file location
+                # TODO: Allow outputs to be served over different URL schemes instead of just an absolute file location
 
-            workflow_outputs = {}
-            for f in workflow_metadata["outputs"]:
-                workflow_outputs[f] = os.path.abspath(
-                    os.path.join(run_dir, chord_lib.ingestion.output_file_name(f, output_params)))
+                workflow_outputs = {}
+                for f in c_workflow_metadata["outputs"]:
+                    workflow_outputs[f] = os.path.abspath(
+                        os.path.join(run_dir, chord_lib.ingestion.output_file_name(f, output_params)))
 
-            c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run_id)))
+                c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run_id)))
 
-            # TODO: Just post run ID, fetch rest from the WES service?
-            # TODO: This is CHORD-specific, move it out into a callback or something...
+                # TODO: Just post run ID, fetch rest from the WES service?
+                # TODO: This is CHORD-specific, move it out into a callback or something...
 
-            r = requests.post(workflow_ingestion_url, {
-                "dataset_id": dataset_id,
-                "workflow_name": workflow_name,
-                "workflow_metadata": json.dumps(workflow_metadata),
-                "workflow_outputs": json.dumps(workflow_outputs),
-                "workflow_params": json.dumps(workflow_params)
-            })
+                r = requests.post(c_workflow_ingestion_url, {
+                    "dataset_id": c_dataset_id,
+                    "workflow_name": workflow_name,
+                    "workflow_metadata": json.dumps(c_workflow_metadata),
+                    "workflow_outputs": json.dumps(workflow_outputs),
+                    "workflow_params": json.dumps(workflow_params)
+                })
 
-            if str(r.status_code)[0] != "2":  # If non-2XX error code
-                # Ingestion failed for some reason
-                finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
-                return
+                if str(r.status_code)[0] != "2":  # If non-2XX error code
+                    # Ingestion failed for some reason
+                    finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
+                    return
 
             c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (iso_now(), run["run_log"]))
             db.commit()
@@ -388,7 +391,12 @@ def run_list():
             # workflow_attachment_list = request.files.getlist("workflow_attachment")  # TODO
             tags = json.loads(request.form["tags"])
 
-            # TODO: Move CHORD-specific stuff out somehow
+            # TODO: Move CHORD-specific stuff out somehow?
+
+            # Only "turn on" CHORD-specific features if specific tags are present
+
+            chord_mode = ("workflow_name" in tags and "workflow_metadata" in tags and "ingestion_url" in tags
+                          and "dataset_id" in tags)
 
             workflow_name = tags.get("workflow_name", workflow_url)
             workflow_metadata = tags.get("workflow_metadata", {})
@@ -403,7 +411,8 @@ def run_list():
             assert isinstance(workflow_engine_parameters, dict)
             assert isinstance(tags, dict)
 
-            dataset_id = str(uuid.UUID(dataset_id))  # Check and standardize dataset ID
+            if chord_mode:
+                dataset_id = str(uuid.UUID(dataset_id))  # Check and standardize dataset ID
 
             # TODO: Use JSON schemas for workflow params / engine parameters / tags
 
@@ -430,7 +439,7 @@ def run_list():
             run_workflow.delay(run_id, {
                 "workflow_params": workflow_params,
                 "workflow_url": workflow_url
-            }, workflow_metadata, workflow_ingestion_url, dataset_id)
+            }, chord_mode, workflow_metadata, workflow_ingestion_url, dataset_id)
 
             return jsonify({"run_id": str(run_id)})
 
