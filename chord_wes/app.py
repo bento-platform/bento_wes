@@ -32,8 +32,6 @@ STATE_SYSTEM_ERROR = "SYSTEM_ERROR"
 STATE_CANCELED = "CANCELED"
 STATE_CANCELING = "CANCELING"
 
-REDIS_PATH = ""  # TODO
-
 # Spec: https://software.broadinstitute.org/wdl/documentation/spec#whitespace-strings-identifiers-constants
 WDL_WORKSPACE_NAME_REGEX = re.compile(r"workflow\s+([a-zA-Z][a-zA-Z0-9_]+)")
 
