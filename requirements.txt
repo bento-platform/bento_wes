@@ -39,5 +39,5 @@ toil[wdl]==3.20.0
 urllib3==1.25.3
 vine==1.3.0
 websocket-client==0.56.0
-Werkzeug==0.15.5
+Werkzeug==0.15.6
 zipp==0.6.0
