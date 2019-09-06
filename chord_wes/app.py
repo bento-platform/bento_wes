@@ -21,6 +21,8 @@ ALLOWED_WORKFLOW_REQUEST_SCHEMES = ("http", "https")
 
 WORKFLOW_TIMEOUT = 60 * 60 * 24  # 24 hours
 
+MAX_WDL_BYTES = 10000000  # 10 Mb
+
 STATE_UNKNOWN = "UNKNOWN"
 STATE_QUEUED = "QUEUED"
 STATE_INITIALIZING = "INITIALIZING"
@@ -211,33 +213,37 @@ def run_workflow(self, run_id, run_request, workflow_metadata, workflow_ingestio
               (" ".join(cmd), self.request.id, run["run_log"]))
     db.commit()
 
-    # Download or move workflow if needed
+    # Download or move workflow
 
-    if not os.path.exists(workflow_path):
-        # If the workflow has not been downloaded, download it
-        # TODO: Auth
-        if parsed_workflow_url.scheme in ALLOWED_WORKFLOW_REQUEST_SCHEMES:
-            try:
-                wr = requests.get(workflow_url)
-                if wr.status_code == 200:
-                    with open(workflow_path, "wb") as nwf:
-                        nwf.write(wr.content)
-                else:
-                    # Request issues
-                    finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
-                    return
+    # TODO: Auth
+    if parsed_workflow_url.scheme in ALLOWED_WORKFLOW_REQUEST_SCHEMES:
+        try:
+            wr = requests.get(workflow_url)
 
-            except requests.exceptions.ConnectionError:
+            if wr.status_code == 200 and len(wr.content) < MAX_WDL_BYTES:
+                if os.path.exists(workflow_path):
+                    os.remove(workflow_path)
+
+                with open(workflow_path, "wb") as nwf:
+                    nwf.write(wr.content)
+
+            elif not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
+                # Request issues
+                finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
+                return
+
+        except requests.exceptions.ConnectionError:
+            if not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
                 # Network issues
                 finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
                 return
 
-        else:
-            # file://
-            # TODO: SPEC: MAKE SURE COPIED FILES AREN'T OUTSIDE OF ALLOWED AREAS!
-            # TODO: SECURITY FLAW
-            # TODO: Handle exceptions
-            shutil.copyfile(parsed_workflow_url.path, workflow_path)
+    else:
+        # file://
+        # TODO: SPEC: MAKE SURE COPIED FILES AREN'T OUTSIDE OF ALLOWED AREAS!
+        # TODO: SECURITY FLAW
+        # TODO: Handle exceptions
+        shutil.copyfile(parsed_workflow_url.path, workflow_path)
 
     # TODO: Validate WDL
     # TODO: SECURITY: MAKE SURE NOTHING REFERENCED IS OUTSIDE OF ALLOWED AREAS!
