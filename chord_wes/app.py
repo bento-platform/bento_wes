@@ -249,6 +249,13 @@ def run_workflow(self, run_id: uuid.UUID, run_request: dict, chord_mode: bool, c
     # Validate WDL, listing dependencies
     #  - since Toil doesn't support imports right now, any dependencies will result in an error
 
+    # Check for java first
+    try:
+        subprocess.run(["java", "-version"])
+    except FileNotFoundError:
+        finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
+        return
+
     vr = subprocess.Popen(["java", "-jar", application.config["WOM_TOOL_LOCATION"], "validate", "-1", workflow_path],
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
 
