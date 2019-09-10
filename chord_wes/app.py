@@ -273,18 +273,18 @@ def run_workflow(self, run_id: uuid.UUID, run_request: dict, chord_mode: bool, c
 
     with open(workflow_path, "r") as wdf:
         wdl_contents = wdf.read()
-        workflow_name_match = WDL_WORKSPACE_NAME_REGEX.search(wdl_contents)
+        workflow_id_match = WDL_WORKSPACE_NAME_REGEX.search(wdl_contents)
 
-        if not workflow_name_match:
+        if not workflow_id_match:
             # Invalid/non-workflow-specifying WDL file
             # TODO: Validate before this
             finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
             return
 
-        workflow_name = workflow_name_match.group(1)
+        workflow_id = workflow_id_match.group(1)
 
     # TODO: To avoid having multiple names, we should maybe only set this once?
-    c.execute("UPDATE run_logs SET name = ? WHERE id = ?", (workflow_name, run["run_log"],))
+    c.execute("UPDATE run_logs SET name = ? WHERE id = ?", (workflow_id, run["run_log"],))
 
     # TODO: Initialization, input file downloading, etc.
 
@@ -320,7 +320,7 @@ def run_workflow(self, run_id: uuid.UUID, run_request: dict, chord_mode: bool, c
             if chord_mode:
                 # TODO: Verify ingestion URL (vulnerability??)
 
-                output_params = chord_lib.ingestion.make_output_params(workflow_name, workflow_params,
+                output_params = chord_lib.ingestion.make_output_params(workflow_id, workflow_params,
                                                                        c_workflow_metadata["inputs"])
 
                 # TODO: Allow outputs to be served over different URL schemes instead of just an absolute file location
@@ -337,7 +337,7 @@ def run_workflow(self, run_id: uuid.UUID, run_request: dict, chord_mode: bool, c
 
                 r = requests.post(c_workflow_ingestion_url, {
                     "dataset_id": c_dataset_id,
-                    "workflow_name": workflow_name,
+                    "workflow_id": workflow_id,
                     "workflow_metadata": json.dumps(c_workflow_metadata),
                     "workflow_outputs": json.dumps(workflow_outputs),
                     "workflow_params": json.dumps(workflow_params)
@@ -395,10 +395,10 @@ def run_list():
 
             # Only "turn on" CHORD-specific features if specific tags are present
 
-            chord_mode = ("workflow_name" in tags and "workflow_metadata" in tags and "ingestion_url" in tags
+            chord_mode = ("workflow_id" in tags and "workflow_metadata" in tags and "ingestion_url" in tags
                           and "dataset_id" in tags)
 
-            workflow_name = tags.get("workflow_name", workflow_url)
+            workflow_id = tags.get("workflow_id", workflow_url)
             workflow_metadata = tags.get("workflow_metadata", {})
             workflow_ingestion_url = tags.get("ingestion_url", None)
             dataset_id = tags.get("dataset_id", None)
@@ -427,7 +427,7 @@ def run_list():
                       "workflow_engine_parameters, workflow_url, tags) VALUES (?, ?, ?, ?, ?, ?, ?)",
                       (str(req_id), json.dumps(workflow_params), workflow_type, workflow_type_version,
                        json.dumps(workflow_engine_parameters), workflow_url, json.dumps(tags)))
-            c.execute("INSERT INTO run_logs (id, name) VALUES (?, ?)", (str(log_id), workflow_name))
+            c.execute("INSERT INTO run_logs (id, name) VALUES (?, ?)", (str(log_id), workflow_id))
             c.execute("INSERT INTO runs (id, request, state, run_log, outputs) VALUES (?, ?, ?, ?, ?)",
                       (str(run_id), str(req_id), STATE_UNKNOWN, str(log_id), json.dumps({})))
             db.commit()
@@ -572,6 +572,8 @@ def run_cancel(run_id):
         return make_error(500, "No run log present")
 
     if run_log["celery_id"] is None:
+        # Never made it into the queue, so "cancel" it
+
         return make_error(500, "No Celery ID present")
 
     # TODO: This only removes it from the queue... what if it's already executing?
