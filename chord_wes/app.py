@@ -210,7 +210,7 @@ def run_workflow(self, run_id: uuid.UUID, run_request: dict, chord_mode: bool, c
 
     cmd = ("toil-wdl-runner", workflow_path, workflow_params_path, "-o", run_dir,
            "--workDir", application.config["SERVICE_TEMP"],
-           "--jobStore", "file:" + os.path.abspath(os.path.join(application.config["SERVICE_TEMP"], "toil_job_store")))
+           "--jobStore", "file:" + os.path.abspath(os.path.join(tmp_dir, "toil_job_store")))
 
     # Update run log with command and Celery ID
 
