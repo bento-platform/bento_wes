@@ -298,6 +298,7 @@ def run_workflow(self, run_id: uuid.UUID, run_request: dict, chord_mode: bool, c
 
     # TODO: To avoid having multiple names, we should maybe only set this once?
     c.execute("UPDATE run_logs SET name = ? WHERE id = ?", (workflow_id, run["run_log"],))
+    db.commit()
 
     # TODO: Initialization, input file downloading, etc.
 
@@ -346,6 +347,7 @@ def run_workflow(self, run_id: uuid.UUID, run_request: dict, chord_mode: bool, c
                         os.path.join(run_dir, chord_lib.ingestion.output_file_name(f, output_params)))
 
                 c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run_id)))
+                db.commit()
 
                 # TODO: Just post run ID, fetch rest from the WES service?
                 # TODO: This is CHORD-specific, move it out into a callback or something...
@@ -448,6 +450,7 @@ def run_list():
             # TODO: retry policy
             c.execute("UPDATE runs SET state = ? WHERE id = ?", (STATE_QUEUED, str(run_id)))
             db.commit()
+
             run_workflow.delay(run_id, {
                 "workflow_params": workflow_params,
                 "workflow_url": workflow_url
