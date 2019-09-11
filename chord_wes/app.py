@@ -259,17 +259,21 @@ def run_workflow(self, run_id: uuid.UUID, run_request: dict, chord_mode: bool, c
     vr = subprocess.Popen(["java", "-jar", application.config["WOM_TOOL_LOCATION"], "validate", "-1", workflow_path],
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
 
-    v_out, _v_err = vr.communicate()
+    v_out, v_err = vr.communicate()
 
     if vr.returncode != 0:
         # Validation error with WDL file
         # TODO: Add some stdout or stderr to logs?
+        print("Failed with {} due to non-0 validation return code:")
+        print("\tstdout: {}\n\tstderr: {}".format(v_out, v_err))
         finish_run(db, c, run_id, run["run_log"], run_dir, STATE_EXECUTOR_ERROR)
         return
 
     if "None" not in v_out:  # No dependencies
         # Toil can't process WDL dependencies right now  TODO
         # TODO: Add some stdout or stderr to logs?
+        print("Failed with {} due to dependencies in WDL:")
+        print("\tstdout: {}\n\tstderr: {}".format(v_out, v_err))
         finish_run(db, c, run_id, run["run_log"], run_dir, STATE_EXECUTOR_ERROR)
         return
 
