@@ -355,9 +355,6 @@ def run_workflow(self, run_id: uuid.UUID, run_request: dict, chord_mode: bool, c
                     finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
                     return
 
-            c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (iso_now(), run["run_log"]))
-            db.commit()
-
             finish_run(db, c, run_id, run["run_log"], run_dir, STATE_COMPLETE)
 
         except requests.exceptions.ConnectionError:
