@@ -145,7 +145,7 @@ def finish_run(db, c, run_id, run_log_id, run_dir, state):
     # TODO: SECURITY: Check run_dir
     # TODO: May want to keep them around for a retry depending on how the retry operation will work.
 
-    shutil.rmtree(run_dir, ignore_errors=True)
+    # shutil.rmtree(run_dir, ignore_errors=True)
 
 
 @celery.task(bind=True)
