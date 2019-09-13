@@ -10,6 +10,7 @@ import uuid
 
 from base64 import urlsafe_b64encode
 from celery import Celery
+from chord_lib.ingestion import WORKFLOW_TYPE_FILE, WORKFLOW_TYPE_STRING, WORKFLOW_TYPE_ENUM
 from datetime import datetime
 from flask import Flask, g, json, jsonify, request
 from typing import Optional
@@ -341,12 +342,12 @@ def run_workflow(self, run_id: uuid.UUID, run_request: dict, chord_mode: bool, c
 
                 # TODO: Allow outputs to be served over different URL schemes instead of just an absolute file location
 
-                workflow_outputs = {}
-                for f in c_workflow_metadata["outputs"]:
-                    workflow_outputs[f] = os.path.abspath(
-                        os.path.join(run_dir, chord_lib.ingestion.output_file_name(f, output_params)))
+                workflow_outputs_json = json.dumps({
+                    output["id"]: chord_lib.ingestion.formatted_output(output, output_params)
+                    for output in c_workflow_metadata["outputs"]
+                })
 
-                c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run_id)))
+                c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (workflow_outputs_json, str(run_id)))
                 db.commit()
 
                 # TODO: Just post run ID, fetch rest from the WES service?
@@ -356,7 +357,7 @@ def run_workflow(self, run_id: uuid.UUID, run_request: dict, chord_mode: bool, c
                     "dataset_id": c_dataset_id,
                     "workflow_id": workflow_id,
                     "workflow_metadata": json.dumps(c_workflow_metadata),
-                    "workflow_outputs": json.dumps(workflow_outputs),
+                    "workflow_outputs": workflow_outputs_json,
                     "workflow_params": json.dumps(workflow_params)
                 })
 
