@@ -2,7 +2,6 @@ import chord_wes
 import os
 import uuid
 
-from celery import Celery
 from flask import Flask, json, jsonify, request
 from urllib.parse import urljoin
 
@@ -132,10 +131,7 @@ def run_list():
             c.execute("UPDATE runs SET state = ? WHERE id = ?", (STATE_QUEUED, str(run_id)))
             db.commit()
 
-            run_workflow.delay(run_id, {
-                "workflow_params": workflow_params,
-                "workflow_url": workflow_url
-            }, chord_mode, workflow_metadata, workflow_ingestion_url, dataset_id)
+            run_workflow.delay(run_id, chord_mode, workflow_metadata, workflow_ingestion_url, dataset_id)
 
             return jsonify({"run_id": str(run_id)})
 
