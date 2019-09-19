@@ -10,7 +10,7 @@ import uuid
 
 from base64 import urlsafe_b64encode
 from celery import Celery
-from chord_lib.ingestion import WORKFLOW_TYPE_FILE, WORKFLOW_TYPE_STRING, WORKFLOW_TYPE_ENUM
+from chord_lib.ingestion import WORKFLOW_TYPE_FILE
 from datetime import datetime
 from flask import Flask, g, json, jsonify, request
 from typing import Optional
@@ -342,10 +342,14 @@ def run_workflow(self, run_id: uuid.UUID, run_request: dict, chord_mode: bool, c
 
                 # TODO: Allow outputs to be served over different URL schemes instead of just an absolute file location
 
-                workflow_outputs_json = json.dumps({
-                    output["id"]: chord_lib.ingestion.formatted_output(output, output_params)
-                    for output in c_workflow_metadata["outputs"]
-                })
+                workflow_outputs = {}
+                for output in c_workflow_metadata["outputs"]:
+                    workflow_outputs[output["id"]] = chord_lib.ingestion.formatted_output(output, output_params)
+                    if output["type"] == WORKFLOW_TYPE_FILE:
+                        workflow_outputs[output["id"]] = os.path.abspath(os.path.join(run_dir,
+                                                                                      workflow_outputs[output["id"]]))
+
+                workflow_outputs_json = json.dumps(workflow_outputs)
 
                 c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (workflow_outputs_json, str(run_id)))
                 db.commit()
