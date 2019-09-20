@@ -97,7 +97,7 @@ def run_list():
             workflow_ingestion_url = tags.get("ingestion_url", None)
             dataset_id = tags.get("dataset_id", None)
 
-            # Don't accept anything (ex. CWL) other than WDL
+            # Don't accept anything (ex. CWL) other than WDL TODO: CWL support
             assert workflow_type == "WDL"
             assert workflow_type_version == "1.0"
 
