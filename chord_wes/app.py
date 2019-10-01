@@ -4,6 +4,7 @@ import uuid
 
 from flask import Flask, json, jsonify, request
 from urllib.parse import urljoin
+from werkzeug.utils import secure_filename
 
 from chord_wes.celery import celery
 from chord_wes.db import get_db, init_db, update_db, close_db
@@ -74,15 +75,14 @@ def run_list():
             assert "workflow_type_version" in request.form
             assert "workflow_engine_parameters" in request.form
             assert "workflow_url" in request.form
-            # assert "workflow_attachment" in request.form  # TODO: Fix
             assert "tags" in request.form
 
             workflow_params = json.loads(request.form["workflow_params"])
             workflow_type = request.form["workflow_type"].upper().strip()
             workflow_type_version = request.form["workflow_type_version"].strip()
             workflow_engine_parameters = json.loads(request.form["workflow_engine_parameters"])  # TODO: Unused
-            workflow_url = request.form["workflow_url"].lower()
-            # workflow_attachment_list = request.files.getlist("workflow_attachment")  # TODO
+            workflow_url = request.form["workflow_url"].lower()  # TODO: This can refer to an attachment
+            workflow_attachment_list = request.files.getlist("workflow_attachment")  # TODO: Use this fully
             tags = json.loads(request.form["tags"])
 
             # TODO: Move CHORD-specific stuff out somehow?
@@ -115,6 +115,24 @@ def run_list():
             req_id = uuid.uuid4()
             run_id = uuid.uuid4()
             log_id = uuid.uuid4()
+
+            # Create run directory
+
+            run_dir = os.path.join(application.config["SERVICE_TEMP"], str(run_id))
+
+            if os.path.exists(run_dir):
+                return make_error(500, "UUID collision")
+
+            os.makedirs(run_dir, exist_ok=True)
+            # TODO: Delete run dir if something goes wrong...
+
+            # Move workflow attachments to run directory
+
+            for attachment in workflow_attachment_list:
+                # TODO: Check and fix input if filename is non-secure
+                # TODO: Do we put these in a subdirectory?
+                # TODO: Support WDL uploads for workflows
+                attachment.save(os.path.join(run_dir, secure_filename(attachment.filename)))
 
             # Will be updated to STATE_ QUEUED once submitted
             c.execute("INSERT INTO run_requests (id, workflow_params, workflow_type, workflow_type_version, "

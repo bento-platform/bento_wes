@@ -153,7 +153,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     workflow_type = run_request["workflow_type"]
     workflow_params = run_request["workflow_params"]
     workflow_url = run_request["workflow_url"]
-    parsed_workflow_url = urlparse(workflow_url)  # TODO: Handle errors
+    parsed_workflow_url = urlparse(workflow_url)  # TODO: Handle errors, handle references to attachments
 
     workflow_runner = WORKFLOW_RUNNERS[workflow_type]
 
@@ -167,13 +167,11 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     tmp_dir = current_app.config["SERVICE_TEMP"]
     run_dir = os.path.join(tmp_dir, str(run_id))
 
-    if os.path.exists(run_dir):
+    if not os.path.exists(run_dir):
         # TODO: Log error in run log
-        print("UUID collision")
+        print("Run directory not found")
         finish_run(db, c, run_id, run["run_log"], None, STATE_SYSTEM_ERROR)
         return
-
-    os.makedirs(run_dir, exist_ok=True)
 
     workflow_path = os.path.join(tmp_dir, "workflow_{w}.{ext}}".format(
         w=str(urlsafe_b64encode(bytes(workflow_url, encoding="utf-8")), encoding="utf-8"),
