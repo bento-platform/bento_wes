@@ -323,20 +323,19 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     try:
         # TODO: Verify ingestion URL (vulnerability??)
 
-        workflow_outputs_json = json.dumps(build_workflow_outputs(run_dir, workflow_id, workflow_params,
-                                                                  c_workflow_metadata))
+        workflow_outputs = build_workflow_outputs(run_dir, workflow_id, workflow_params, c_workflow_metadata)
 
-        c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (workflow_outputs_json, str(run_id)))
+        c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run_id)))
         db.commit()
 
         # TODO: Just post run ID, fetch rest from the WES service?
 
-        r = requests.post(c_workflow_ingestion_url, {
+        r = requests.post(c_workflow_ingestion_url, json={
             "dataset_id": c_dataset_id,
             "workflow_id": workflow_id,
-            "workflow_metadata": json.dumps(c_workflow_metadata),
-            "workflow_outputs": workflow_outputs_json,
-            "workflow_params": json.dumps(workflow_params)
+            "workflow_metadata": c_workflow_metadata,
+            "workflow_outputs": workflow_outputs,
+            "workflow_params": workflow_params
         })
 
         if str(r.status_code)[0] != "2":  # If non-2XX error code
