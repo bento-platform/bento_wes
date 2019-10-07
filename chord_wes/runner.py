@@ -232,7 +232,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     # Validate WDL, listing dependencies
     #  - TODO: make this generic among workflow languages
 
-    vr = subprocess.Popen(["java", "-jar", current_app.config["WOM_TOOL_LOCATION"], "validate", "-l", workflow_path],
+    vr = subprocess.Popen(("java", "-jar", current_app.config["WOM_TOOL_LOCATION"], "validate", "-l", workflow_path),
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
 
     v_out, v_err = vr.communicate()
