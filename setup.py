@@ -12,7 +12,7 @@ setuptools.setup(
     version=__version__,
 
     python_requires=">=3.6",
-    install_requires=["celery[redis]", "chord_lib @ git+https://bitbucket.org/genap/chord_lib", "Flask", "requests",
+    install_requires=["celery[redis]", "chord_lib @git+https://github.com/c3g/chord_lib", "Flask", "requests",
                       "toil[wdl]"],
 
     author="David Lougheed",
