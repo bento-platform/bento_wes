@@ -41,5 +41,6 @@ def update_db():
     # stuck checking their status, and if they're in a weird state at boot they should receive an error status anyway.
     c.execute("UPDATE runs SET state = ? WHERE state = ? OR state = ?",
               (STATE_SYSTEM_ERROR, STATE_INITIALIZING, STATE_RUNNING))
+    db.commit()
 
     # TODO: Migrations if needed
