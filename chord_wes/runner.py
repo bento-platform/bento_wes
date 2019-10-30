@@ -173,7 +173,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         finish_run(db, c, run_id, run["run_log"], None, STATE_SYSTEM_ERROR)
         return
 
-    workflow_path = os.path.join(tmp_dir, "workflow_{w}.{ext}}".format(
+    workflow_path = os.path.join(tmp_dir, "workflow_{w}.{ext}".format(
         w=str(urlsafe_b64encode(bytes(workflow_url, encoding="utf-8")), encoding="utf-8"),
         ext=workflow_runner.extension))
     workflow_params_path = os.path.join(run_dir, workflow_runner.params_file)
