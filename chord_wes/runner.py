@@ -98,7 +98,7 @@ def finish_run(db, c, run_id, run_log_id, run_dir, state):
     shutil.rmtree(run_dir, ignore_errors=True)
 
 
-def build_workflow_outputs(run_dir, workflow_id, workflow_params, c_workflow_metadata):
+def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workflow_metadata: dict):
     output_params = chord_lib.ingestion.make_output_params(workflow_id, workflow_params,
                                                            c_workflow_metadata["inputs"])
 
@@ -151,7 +151,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     update_run_state(db, c, run_id, STATE_INITIALIZING)
 
     workflow_type = run_request["workflow_type"]
-    workflow_params = run_request["workflow_params"]
+    workflow_params = json.loads(run_request["workflow_params"])
     workflow_url = run_request["workflow_url"]
     parsed_workflow_url = urlparse(workflow_url)  # TODO: Handle errors, handle references to attachments
 
