@@ -1,6 +1,8 @@
 import sqlite3
 from flask import current_app, g
 
+from .states import *
+
 
 def get_db():
     if "db" not in g:
@@ -34,5 +36,10 @@ def update_db():
     if c.fetchone() is None:
         init_db()
         return
+
+    # Update all runs that have "stuck" states to have an error state instead on restart. This way, systems don't get
+    # stuck checking their status, and if they're in a weird state at boot they should receive an error status anyway.
+    c.execute("UPDATE runs SET state = ? WHERE state = ? OR state = ?",
+              (STATE_SYSTEM_ERROR, STATE_INITIALIZING, STATE_RUNNING))
 
     # TODO: Migrations if needed
