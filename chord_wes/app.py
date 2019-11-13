@@ -14,6 +14,9 @@ from chord_wes.runner import update_run_state, run_workflow
 
 MIME_TYPE = "application/json"
 
+SERVICE_TYPE = "ca.c3g.chord:wes:{}".format(chord_wes.__version__)
+SERVICE_ID = os.environ.get("SERVICE_ID", SERVICE_TYPE)
+
 
 application = Flask(__name__)
 application.config.from_mapping(
@@ -23,7 +26,9 @@ application.config.from_mapping(
     CELERY_BROKER_URL=os.environ.get("CELERY_BROKER_URL", "redis://"),
     DATABASE=os.environ.get("DATABASE", "chord_wes.db"),
     SERVICE_BASE_URL=os.environ.get("SERVICE_BASE_URL", "/"),
+    SERVICE_ID=SERVICE_ID,
     SERVICE_TEMP=os.environ.get("SERVICE_TEMP", "tmp"),
+    SERVICE_TYPE=SERVICE_TYPE,
     WOM_TOOL_LOCATION=os.environ.get("WOM_TOOL_LOCATION", "womtool.jar")
 )
 
@@ -315,13 +320,13 @@ def run_status(run_id):
 @application.route("/service-info", methods=["GET"])
 def service_info():
     return jsonify({
-        "id": "ca.distributedgenomics.chord_wes",  # TODO: Should be globally unique?
+        "id": application.config["SERVICE_ID"],
         "name": "CHORD WES",  # TODO: Should be globally unique?
-        "type": "ca.distributedgenomics:chord_wes:{}".format(chord_wes.__version__),  # TODO
+        "type": application.config["SERVICE_TYPE"],
         "description": "Workflow execution service for a CHORD application.",
         "organization": {
-            "name": "GenAP",
-            "url": "https://genap.ca/"
+            "name": "C3G",
+            "url": "http://www.computationalgenomics.ca"
         },
         "contactUrl": "mailto:david.lougheed@mail.mcgill.ca",
         "version": chord_wes.__version__
