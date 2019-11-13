@@ -16,6 +16,7 @@ CELERY_RESULT_BACKEND=redis://
 CELERY_BROKER_URL=redis://
 DATABASE=chord_wes.db
 SERVICE_BASE_URL=/
+SERVICE_ID=
 SERVICE_TEMP=tmp
 WOM_TOOL_LOCATION=/path/to/womtool.jar
 ```
