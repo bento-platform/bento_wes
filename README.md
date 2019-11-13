@@ -7,6 +7,13 @@ Workflow execution service for CHORD. This service implements the
 with additional CHORD-specific features.
 
 
+## `/service-info` Type
+
+```
+ca.c3g.chord:wes:VERSION
+```
+
+
 ## Environment Variables
 
 ```bash
