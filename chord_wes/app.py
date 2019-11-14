@@ -25,10 +25,10 @@ application.config.from_mapping(
     CELERY_RESULT_BACKEND=os.environ.get("CELERY_RESULT_BACKEND", "redis://"),
     CELERY_BROKER_URL=os.environ.get("CELERY_BROKER_URL", "redis://"),
     DATABASE=os.environ.get("DATABASE", "chord_wes.db"),
-    SERVICE_BASE_URL=os.environ.get("SERVICE_BASE_URL", "/"),
     SERVICE_ID=SERVICE_ID,
     SERVICE_TEMP=os.environ.get("SERVICE_TEMP", "tmp"),
     SERVICE_TYPE=SERVICE_TYPE,
+    SERVICE_URL_BASE_PATH=os.environ.get("SERVICE_URL_BASE_PATH", "/"),
     WOM_TOOL_LOCATION=os.environ.get("WOM_TOOL_LOCATION", "womtool.jar")
 )
 
