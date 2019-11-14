@@ -213,11 +213,11 @@ def run_detail(run_id):
             "start_time": run_log["start_time"],
             "end_time": run_log["end_time"],
             "stdout": urljoin(
-                urljoin(application.config["CHORD_URL"], application.config["SERVICE_BASE_URL"] + "/"),
+                urljoin(application.config["CHORD_URL"], application.config["SERVICE_URL_BASE_PATH"] + "/"),
                 "runs/{}/stdout".format(run["id"])
             ),
             "stderr": urljoin(
-                urljoin(application.config["CHORD_URL"], application.config["SERVICE_BASE_URL"] + "/"),
+                urljoin(application.config["CHORD_URL"], application.config["SERVICE_URL_BASE_PATH"] + "/"),
                 "runs/{}/stderr".format(run["id"])
             ),
             "exit_code": run_log["exit_code"]
