@@ -7,6 +7,7 @@ import subprocess
 import uuid
 
 from base64 import urlsafe_b64encode
+from chord_lib.events import EventBus
 from chord_lib.ingestion import WORKFLOW_TYPE_FILE
 from collections import namedtuple
 from datetime import datetime
@@ -15,8 +16,12 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from .celery import celery
+from .constants import *
 from .db import get_db
 from .states import *
+
+
+EVENT_WES_RUN_FINISHED = "wes_run_finished"
 
 
 ALLOWED_WORKFLOW_URL_SCHEMES = ("http", "https", "file")
@@ -118,6 +123,13 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
                  c_workflow_ingestion_url: Optional[str], c_table_id: Optional[str]):
     db = get_db()
     c = db.cursor()
+
+    # Register "finished" event with the bus instance
+    event_bus = EventBus()
+    event_bus.register_service_event_type(EVENT_WES_RUN_FINISHED, {
+        "type": "object",
+        # TODO
+    })
 
     # Check that workflow ingestion URL is set if CHORD mode is on
     if chord_mode and c_workflow_ingestion_url is None:
@@ -335,6 +347,9 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         "workflow_outputs": workflow_outputs,
         "workflow_params": workflow_params
     }
+
+    # Emit event
+    event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_FINISHED, run_results)
 
     # Try to complete ingest POST request
 
