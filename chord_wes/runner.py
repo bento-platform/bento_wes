@@ -22,7 +22,7 @@ from .states import *
 ALLOWED_WORKFLOW_URL_SCHEMES = ("http", "https", "file")
 ALLOWED_WORKFLOW_REQUEST_SCHEMES = ("http", "https")
 
-MAX_WORKFLOW_FILE_BYTES = 10000000  # 10 Mb
+MAX_WORKFLOW_FILE_BYTES = 10000000  # 10 MB
 
 # Spec: https://software.broadinstitute.org/wdl/documentation/spec#whitespace-strings-identifiers-constants
 WDL_WORKSPACE_NAME_REGEX = re.compile(r"workflow\s+([a-zA-Z][a-zA-Z0-9_]+)")
@@ -115,7 +115,7 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
 
 @celery.task(bind=True)
 def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata: dict,
-                 c_workflow_ingestion_url: Optional[str], c_dataset_id: Optional[str]):
+                 c_workflow_ingestion_url: Optional[str], c_table_id: Optional[str]):
     db = get_db()
     c = db.cursor()
 
@@ -320,30 +320,29 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
     # CHORD ingestion run
 
+    # TODO: Verify ingestion URL (vulnerability??)
+
+    workflow_outputs = build_workflow_outputs(run_dir, workflow_id, workflow_params, c_workflow_metadata)
+
+    c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run_id)))
+    db.commit()
+
+    # Run result object
+    run_results = {
+        "dataset_id": c_table_id,  # TODO: Table ID
+        "workflow_id": workflow_id,
+        "workflow_metadata": c_workflow_metadata,
+        "workflow_outputs": workflow_outputs,
+        "workflow_params": workflow_params
+    }
+
+    # Try to complete ingest POST request
+
     try:
-        # TODO: Verify ingestion URL (vulnerability??)
-
-        workflow_outputs = build_workflow_outputs(run_dir, workflow_id, workflow_params, c_workflow_metadata)
-
-        c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run_id)))
-        db.commit()
-
         # TODO: Just post run ID, fetch rest from the WES service?
-
-        r = requests.post(c_workflow_ingestion_url, json={
-            "dataset_id": c_dataset_id,
-            "workflow_id": workflow_id,
-            "workflow_metadata": c_workflow_metadata,
-            "workflow_outputs": workflow_outputs,
-            "workflow_params": workflow_params
-        })
-
-        if str(r.status_code)[0] != "2":  # If non-2XX error code
-            # Ingestion failed for some reason
-            finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
-            return
-
-        finish_run(db, c, run_id, run["run_log"], run_dir, STATE_COMPLETE)
+        r = requests.post(c_workflow_ingestion_url, json=run_results)
+        finish_run(db, c, run_id, run["run_log"], run_dir,
+                   STATE_COMPLETE if r.status_code < 400 else STATE_SYSTEM_ERROR)
 
     except requests.exceptions.ConnectionError:
         # Ingestion failed due to a network error
