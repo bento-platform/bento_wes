@@ -6,16 +6,14 @@ from flask import Flask, json, jsonify, request
 from urllib.parse import urljoin
 from werkzeug.utils import secure_filename
 
-from chord_wes.celery import celery
-from chord_wes.db import get_db, init_db, update_db, close_db
-from chord_wes.states import *
-from chord_wes.runner import update_run_state, run_workflow
+from .celery import celery
+from .constants import *
+from .db import get_db, init_db, update_db, close_db
+from .states import *
+from .runner import update_run_state, run_workflow
 
 
 MIME_TYPE = "application/json"
-
-SERVICE_TYPE = "ca.c3g.chord:wes:{}".format(chord_wes.__version__)
-SERVICE_ID = os.environ.get("SERVICE_ID", SERVICE_TYPE)
 
 
 application = Flask(__name__)
