@@ -10,8 +10,8 @@ setuptools.setup(
     version="0.1.0",
 
     python_requires=">=3.6",
-    install_requires=["celery[redis]", "chord_lib @git+https://github.com/c3g/chord_lib", "Flask", "requests",
-                      "toil[wdl]"],
+    install_requires=["celery[redis]==4.3.0", "chord_lib @ git+https://github.com/c3g/chord_lib", "Flask>=1.1,<2.0",
+                      "requests>=2.22,<3.0", "toil[wdl]==3.21.0"],
 
     author="David Lougheed",
     author_email="david.lougheed@mail.mcgill.ca",
@@ -23,7 +23,7 @@ setuptools.setup(
     packages=["chord_wes"],
     include_package_data=True,
 
-    url="TODO",
+    url="https://github.com/c3g/chord_wes",
     license="LGPLv3",
     classifiers=[
         "Programming Language :: Python :: 3",
