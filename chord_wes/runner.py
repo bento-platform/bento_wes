@@ -124,13 +124,6 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     db = get_db()
     c = db.cursor()
 
-    # Register "finished" event with the bus instance
-    event_bus = EventBus()
-    event_bus.register_service_event_type(EVENT_WES_RUN_FINISHED, {
-        "type": "object",
-        # TODO
-    })
-
     # Check that workflow ingestion URL is set if CHORD mode is on
     if chord_mode and c_workflow_ingestion_url is None:
         print("An ingestion URL must be set.")
@@ -347,6 +340,13 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         "workflow_outputs": workflow_outputs,
         "workflow_params": workflow_params
     }
+
+    # Register "finished" event with the bus instance
+    event_bus = EventBus()
+    event_bus.register_service_event_type(EVENT_WES_RUN_FINISHED, {
+        "type": "object",
+        # TODO
+    })
 
     # Emit event
     event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_FINISHED, run_results)
