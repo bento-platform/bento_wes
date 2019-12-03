@@ -132,7 +132,7 @@ def run_detail(run_id):
 def get_stream(c, stream, run_id):
     c.execute("SELECT * FROM runs AS r, run_logs AS rl WHERE r.id = ? AND r.run_log = rl.id", (str(run_id),))
     run = c.fetchone()
-    return (current_app.response_class(response=run[stream], mimetype="text/plain", status=200) if run is None
+    return (current_app.response_class(response=run[stream], mimetype="text/plain", status=200) if run is not None
             else make_error(404, "Not found"))
 
 
