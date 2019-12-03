@@ -1,8 +1,9 @@
 import json
 import sqlite3
+import uuid
 
 from flask import current_app, g
-from typing import Optional
+from typing import Optional, Union
 from urllib.parse import urljoin
 
 from .constants import SERVICE_ARTIFACT
@@ -121,7 +122,7 @@ def get_run_details(c, run_id) -> Optional[dict]:
     }
 
 
-def update_run_state(db, c, run_id, state):
+def update_run_state(db, c, run_id: Union[uuid.UUID, str], state: str):
     c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
     db.commit()
     if event_bus is not None:

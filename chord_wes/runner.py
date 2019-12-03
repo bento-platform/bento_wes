@@ -134,7 +134,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     # Set up scoped helpers
 
     def _update_run_state(state):
-        update_run_state(db, c, state, run_id)
+        update_run_state(db, c, run_id, state)
 
     def _finish_run(state):
         c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (iso_now(), run["run_log"]))
