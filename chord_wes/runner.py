@@ -7,7 +7,7 @@ import subprocess
 import uuid
 
 from base64 import urlsafe_b64encode
-from chord_lib.events import EventBus
+from celery.utils.log import get_task_logger
 from chord_lib.ingestion import WORKFLOW_TYPE_FILE
 from collections import namedtuple
 from datetime import datetime
@@ -17,11 +17,9 @@ from urllib.parse import urlparse
 
 from .celery import celery
 from .constants import *
-from .db import get_db
+from .db import get_db, update_run_state
+from .events import *
 from .states import *
-
-
-EVENT_WES_RUN_FINISHED = "wes_run_finished"
 
 
 ALLOWED_WORKFLOW_URL_SCHEMES = ("http", "https", "file")
@@ -82,27 +80,6 @@ def iso_now():
     return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")  # ISO date format
 
 
-def update_run_state(db, c, run_id, state):
-    c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
-    db.commit()
-
-
-def finish_run(db, c, run_id, run_log_id, run_dir, state):
-    c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (iso_now(), run_log_id))
-    db.commit()
-
-    update_run_state(db, c, run_id, state)
-
-    if run_dir is None:
-        return
-
-    # Clean up any run files at the end, after they've been either copied or "rejected" due to some failure.
-    # TODO: SECURITY: Check run_dir
-    # TODO: May want to keep them around for a retry depending on how the retry operation will work.
-
-    shutil.rmtree(run_dir, ignore_errors=True)
-
-
 def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workflow_metadata: dict):
     output_params = chord_lib.ingestion.make_output_params(workflow_id, workflow_params,
                                                            c_workflow_metadata["inputs"])
@@ -118,6 +95,9 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
     return workflow_outputs
 
 
+logger = get_task_logger(__name__)
+
+
 @celery.task(bind=True)
 def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata: dict,
                  c_workflow_ingestion_url: Optional[str], c_table_id: Optional[str]):
@@ -126,7 +106,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
     # Check that workflow ingestion URL is set if CHORD mode is on
     if chord_mode and c_workflow_ingestion_url is None:
-        print("An ingestion URL must be set.")
+        logger.error("An ingestion URL must be set.")
         return
 
     # TODO: Check workflow_ingestion_url is valid
@@ -135,25 +115,45 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     c.execute("SELECT request, run_log FROM runs WHERE id = ?", (str(run_id),))
     run = c.fetchone()
     if run is None:
-        print("Cannot find run {}".format(run_id))
+        logger.error("Cannot find run {}".format(run_id))
         return
 
     # Fetch run request from the database, checking that it exists
     c.execute("SELECT * FROM run_requests WHERE id = ?", (run["request"],))
     run_request = c.fetchone()
     if run_request is None:
-        print("Cannot find run request {} for run {}".format(run["request"], run_id))
+        logger.error("Cannot find run request {} for run {}".format(run["request"], run_id))
         return
 
     # Check run log exists
     c.execute("SELECT * FROM run_logs WHERE id = ?", (run["run_log"],))
     if c.fetchone() is None:
-        print("Cannot find run log {} for run {}".format(run["run_log"], run_id))
+        logger.error("Cannot find run log {} for run {}".format(run["run_log"], run_id))
         return
+
+    # Set up scoped helpers
+
+    def _update_run_state(state):
+        update_run_state(db, c, state, run_id)
+
+    def _finish_run(state):
+        c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (iso_now(), run["run_log"]))
+        db.commit()
+
+        _update_run_state(state)
+
+        if run_dir is None:
+            return
+
+        # Clean up any run files at the end, after they've been either copied or "rejected" due to some failure.
+        # TODO: SECURITY: Check run_dir
+        # TODO: May want to keep them around for a retry depending on how the retry operation will work.
+
+        shutil.rmtree(run_dir, ignore_errors=True)
 
     # Begin initialization (loading / downloading files)
 
-    update_run_state(db, c, run_id, STATE_INITIALIZING)
+    _update_run_state(STATE_INITIALIZING)
 
     workflow_type = run_request["workflow_type"]
     workflow_params = json.loads(run_request["workflow_params"])
@@ -165,8 +165,8 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     # Check that the URL scheme is something that can be either moved or downloaded
     if parsed_workflow_url.scheme not in ALLOWED_WORKFLOW_URL_SCHEMES:
         # TODO: Log error in run log
-        print("Invalid workflow URL scheme")
-        finish_run(db, c, run_id, run["run_log"], None, STATE_SYSTEM_ERROR)
+        logger.error("Invalid workflow URL scheme")
+        _finish_run(STATE_SYSTEM_ERROR)
         return
 
     tmp_dir = current_app.config["SERVICE_TEMP"]
@@ -174,8 +174,8 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
     if not os.path.exists(run_dir):
         # TODO: Log error in run log
-        print("Run directory not found")
-        finish_run(db, c, run_id, run["run_log"], None, STATE_SYSTEM_ERROR)
+        logger.error("Run directory not found")
+        _finish_run(STATE_SYSTEM_ERROR)
         return
 
     workflow_path = os.path.join(tmp_dir, "workflow_{w}.{ext}".format(
@@ -212,13 +212,13 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
             elif not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
                 # Request issues
-                finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
+                _finish_run(STATE_SYSTEM_ERROR)
                 return
 
         except requests.exceptions.ConnectionError:
             if not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
                 # Network issues
-                finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
+                _finish_run(STATE_SYSTEM_ERROR)
                 return
 
     else:
@@ -231,7 +231,8 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         try:
             subprocess.run(("java", "-version"))
         except FileNotFoundError:
-            finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
+            logger.error("Java is missing (required to validate WDL files)")
+            _finish_run(STATE_SYSTEM_ERROR)
             return
 
     # Validate WDL, listing dependencies
@@ -245,18 +246,18 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     if vr.returncode != 0:
         # Validation error with WDL file
         # TODO: Add some stdout or stderr to logs?
-        print("Failed with {} due to non-0 validation return code:".format(STATE_EXECUTOR_ERROR))
-        print("\tstdout: {}\n\tstderr: {}".format(v_out, v_err))
-        finish_run(db, c, run_id, run["run_log"], run_dir, STATE_EXECUTOR_ERROR)
+        logger.error("Failed with {} due to non-0 validation return code:\n\tstdout: {}\n\tstderr: {}".format(
+            STATE_EXECUTOR_ERROR, v_out, v_err))
+        _finish_run(STATE_EXECUTOR_ERROR)
         return
 
     #  - Since Toil doesn't support WDL imports right now, any dependencies will result in an error
     if "None" not in v_out:  # No dependencies
         # Toil can't process WDL dependencies right now  TODO
         # TODO: Add some stdout or stderr to logs?
-        print("Failed with {} due to dependencies in WDL:".format(STATE_EXECUTOR_ERROR))
-        print("\tstdout: {}\n\tstderr: {}".format(v_out, v_err))
-        finish_run(db, c, run_id, run["run_log"], run_dir, STATE_EXECUTOR_ERROR)
+        logger.error("Failed with {} due to dependencies in WDL:\n\tstdout: {}\n\tstderr: {}".format(
+            STATE_EXECUTOR_ERROR, v_out, v_err))
+        _finish_run(STATE_EXECUTOR_ERROR)
         return
 
     # TODO: SECURITY: MAKE SURE NOTHING REFERENCED IS OUTSIDE OF ALLOWED AREAS!
@@ -267,7 +268,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     workflow_id = get_wdl_workflow_name(workflow_path)
     if workflow_id is None:
         # Invalid/non-workflow-specifying WDL file
-        finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
+        _finish_run(STATE_SYSTEM_ERROR)
         return
 
     # TODO: To avoid having multiple names, we should maybe only set this once?
@@ -281,7 +282,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     # Start run
 
     workflow_runner_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
-    update_run_state(db, c, run_id, STATE_RUNNING)
+    _update_run_state(STATE_RUNNING)
 
     c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]))
     db.commit()
@@ -307,20 +308,21 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
     if timed_out:
         # TODO: Report error somehow
-        finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
+        _finish_run(STATE_SYSTEM_ERROR)
         return
 
     # Final steps: check exit code and report results
 
     if exit_code != 0:
         # TODO: Report error somehow
-        finish_run(db, c, run_id, run["run_log"], run_dir, STATE_EXECUTOR_ERROR)
+        _finish_run(STATE_EXECUTOR_ERROR)
+        return
 
     # Exit code is 0 otherwise
 
     if not chord_mode:
         # TODO: What should be done if this run was not a CHORD routine?
-        finish_run(db, c, run_id, run["run_log"], run_dir, STATE_COMPLETE)
+        _finish_run(STATE_COMPLETE)
         return
 
     # CHORD ingestion run
@@ -341,26 +343,19 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         "workflow_params": workflow_params
     }
 
-    # Register "finished" event with the bus instance
-    event_bus = EventBus()
-    event_bus.register_service_event_type(EVENT_WES_RUN_FINISHED, {
-        "type": "object",
-        # TODO
-    })
-
-    # Emit event
-    event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_FINISHED, run_results)
+    # Emit event if possible
+    if event_bus is not None:
+        event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_FINISHED, run_results)
 
     # Try to complete ingest POST request
 
     try:
         # TODO: Just post run ID, fetch rest from the WES service?
         r = requests.post(c_workflow_ingestion_url, json=run_results)
-        finish_run(db, c, run_id, run["run_log"], run_dir,
-                   STATE_COMPLETE if r.status_code < 400 else STATE_SYSTEM_ERROR)
+        _finish_run(STATE_COMPLETE if r.status_code < 400 else STATE_SYSTEM_ERROR)
 
     except requests.exceptions.ConnectionError:
         # Ingestion failed due to a network error
         # TODO: Retry a few times...
         # TODO: Report error somehow
-        finish_run(db, c, run_id, run["run_log"], run_dir, STATE_SYSTEM_ERROR)
+        _finish_run(STATE_SYSTEM_ERROR)

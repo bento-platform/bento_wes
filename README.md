@@ -27,3 +27,10 @@ SERVICE_TEMP=tmp
 SERVICE_URL_BASE_PATH=/
 WOM_TOOL_LOCATION=/path/to/womtool.jar
 ```
+
+
+## Events
+
+`wes_run_updated`: TODO
+
+`wes_run_completed`: TODO

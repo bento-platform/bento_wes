@@ -3,14 +3,13 @@ import os
 import uuid
 
 from flask import Blueprint, current_app, jsonify, request
-from urllib.parse import urljoin
 from werkzeug.utils import secure_filename
 
 from .celery import celery
 from .states import *
 from .runner import update_run_state, run_workflow
 
-from .db import get_db
+from .db import get_db, get_run_details
 
 
 bp_runs = Blueprint("runs", __name__)
@@ -126,68 +125,8 @@ def run_list():
 
 @bp_runs.route("/runs/<uuid:run_id>", methods=["GET"])
 def run_detail(run_id):
-    db = get_db()
-    c = db.cursor()
-
-    # Runs, run requests, and run logs are created at the same time, so if either of them is missing throw a 404.
-
-    c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
-    run = c.fetchone()
-
-    if run is None:
-        return make_error(404, "Not found")
-
-    c.execute("SELECT * from run_requests WHERE id = ?", (run["request"],))
-    run_request = c.fetchone()
-
-    if run_request is None:
-        return make_error(404, "Not found")
-
-    c.execute("SELECT * from run_logs WHERE id = ?", (run["run_log"],))
-    run_log = c.fetchone()
-
-    if run_log is None:
-        return make_error(404, "Not found")
-
-    c.execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
-
-    return jsonify({
-        "run_id": run["id"],
-        "request": {
-            "workflow_params": json.loads(run_request["workflow_params"]),
-            "workflow_type": run_request["workflow_type"],
-            "workflow_type_version": run_request["workflow_type_version"],
-            "workflow_engine_parameters": json.loads(run_request["workflow_engine_parameters"]),  # TODO
-            "workflow_url": run_request["workflow_url"],
-            "tags": json.loads(run_request["tags"])
-        },
-        "state": run["state"],
-        "run_log": {
-            "name": run_log["name"],
-            "cmd": run_log["cmd"],
-            "start_time": run_log["start_time"],
-            "end_time": run_log["end_time"],
-            "stdout": urljoin(
-                urljoin(current_app.config["CHORD_URL"], current_app.config["SERVICE_URL_BASE_PATH"] + "/"),
-                "runs/{}/stdout".format(run["id"])
-            ),
-            "stderr": urljoin(
-                urljoin(current_app.config["CHORD_URL"], current_app.config["SERVICE_URL_BASE_PATH"] + "/"),
-                "runs/{}/stderr".format(run["id"])
-            ),
-            "exit_code": run_log["exit_code"]
-        },
-        "task_logs": [{
-            "name": task["name"],
-            "cmd": task["cmd"],
-            "start_time": task["start_time"],
-            "end_time": task["end_time"],
-            "stdout": task["stdout"],
-            "stderr": task["stderr"],
-            "exit_code": task["exit_code"]
-        } for task in c.fetchall()],
-        "outputs": json.loads(run["outputs"])
-    })
+    run_details = get_run_details(get_db().cursor(), run_id)
+    return jsonify(run_details) if run_details is not None else make_error(404, "Not found")
 
 
 def get_stream(c, stream, run_id):
