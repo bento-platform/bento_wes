@@ -193,23 +193,18 @@ def run_detail(run_id):
 def get_stream(c, stream, run_id):
     c.execute("SELECT * FROM runs AS r, run_logs AS rl WHERE r.id = ? AND r.run_log = rl.id", (str(run_id),))
     run = c.fetchone()
-
-    if run is None:
-        return make_error(404, "Not found")
-
-    return current_app.response_class(response=run[stream], mimetype="text/plain", status=200)
+    return (current_app.response_class(response=run[stream], mimetype="text/plain", status=200) if run is None
+            else make_error(404, "Not found"))
 
 
 @bp_runs.route("/runs/<uuid:run_id>/stdout", methods=["GET"])
 def run_stdout(run_id):
-    db = get_db()
-    return get_stream(db.cursor(), "stdout", run_id)
+    return get_stream(get_db().cursor(), "stdout", run_id)
 
 
 @bp_runs.route("/runs/<uuid:run_id>/stderr", methods=["GET"])
 def run_stderr(run_id):
-    db = get_db()
-    return get_stream(db.cursor(), "stderr", run_id)
+    return get_stream(get_db().cursor(), "stderr", run_id)
 
 
 @bp_runs.route("/runs/<uuid:run_id>/cancel", methods=["POST"])
@@ -256,8 +251,7 @@ def run_cancel(run_id):
 
 @bp_runs.route("/runs/<uuid:run_id>/status", methods=["GET"])
 def run_status(run_id):
-    db = get_db()
-    c = db.cursor()
+    c = get_db().cursor()
 
     c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
     run = c.fetchone()
