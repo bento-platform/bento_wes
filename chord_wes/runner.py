@@ -166,8 +166,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     if parsed_workflow_url.scheme not in ALLOWED_WORKFLOW_URL_SCHEMES:
         # TODO: Log error in run log
         logger.error("Invalid workflow URL scheme")
-        _finish_run(STATE_SYSTEM_ERROR)
-        return
+        return _finish_run(STATE_SYSTEM_ERROR)
 
     tmp_dir = current_app.config["SERVICE_TEMP"]
     run_dir = os.path.join(tmp_dir, str(run_id))
@@ -175,8 +174,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     if not os.path.exists(run_dir):
         # TODO: Log error in run log
         logger.error("Run directory not found")
-        _finish_run(STATE_SYSTEM_ERROR)
-        return
+        return _finish_run(STATE_SYSTEM_ERROR)
 
     workflow_path = os.path.join(tmp_dir, "workflow_{w}.{ext}".format(
         w=str(urlsafe_b64encode(bytes(workflow_url, encoding="utf-8")), encoding="utf-8"),
@@ -268,8 +266,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     workflow_id = get_wdl_workflow_name(workflow_path)
     if workflow_id is None:
         # Invalid/non-workflow-specifying WDL file
-        _finish_run(STATE_SYSTEM_ERROR)
-        return
+        return _finish_run(STATE_SYSTEM_ERROR)
 
     # TODO: To avoid having multiple names, we should maybe only set this once?
     c.execute("UPDATE run_logs SET name = ? WHERE id = ?", (workflow_id, run["run_log"],))
@@ -308,22 +305,19 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
     if timed_out:
         # TODO: Report error somehow
-        _finish_run(STATE_SYSTEM_ERROR)
-        return
+        return _finish_run(STATE_SYSTEM_ERROR)
 
     # Final steps: check exit code and report results
 
     if exit_code != 0:
         # TODO: Report error somehow
-        _finish_run(STATE_EXECUTOR_ERROR)
-        return
+        return _finish_run(STATE_EXECUTOR_ERROR)
 
     # Exit code is 0 otherwise
 
     if not chord_mode:
         # TODO: What should be done if this run was not a CHORD routine?
-        _finish_run(STATE_COMPLETE)
-        return
+        return _finish_run(STATE_COMPLETE)
 
     # CHORD ingestion run
 
@@ -352,10 +346,10 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     try:
         # TODO: Just post run ID, fetch rest from the WES service?
         r = requests.post(c_workflow_ingestion_url, json=run_results)
-        _finish_run(STATE_COMPLETE if r.status_code < 400 else STATE_SYSTEM_ERROR)
+        return _finish_run(STATE_COMPLETE if r.status_code < 400 else STATE_SYSTEM_ERROR)
 
     except requests.exceptions.ConnectionError:
         # Ingestion failed due to a network error
         # TODO: Retry a few times...
         # TODO: Report error somehow
-        _finish_run(STATE_SYSTEM_ERROR)
+        return _finish_run(STATE_SYSTEM_ERROR)
