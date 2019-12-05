@@ -104,6 +104,8 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     db = get_db()
     c = db.cursor()
 
+    # Checks ------------------------------------------------------------------
+
     # Check that workflow ingestion URL is set if CHORD mode is on
     if chord_mode and c_workflow_ingestion_url is None:
         logger.error("An ingestion URL must be set.")
@@ -131,6 +133,8 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         logger.error("Cannot find run log {} for run {}".format(run["run_log"], run_id))
         return
 
+    # Setup ---------------------------------------------------------------
+
     # Set up scoped helpers
 
     def _update_run_state(state):
@@ -151,7 +155,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
         shutil.rmtree(run_dir, ignore_errors=True)
 
-    # Begin initialization (loading / downloading files)
+    # Initialization (loading / downloading files) ----------------------------
 
     _update_run_state(STATE_INITIALIZING)
 
@@ -274,9 +278,8 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
     # TODO: Input file downloading if needed
 
+    # Start run ---------------------------------------------------------------
     # Run the WDL with the Toil runner, placing all outputs into the job directory
-
-    # Start run
 
     workflow_runner_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
     _update_run_state(STATE_RUNNING)
@@ -284,7 +287,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]))
     db.commit()
 
-    # Wait for output
+    # -- Wait for output ------------------------------------------------------
 
     timed_out = False
 
@@ -298,6 +301,8 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         exit_code = workflow_runner_process.returncode
 
         timed_out = True
+
+    # Finish run --------------------------------------------------------------
 
     c.execute("UPDATE run_logs SET stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
               (stdout, stderr, exit_code, run["run_log"]))
@@ -319,7 +324,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         # TODO: What should be done if this run was not a CHORD routine?
         return _finish_run(STATE_COMPLETE)
 
-    # CHORD ingestion run
+    # CHORD ingestion ---------------------------------------------------------
 
     # TODO: Verify ingestion URL (vulnerability??)
 
