@@ -346,8 +346,8 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
     workflow_outputs = build_workflow_outputs(run_dir, workflow_id, workflow_params, c_workflow_metadata)
 
+    # Explicitly don't commit here; sync with state update
     c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run_id)))
-    db.commit()
 
     # Run result object
     run_results = {
