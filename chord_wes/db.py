@@ -17,7 +17,7 @@ __all__ = [
     "init_db",
     "update_db",
     "get_run_details",
-    "update_run_state",
+    "update_run_state_and_commit",
 ]
 
 
@@ -122,7 +122,7 @@ def get_run_details(c, run_id) -> Optional[dict]:
     }
 
 
-def update_run_state(db, c, run_id: Union[uuid.UUID, str], state: str):
+def update_run_state_and_commit(db, c, run_id: Union[uuid.UUID, str], state: str):
     c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
     db.commit()
     if event_bus is not None:

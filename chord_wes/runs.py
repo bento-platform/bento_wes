@@ -7,7 +7,7 @@ from werkzeug.utils import secure_filename
 
 from .celery import celery
 from .states import *
-from .runner import update_run_state, run_workflow
+from .runner import update_run_state_and_commit, run_workflow
 
 from .db import get_db, get_run_details
 
@@ -183,7 +183,7 @@ def run_cancel(run_id):
     # TODO: This only removes it from the queue... what if it's already executing?
 
     celery.control.revoke(run_log["celery_id"])
-    update_run_state(db, c, run["id"], STATE_CANCELING)
+    update_run_state_and_commit(db, c, run["id"], STATE_CANCELING)
 
     # TODO: wait for revocation / failure and update status...
 

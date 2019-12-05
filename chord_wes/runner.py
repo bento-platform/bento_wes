@@ -12,12 +12,12 @@ from chord_lib.ingestion import WORKFLOW_TYPE_FILE
 from collections import namedtuple
 from datetime import datetime
 from flask import current_app, json
-from typing import Optional
-from urllib.parse import urlparse
+from typing import Optional, Tuple
+from urllib.parse import urlparse, ParseResult
 
 from .celery import celery
 from .constants import *
-from .db import get_db, update_run_state
+from .db import get_db, update_run_state_and_commit
 from .events import *
 from .states import *
 
@@ -64,6 +64,40 @@ CWL_RUNNER = WorkflowRunner(
 WORKFLOW_RUNNERS = {r.type: r for r in (WDL_RUNNER, CWL_RUNNER)}
 
 
+def workflow_file_name(workflow_runner: WorkflowRunner, workflow_url: str):
+    return "workflow_{w}.{ext}".format(
+        w=str(urlsafe_b64encode(bytes(workflow_url, encoding="utf-8")), encoding="utf-8"),
+        ext=workflow_runner.extension)
+
+
+def download_or_move_workflow(workflow_url: str, parsed_workflow_url: ParseResult, workflow_path: str) -> Optional[str]:
+    # TODO: Auth
+    if parsed_workflow_url.scheme in ALLOWED_WORKFLOW_REQUEST_SCHEMES:
+        try:
+            wr = requests.get(workflow_url)
+
+            if wr.status_code == 200 and len(wr.content) < MAX_WORKFLOW_FILE_BYTES:
+                if os.path.exists(workflow_path):
+                    os.remove(workflow_path)
+
+                with open(workflow_path, "wb") as nwf:
+                    nwf.write(wr.content)
+
+            elif not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
+                # Request issues
+                return STATE_SYSTEM_ERROR
+
+        except requests.exceptions.ConnectionError:
+            if not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
+                # Network issues
+                return STATE_SYSTEM_ERROR
+
+    else:
+        # file://
+        # TODO: Handle exceptions
+        shutil.copyfile(parsed_workflow_url.path, workflow_path)
+
+
 def get_wdl_workflow_name(workflow_path: str) -> Optional[str]:
     with open(workflow_path, "r") as wdf:
         wdl_contents = wdf.read()
@@ -74,6 +108,41 @@ def get_wdl_workflow_name(workflow_path: str) -> Optional[str]:
             return None
 
         return workflow_id_match.group(1)
+
+
+def validate_wdl(workflow_path: str) -> Optional[Tuple[str, str]]:
+    # Check for Java (needed to run the WOM tool)
+    try:
+        subprocess.run(("java", "-version"))
+    except FileNotFoundError:
+        return "Java is missing (required to validate WDL files)", STATE_SYSTEM_ERROR
+
+    # Validate WDL, listing dependencies
+    #  - TODO: make this generic among workflow languages
+
+    vr = subprocess.Popen(("java", "-jar", current_app.config["WOM_TOOL_LOCATION"], "validate", "-l", workflow_path),
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
+
+    v_out, v_err = vr.communicate()
+
+    if vr.returncode != 0:
+        # Validation error with WDL file
+        # TODO: Add some stdout or stderr to logs?
+        return (
+            "Failed with {} due to non-0 validation return code:\n\tstdout: {}\n\tstderr: {}".format(
+                STATE_EXECUTOR_ERROR, v_out, v_err),
+            STATE_EXECUTOR_ERROR
+        )
+
+    #  - Since Toil doesn't support WDL imports right now, any dependencies will result in an error
+    if "None" not in v_out:  # No dependencies
+        # Toil can't process WDL dependencies right now  TODO
+        # TODO: Add some stdout or stderr to logs?
+        return (
+            "Failed with {} due to dependencies in WDL:\n\tstdout: {}\n\tstderr: {}".format(
+                STATE_EXECUTOR_ERROR, v_out, v_err),
+            STATE_EXECUTOR_ERROR
+        )
 
 
 def iso_now():
@@ -137,14 +206,13 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
     # Set up scoped helpers
 
-    def _update_run_state(state):
-        update_run_state(db, c, run_id, state)
+    def _update_run_state_and_commit(state: str) -> None:
+        update_run_state_and_commit(db, c, run_id, state)
 
-    def _finish_run(state):
+    def _finish_run(state: str) -> None:
+        # Explicitly don't commit here to sync with state update
         c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (iso_now(), run["run_log"]))
-        db.commit()
-
-        _update_run_state(state)
+        _update_run_state_and_commit(state)
 
         if run_dir is None:
             return
@@ -157,7 +225,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
     # Initialization (loading / downloading files) ----------------------------
 
-    _update_run_state(STATE_INITIALIZING)
+    _update_run_state_and_commit(STATE_INITIALIZING)
 
     workflow_type = run_request["workflow_type"]
     workflow_params = json.loads(run_request["workflow_params"])
@@ -180,9 +248,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         logger.error("Run directory not found")
         return _finish_run(STATE_SYSTEM_ERROR)
 
-    workflow_path = os.path.join(tmp_dir, "workflow_{w}.{ext}".format(
-        w=str(urlsafe_b64encode(bytes(workflow_url, encoding="utf-8")), encoding="utf-8"),
-        ext=workflow_runner.extension))
+    workflow_path = os.path.join(tmp_dir, workflow_file_name(workflow_runner, workflow_url))
     workflow_params_path = os.path.join(run_dir, workflow_runner.params_file)
 
     # Store input strings for the WDL file in a JSON file in the temporary folder
@@ -199,68 +265,18 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     db.commit()
 
     # Download or move workflow
+    error_state = download_or_move_workflow(workflow_url, parsed_workflow_url, workflow_path)
+    if error_state is not None:
+        return _finish_run(error_state)
 
-    # TODO: Auth
-    if parsed_workflow_url.scheme in ALLOWED_WORKFLOW_REQUEST_SCHEMES:
-        try:
-            wr = requests.get(workflow_url)
-
-            if wr.status_code == 200 and len(wr.content) < MAX_WORKFLOW_FILE_BYTES:
-                if os.path.exists(workflow_path):
-                    os.remove(workflow_path)
-
-                with open(workflow_path, "wb") as nwf:
-                    nwf.write(wr.content)
-
-            elif not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
-                # Request issues
-                _finish_run(STATE_SYSTEM_ERROR)
-                return
-
-        except requests.exceptions.ConnectionError:
-            if not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
-                # Network issues
-                _finish_run(STATE_SYSTEM_ERROR)
-                return
-
-    else:
-        # file://
-        # TODO: Handle exceptions
-        shutil.copyfile(parsed_workflow_url.path, workflow_path)
-
-    # Check for Java if trying to run a WDL file
+    # Run checks if trying to run a WDL file
     if workflow_type == WES_TYPE_WDL:
-        try:
-            subprocess.run(("java", "-version"))
-        except FileNotFoundError:
-            logger.error("Java is missing (required to validate WDL files)")
-            _finish_run(STATE_SYSTEM_ERROR)
-            return
+        error = validate_wdl(workflow_path)
+        if error is not None:
+            logger.error(error[0])
+            return _finish_run(error[1])
 
-    # Validate WDL, listing dependencies
-    #  - TODO: make this generic among workflow languages
-
-    vr = subprocess.Popen(("java", "-jar", current_app.config["WOM_TOOL_LOCATION"], "validate", "-l", workflow_path),
-                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
-
-    v_out, v_err = vr.communicate()
-
-    if vr.returncode != 0:
-        # Validation error with WDL file
-        # TODO: Add some stdout or stderr to logs?
-        logger.error("Failed with {} due to non-0 validation return code:\n\tstdout: {}\n\tstderr: {}".format(
-            STATE_EXECUTOR_ERROR, v_out, v_err))
-        _finish_run(STATE_EXECUTOR_ERROR)
-        return
-
-    #  - Since Toil doesn't support WDL imports right now, any dependencies will result in an error
-    if "None" not in v_out:  # No dependencies
-        # Toil can't process WDL dependencies right now  TODO
-        # TODO: Add some stdout or stderr to logs?
-        logger.error("Failed with {} due to dependencies in WDL:\n\tstdout: {}\n\tstderr: {}".format(
-            STATE_EXECUTOR_ERROR, v_out, v_err))
-        _finish_run(STATE_EXECUTOR_ERROR)
-        return
+    # TODO: Validate CWL
 
     # TODO: SECURITY: MAKE SURE NOTHING REFERENCED IS OUTSIDE OF ALLOWED AREAS!
     # TODO: SECURITY: Maybe don't allow external downloads, only run things in the container?
@@ -282,10 +298,10 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     # Run the WDL with the Toil runner, placing all outputs into the job directory
 
     workflow_runner_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
-    _update_run_state(STATE_RUNNING)
 
+    # Sync start time commit with state update
     c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]))
-    db.commit()
+    _update_run_state_and_commit(STATE_RUNNING)
 
     # -- Wait for output ------------------------------------------------------
 
@@ -293,20 +309,20 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
     try:
         stdout, stderr = workflow_runner_process.communicate(timeout=WORKFLOW_TIMEOUT)
-        exit_code = workflow_runner_process.returncode
 
     except subprocess.TimeoutExpired:
         workflow_runner_process.kill()
         stdout, stderr = workflow_runner_process.communicate()
-        exit_code = workflow_runner_process.returncode
-
         timed_out = True
+
+    finally:
+        exit_code = workflow_runner_process.returncode
 
     # Finish run --------------------------------------------------------------
 
+    # Explicitly don't commit here; sync with state update
     c.execute("UPDATE run_logs SET stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
               (stdout, stderr, exit_code, run["run_log"]))
-    db.commit()
 
     if timed_out:
         # TODO: Report error somehow
