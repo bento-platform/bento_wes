@@ -8,6 +8,8 @@ import uuid
 
 from base64 import urlsafe_b64encode
 from celery.utils.log import get_task_logger
+from chord_lib.events.notifications import format_notification
+from chord_lib.events.types import EVENT_CREATE_NOTIFICATION, EVENT_WES_RUN_FINISHED
 from chord_lib.ingestion import WORKFLOW_TYPE_FILE
 from collections import namedtuple
 from datetime import datetime
@@ -213,6 +215,30 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         # Explicitly don't commit here to sync with state update
         c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (iso_now(), run["run_log"]))
         _update_run_state_and_commit(state)
+
+        if state in FAILURE_STATES:
+            event_bus.publish_service_event(
+                SERVICE_ARTIFACT,
+                EVENT_CREATE_NOTIFICATION,
+                format_notification(
+                    title="WES Run Failed",
+                    description=f"WES run '{str(run_id)}' failed with state {state}",
+                    action_type="wes_run_detail",
+                    action_target=str(run_id)
+                )
+            )
+
+        elif state in SUCCESS_STATES:
+            event_bus.publish_service_event(
+                SERVICE_ARTIFACT,
+                EVENT_CREATE_NOTIFICATION,
+                format_notification(
+                    title="WES Run Completed",
+                    description=f"WES run '{str(run_id)}' completed successfully",
+                    action_type="wes_run_detail",
+                    action_target=str(run_id)
+                )
+            )
 
         if run_dir is None:
             return
