@@ -24,8 +24,6 @@ EVENT_WES_RUN_FINISHED_SCHEMA = {
 }
 
 
-# TODO: Make this None for non-CHORD cases
-event_bus: Optional[EventBus] = EventBus()
-if event_bus is not None:
-    event_bus.register_service_event_type(EVENT_WES_RUN_UPDATED, EVENT_WES_RUN_UPDATED_SCHEMA)
-    event_bus.register_service_event_type(EVENT_WES_RUN_FINISHED, EVENT_WES_RUN_FINISHED_SCHEMA)
+event_bus = EventBus(allow_fake=True)
+event_bus.register_service_event_type(EVENT_WES_RUN_UPDATED, EVENT_WES_RUN_UPDATED_SCHEMA)
+event_bus.register_service_event_type(EVENT_WES_RUN_FINISHED, EVENT_WES_RUN_FINISHED_SCHEMA)

@@ -125,5 +125,4 @@ def get_run_details(c, run_id) -> Optional[dict]:
 def update_run_state_and_commit(db, c, run_id: Union[uuid.UUID, str], state: str):
     c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
     db.commit()
-    if event_bus is not None:
-        event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_UPDATED, get_run_details(c, run_id))
+    event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_UPDATED, get_run_details(c, run_id))
