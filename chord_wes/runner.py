@@ -24,6 +24,10 @@ from .events import *
 from .states import *
 
 
+NOTIFICATION_WES_RUN_FAILED = "wes_run_failed"
+NOTIFICATION_WES_RUN_COMPLETED = "wes_run_completed"
+
+
 ALLOWED_WORKFLOW_URL_SCHEMES = ("http", "https", "file")
 ALLOWED_WORKFLOW_REQUEST_SCHEMES = ("http", "https")
 
@@ -223,7 +227,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
                 format_notification(
                     title="WES Run Failed",
                     description=f"WES run '{str(run_id)}' failed with state {state}",
-                    action_type="wes_run_failed",
+                    notification_type=NOTIFICATION_WES_RUN_FAILED,
                     action_target=str(run_id)
                 )
             )
@@ -235,7 +239,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
                 format_notification(
                     title="WES Run Completed",
                     description=f"WES run '{str(run_id)}' completed successfully",
-                    action_type="wes_run_completed",
+                    notification_type=NOTIFICATION_WES_RUN_COMPLETED,
                     action_target=str(run_id)
                 )
             )
