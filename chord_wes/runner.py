@@ -223,7 +223,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
                 format_notification(
                     title="WES Run Failed",
                     description=f"WES run '{str(run_id)}' failed with state {state}",
-                    action_type="wes_run_detail",
+                    action_type="wes_run_failed",
                     action_target=str(run_id)
                 )
             )
@@ -235,7 +235,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
                 format_notification(
                     title="WES Run Completed",
                     description=f"WES run '{str(run_id)}' completed successfully",
-                    action_type="wes_run_detail",
+                    action_type="wes_run_completed",
                     action_target=str(run_id)
                 )
             )
