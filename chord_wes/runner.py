@@ -173,76 +173,50 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
 logger = get_task_logger(__name__)
 
 
-@celery.task(bind=True)
-def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata: dict,
-                 c_workflow_ingestion_url: Optional[str], c_table_id: Optional[str]):
-    db = get_db()
-    c = db.cursor()
+def finish_run(db, c, run_id: uuid.UUID, run_log_id: str, state: str) -> None:
+    # Explicitly don't commit here to sync with state update
+    c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (iso_now(), run_log_id))
+    update_run_state_and_commit(db, c, run_id, state)
 
-    # Checks ------------------------------------------------------------------
+    if state in FAILURE_STATES:
+        event_bus.publish_service_event(
+            SERVICE_ARTIFACT,
+            EVENT_CREATE_NOTIFICATION,
+            format_notification(
+                title="WES Run Failed",
+                description=f"WES run '{str(run_id)}' failed with state {state}",
+                notification_type=NOTIFICATION_WES_RUN_FAILED,
+                action_target=str(run_id)
+            )
+        )
 
-    # Check that workflow ingestion URL is set if CHORD mode is on
-    if chord_mode and c_workflow_ingestion_url is None:
-        logger.error("An ingestion URL must be set.")
-        return
+    elif state in SUCCESS_STATES:
+        event_bus.publish_service_event(
+            SERVICE_ARTIFACT,
+            EVENT_CREATE_NOTIFICATION,
+            format_notification(
+                title="WES Run Completed",
+                description=f"WES run '{str(run_id)}' completed successfully",
+                notification_type=NOTIFICATION_WES_RUN_COMPLETED,
+                action_target=str(run_id)
+            )
+        )
 
-    # TODO: Check workflow_ingestion_url is valid
 
-    # Fetch run from the database, checking that it exists
-    c.execute("SELECT request, run_log FROM runs WHERE id = ?", (str(run_id),))
-    run = c.fetchone()
-    if run is None:
-        logger.error("Cannot find run {}".format(run_id))
-        return
-
-    # Fetch run request from the database, checking that it exists
-    c.execute("SELECT * FROM run_requests WHERE id = ?", (run["request"],))
-    run_request = c.fetchone()
-    if run_request is None:
-        logger.error("Cannot find run request {} for run {}".format(run["request"], run_id))
-        return
-
-    # Check run log exists
-    c.execute("SELECT * FROM run_logs WHERE id = ?", (run["run_log"],))
-    if c.fetchone() is None:
-        logger.error("Cannot find run log {} for run {}".format(run["run_log"], run_id))
-        return
-
+def _run_workflow(db, c, celery_request_id, run_id: uuid.UUID, run: dict, run_request: dict, chord_mode: bool,
+                  c_workflow_metadata: dict, c_workflow_ingestion_url: Optional[str], c_table_id: Optional[str]):
     # Setup ---------------------------------------------------------------
+
+    tmp_dir = current_app.config["SERVICE_TEMP"]
+    run_dir = os.path.join(tmp_dir, str(run_id))
 
     # Set up scoped helpers
 
     def _update_run_state_and_commit(state: str) -> None:
         update_run_state_and_commit(db, c, run_id, state)
 
-    def _finish_run(state: str) -> None:
-        # Explicitly don't commit here to sync with state update
-        c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (iso_now(), run["run_log"]))
-        _update_run_state_and_commit(state)
-
-        if state in FAILURE_STATES:
-            event_bus.publish_service_event(
-                SERVICE_ARTIFACT,
-                EVENT_CREATE_NOTIFICATION,
-                format_notification(
-                    title="WES Run Failed",
-                    description=f"WES run '{str(run_id)}' failed with state {state}",
-                    notification_type=NOTIFICATION_WES_RUN_FAILED,
-                    action_target=str(run_id)
-                )
-            )
-
-        elif state in SUCCESS_STATES:
-            event_bus.publish_service_event(
-                SERVICE_ARTIFACT,
-                EVENT_CREATE_NOTIFICATION,
-                format_notification(
-                    title="WES Run Completed",
-                    description=f"WES run '{str(run_id)}' completed successfully",
-                    notification_type=NOTIFICATION_WES_RUN_COMPLETED,
-                    action_target=str(run_id)
-                )
-            )
+    def _finish_run_and_clean_up(state: str) -> None:
+        finish_run(db, c, run_id, run["run_log"], state)
 
         if run_dir is None:
             return
@@ -268,15 +242,12 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     if parsed_workflow_url.scheme not in ALLOWED_WORKFLOW_URL_SCHEMES:
         # TODO: Log error in run log
         logger.error("Invalid workflow URL scheme")
-        return _finish_run(STATE_SYSTEM_ERROR)
-
-    tmp_dir = current_app.config["SERVICE_TEMP"]
-    run_dir = os.path.join(tmp_dir, str(run_id))
+        return _finish_run_and_clean_up(STATE_SYSTEM_ERROR)
 
     if not os.path.exists(run_dir):
         # TODO: Log error in run log
         logger.error("Run directory not found")
-        return _finish_run(STATE_SYSTEM_ERROR)
+        return _finish_run_and_clean_up(STATE_SYSTEM_ERROR)
 
     workflow_path = os.path.join(tmp_dir, workflow_file_name(workflow_runner, workflow_url))
     workflow_params_path = os.path.join(run_dir, workflow_runner.params_file)
@@ -291,20 +262,20 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
     # Update run log with command and Celery ID
     c.execute("UPDATE run_logs SET cmd = ?, celery_id = ? WHERE id = ?",
-              (" ".join(cmd), self.request.id, run["run_log"]))
+              (" ".join(cmd), celery_request_id, run["run_log"]))
     db.commit()
 
     # Download or move workflow
     error_state = download_or_move_workflow(workflow_url, parsed_workflow_url, workflow_path)
     if error_state is not None:
-        return _finish_run(error_state)
+        return _finish_run_and_clean_up(error_state)
 
     # Run checks if trying to run a WDL file
     if workflow_type == WES_TYPE_WDL:
         error = validate_wdl(workflow_path)
         if error is not None:
             logger.error(error[0])
-            return _finish_run(error[1])
+            return _finish_run_and_clean_up(error[1])
 
     # TODO: Validate CWL
 
@@ -316,7 +287,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     workflow_id = get_wdl_workflow_name(workflow_path)
     if workflow_id is None:
         # Invalid/non-workflow-specifying WDL file
-        return _finish_run(STATE_SYSTEM_ERROR)
+        return _finish_run_and_clean_up(STATE_SYSTEM_ERROR)
 
     # TODO: To avoid having multiple names, we should maybe only set this once?
     c.execute("UPDATE run_logs SET name = ? WHERE id = ?", (workflow_id, run["run_log"],))
@@ -356,19 +327,19 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
     if timed_out:
         # TODO: Report error somehow
-        return _finish_run(STATE_SYSTEM_ERROR)
+        return _finish_run_and_clean_up(STATE_SYSTEM_ERROR)
 
     # Final steps: check exit code and report results
 
     if exit_code != 0:
         # TODO: Report error somehow
-        return _finish_run(STATE_EXECUTOR_ERROR)
+        return _finish_run_and_clean_up(STATE_EXECUTOR_ERROR)
 
     # Exit code is 0 otherwise
 
     if not chord_mode:
         # TODO: What should be done if this run was not a CHORD routine?
-        return _finish_run(STATE_COMPLETE)
+        return _finish_run_and_clean_up(STATE_COMPLETE)
 
     # CHORD ingestion ---------------------------------------------------------
 
@@ -396,10 +367,56 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     try:
         # TODO: Just post run ID, fetch rest from the WES service?
         r = requests.post(c_workflow_ingestion_url, json=run_results)
-        return _finish_run(STATE_COMPLETE if r.status_code < 400 else STATE_SYSTEM_ERROR)
+        return _finish_run_and_clean_up(STATE_COMPLETE if r.status_code < 400 else STATE_SYSTEM_ERROR)
 
     except requests.exceptions.ConnectionError:
         # Ingestion failed due to a network error
         # TODO: Retry a few times...
         # TODO: Report error somehow
-        return _finish_run(STATE_SYSTEM_ERROR)
+        return _finish_run_and_clean_up(STATE_SYSTEM_ERROR)
+
+
+@celery.task(bind=True)
+def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata: dict,
+                 c_workflow_ingestion_url: Optional[str], c_table_id: Optional[str]):
+    db = get_db()
+    c = db.cursor()
+
+    # Checks ------------------------------------------------------------------
+
+    # Check that workflow ingestion URL is set if CHORD mode is on
+    if chord_mode and c_workflow_ingestion_url is None:
+        logger.error("An ingestion URL must be set.")
+        return
+
+    # TODO: Check workflow_ingestion_url is valid
+
+    # Fetch run from the database, checking that it exists
+    c.execute("SELECT request, run_log FROM runs WHERE id = ?", (str(run_id),))
+    run = c.fetchone()
+    if run is None:
+        logger.error("Cannot find run {}".format(run_id))
+        return
+
+    # Fetch run request from the database, checking that it exists
+    c.execute("SELECT * FROM run_requests WHERE id = ?", (run["request"],))
+    run_request = c.fetchone()
+    if run_request is None:
+        logger.error("Cannot find run request {} for run {}".format(run["request"], run_id))
+        return
+
+    # Check run log exists
+    c.execute("SELECT * FROM run_logs WHERE id = ?", (run["run_log"],))
+    if c.fetchone() is None:
+        logger.error("Cannot find run log {} for run {}".format(run["run_log"], run_id))
+        return
+
+    # Pass to runner function -------------------------------------------------
+
+    try:
+        _run_workflow(db, c, self.request.id, run_id, run, run_request, chord_mode, c_workflow_metadata,
+                      c_workflow_ingestion_url, c_table_id)
+    except Exception as e:
+        # Intercept any uncaught exceptions and finish with an error state
+        finish_run(db, c, run_id, run["run_log"], STATE_SYSTEM_ERROR)
+        raise e
