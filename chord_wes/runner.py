@@ -10,7 +10,7 @@ from base64 import urlsafe_b64encode
 from celery.utils.log import get_task_logger
 from chord_lib.events.notifications import format_notification
 from chord_lib.events.types import EVENT_CREATE_NOTIFICATION, EVENT_WES_RUN_FINISHED
-from chord_lib.ingestion import WORKFLOW_TYPE_FILE
+from chord_lib.ingestion import WORKFLOW_TYPE_FILE, WORKFLOW_TYPE_FILE_ARRAY
 from collections import namedtuple
 from datetime import datetime
 from flask import current_app, json
@@ -164,8 +164,13 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
     workflow_outputs = {}
     for output in c_workflow_metadata["outputs"]:
         workflow_outputs[output["id"]] = chord_lib.ingestion.formatted_output(output, output_params)
+
+        # Rewrite file outputs to include full path to temporary location
         if output["type"] == WORKFLOW_TYPE_FILE:
             workflow_outputs[output["id"]] = os.path.abspath(os.path.join(run_dir, workflow_outputs[output["id"]]))
+        elif output["type"] == WORKFLOW_TYPE_FILE_ARRAY:
+            workflow_outputs[output["id"]] = [os.path.abspath(os.path.join(run_dir, wo))
+                                              for wo in workflow_outputs[output["id"]]]
 
     return workflow_outputs
 
