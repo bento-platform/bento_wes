@@ -38,6 +38,8 @@ WDL_WORKSPACE_NAME_REGEX = re.compile(r"workflow\s+([a-zA-Z][a-zA-Z0-9_]+)")
 
 WORKFLOW_TIMEOUT = 60 * 60 * 24  # 24 hours
 
+INGEST_POST_TIMEOUT = 60 * 10  # 10 minutes
+
 
 WES_TYPE_WDL = "WDL"
 WES_TYPE_CWL = "CWL"
@@ -371,11 +373,11 @@ def _run_workflow(db, c, celery_request_id, run_id: uuid.UUID, run: dict, run_re
 
     try:
         # TODO: Just post run ID, fetch rest from the WES service?
-        r = requests.post(c_workflow_ingestion_url, json=run_results)
+        r = requests.post(c_workflow_ingestion_url, json=run_results, timeout=INGEST_POST_TIMEOUT)
         return _finish_run_and_clean_up(STATE_COMPLETE if r.status_code < 400 else STATE_SYSTEM_ERROR)
 
-    except requests.exceptions.ConnectionError:
-        # Ingestion failed due to a network error
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+        # Ingestion failed due to a network error, or was too slow.
         # TODO: Retry a few times...
         # TODO: Report error somehow
         return _finish_run_and_clean_up(STATE_SYSTEM_ERROR)
