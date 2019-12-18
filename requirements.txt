@@ -4,7 +4,7 @@ amqp==2.5.2
 attrs==19.3.0
 Babel==2.7.0
 billiard==3.6.1.0
-celery[redis]==4.3.0
+celery[redis]==4.4.0
 certifi==2019.11.28
 chardet==3.0.4
 git+https://github.com/c3g/chord_lib
