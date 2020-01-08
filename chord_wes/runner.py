@@ -16,7 +16,7 @@ from collections import namedtuple
 from datetime import datetime
 from flask import current_app, json
 from typing import Optional, Tuple
-from urllib.parse import urlparse, ParseResult
+from urllib.parse import quote, urlparse, ParseResult
 
 from .celery import celery
 from .constants import *
@@ -28,7 +28,7 @@ from .states import *
 requests_unixsocket.monkeypatch()
 
 
-NGINX_INTERNAL_SOCKET = os.environ.get("NGINX_INTERNAL_SOCKET", "/chord/tmp/nginx_internal.sock")
+NGINX_INTERNAL_SOCKET = quote(os.environ.get("NGINX_INTERNAL_SOCKET", "/chord/tmp/nginx_internal.sock"), safe="")
 
 NOTIFICATION_WES_RUN_FAILED = "wes_run_failed"
 NOTIFICATION_WES_RUN_COMPLETED = "wes_run_completed"
