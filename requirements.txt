@@ -7,7 +7,7 @@ billiard==3.6.1.0
 celery[redis]==4.4.0
 certifi==2019.11.28
 chardet==3.0.4
-git+https://github.com/c3g/chord_lib
+git+https://github.com/c3g/chord_lib#egg=chord_lib[flask]
 Click==7.0
 dill==0.2.7.1
 docker==2.5.1
