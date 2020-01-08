@@ -11,7 +11,8 @@ setuptools.setup(
 
     python_requires=">=3.6",
     install_requires=["celery[redis]==4.4.0", "chord_lib @ git+https://github.com/c3g/chord_lib#egg=chord_lib[flask]",
-                      "Flask>=1.1,<2.0", "requests>=2.22,<3.0", "toil[wdl]==3.21.0"],
+                      "Flask>=1.1,<2.0", "requests>=2.22,<3.0", "requests-unixsocket>=0.2.0,<0.3.0",
+                      "toil[wdl]==3.21.0"],
 
     author="David Lougheed",
     author_email="david.lougheed@mail.mcgill.ca",

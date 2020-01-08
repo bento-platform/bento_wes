@@ -48,12 +48,12 @@ def run_list():
 
             # Only "turn on" CHORD-specific features if specific tags are present
 
-            chord_mode = ("workflow_id" in tags and "workflow_metadata" in tags and "ingestion_url" in tags
+            chord_mode = ("workflow_id" in tags and "workflow_metadata" in tags and "ingestion_path" in tags
                           and "dataset_id" in tags)  # TODO: table_id
 
             workflow_id = tags.get("workflow_id", workflow_url)
             workflow_metadata = tags.get("workflow_metadata", {})
-            workflow_ingestion_url = tags.get("ingestion_url", None)
+            workflow_ingestion_path = tags.get("ingestion_path", None)
             table_id = tags.get("dataset_id", None)  # TODO: table_id
 
             # Don't accept anything (ex. CWL) other than WDL TODO: CWL support
@@ -108,7 +108,7 @@ def run_list():
             c.execute("UPDATE runs SET state = ? WHERE id = ?", (STATE_QUEUED, str(run_id)))
             db.commit()
 
-            run_workflow.delay(run_id, chord_mode, workflow_metadata, workflow_ingestion_url, table_id)
+            run_workflow.delay(run_id, chord_mode, workflow_metadata, workflow_ingestion_path, table_id)
 
             return jsonify({"run_id": str(run_id)})
 

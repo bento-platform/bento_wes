@@ -2,6 +2,7 @@ import chord_lib.ingestion
 import os
 import re
 import requests
+import requests_unixsocket
 import shutil
 import subprocess
 import uuid
@@ -23,6 +24,11 @@ from .db import get_db, update_run_state_and_commit
 from .events import *
 from .states import *
 
+
+requests_unixsocket.monkeypatch()
+
+
+NGINX_INTERNAL_SOCKET = os.environ.get("NGINX_INTERNAL_SOCKET", "/chord/tmp/nginx_internal.sock")
 
 NOTIFICATION_WES_RUN_FAILED = "wes_run_failed"
 NOTIFICATION_WES_RUN_COMPLETED = "wes_run_completed"
@@ -211,7 +217,7 @@ def finish_run(db, c, run_id: uuid.UUID, run_log_id: str, state: str) -> None:
 
 
 def _run_workflow(db, c, celery_request_id, run_id: uuid.UUID, run: dict, run_request: dict, chord_mode: bool,
-                  c_workflow_metadata: dict, c_workflow_ingestion_url: Optional[str], c_table_id: Optional[str]):
+                  c_workflow_metadata: dict, c_workflow_ingestion_path: Optional[str], c_table_id: Optional[str]):
     # Setup ---------------------------------------------------------------
 
     tmp_dir = current_app.config["SERVICE_TEMP"]
@@ -368,12 +374,15 @@ def _run_workflow(db, c, celery_request_id, run_id: uuid.UUID, run: dict, run_re
 
     # Emit event if possible
     event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_FINISHED, run_results)
+    # TODO: If this is used to ingest, we'll have to wait for a confirmation before cleaning up; otherwise files could
+    #  get removed before they get processed.
 
     # Try to complete ingest POST request
 
     try:
         # TODO: Just post run ID, fetch rest from the WES service?
-        r = requests.post(c_workflow_ingestion_url, json=run_results, timeout=INGEST_POST_TIMEOUT)
+        r = requests.post(f"http+unix://{NGINX_INTERNAL_SOCKET}{c_workflow_ingestion_path}",
+                          json=run_results, timeout=INGEST_POST_TIMEOUT)
         return _finish_run_and_clean_up(STATE_COMPLETE if r.status_code < 400 else STATE_SYSTEM_ERROR)
 
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
@@ -385,18 +394,18 @@ def _run_workflow(db, c, celery_request_id, run_id: uuid.UUID, run: dict, run_re
 
 @celery.task(bind=True)
 def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata: dict,
-                 c_workflow_ingestion_url: Optional[str], c_table_id: Optional[str]):
+                 c_workflow_ingestion_path: Optional[str], c_table_id: Optional[str]):
     db = get_db()
     c = db.cursor()
 
     # Checks ------------------------------------------------------------------
 
     # Check that workflow ingestion URL is set if CHORD mode is on
-    if chord_mode and c_workflow_ingestion_url is None:
+    if chord_mode and c_workflow_ingestion_path is None:
         logger.error("An ingestion URL must be set.")
         return
 
-    # TODO: Check workflow_ingestion_url is valid
+    # TODO: Check c_workflow_ingestion_path is valid
 
     # Fetch run from the database, checking that it exists
     c.execute("SELECT request, run_log FROM runs WHERE id = ?", (str(run_id),))
@@ -422,7 +431,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
     try:
         _run_workflow(db, c, self.request.id, run_id, run, run_request, chord_mode, c_workflow_metadata,
-                      c_workflow_ingestion_url, c_table_id)
+                      c_workflow_ingestion_path, c_table_id)
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         finish_run(db, c, run_id, run["run_log"], STATE_SYSTEM_ERROR)
