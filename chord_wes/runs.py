@@ -10,7 +10,7 @@ from .celery import celery
 from .states import *
 from .runner import update_run_state_and_commit, run_workflow
 
-from .db import get_db, get_run_details
+from .db import get_db, run_request_dict, run_log_dict, get_task_logs, get_run_details
 
 
 bp_runs = Blueprint("runs", __name__)
@@ -117,12 +117,29 @@ def run_list():
         except (ValueError, AssertionError):
             return make_error(400, "Invalid request")
 
-    c.execute("SELECT * FROM runs")
+    # GET
+    # CHORD Extension: Include run details with /runs request
+    with_details = request.args.get("with_details", "false").lower() == "true"
+
+    if not with_details:
+        c.execute("SELECT * FROM runs")
+
+        return jsonify([{
+            "run_id": run["id"],
+            "state": run["state"]
+        } for run in c.fetchall()])
+
+    c.execute("SELECT r.id AS run_id, r.state AS state, rr.*, rl.* "
+              "FROM runs AS r, run_requests AS rr, run_logs AS rl "
+              "WHERE r.request = rr.id AND r.run_log = rl.id")
 
     return jsonify([{
-        "run_id": run["id"],
-        "state": run["state"]
-    } for run in c.fetchall()])
+        "run_id": r["run_id"],
+        "state": r["state"],
+        "request": run_request_dict(r),
+        "run_log": run_log_dict(r["run_id"], r),
+        "task_logs": get_task_logs(c, r["run_id"])
+    } for r in c.fetchall()])
 
 
 @bp_runs.route("/runs/<uuid:run_id>", methods=["GET"])
