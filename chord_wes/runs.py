@@ -136,9 +136,13 @@ def run_list():
     return jsonify([{
         "run_id": r["run_id"],
         "state": r["state"],
-        "request": run_request_dict(r),
-        "run_log": run_log_dict(r["run_id"], r),
-        "task_logs": get_task_logs(c, r["run_id"])
+        "details": {
+            "run_id": r["run_id"],
+            "state": r["state"],
+            "request": run_request_dict(r),
+            "run_log": run_log_dict(r["run_id"], r),
+            "task_logs": get_task_logs(c, r["run_id"])
+        }
     } for r in c.fetchall()])
 
 
