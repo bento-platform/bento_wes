@@ -2,6 +2,7 @@ import json
 import os
 import uuid
 
+from chord_lib.auth.flask_decorators import flask_permissions_owner
 from flask import Blueprint, current_app, jsonify, request
 from werkzeug.utils import secure_filename
 
@@ -23,6 +24,7 @@ def make_error(status_code: int, message: str):
 
 
 @bp_runs.route("/runs", methods=["GET", "POST"])
+@flask_permissions_owner  # TODO: Allow others to submit analysis runs?
 def run_list():
     db = get_db()
     c = db.cursor()
@@ -124,6 +126,7 @@ def run_list():
 
 
 @bp_runs.route("/runs/<uuid:run_id>", methods=["GET"])
+@flask_permissions_owner
 def run_detail(run_id):
     run_details = get_run_details(get_db().cursor(), run_id)
     return jsonify(run_details) if run_details is not None else make_error(404, "Not found")
@@ -137,16 +140,19 @@ def get_stream(c, stream, run_id):
 
 
 @bp_runs.route("/runs/<uuid:run_id>/stdout", methods=["GET"])
+@flask_permissions_owner
 def run_stdout(run_id):
     return get_stream(get_db().cursor(), "stdout", run_id)
 
 
 @bp_runs.route("/runs/<uuid:run_id>/stderr", methods=["GET"])
+@flask_permissions_owner
 def run_stderr(run_id):
     return get_stream(get_db().cursor(), "stderr", run_id)
 
 
 @bp_runs.route("/runs/<uuid:run_id>/cancel", methods=["POST"])
+@flask_permissions_owner
 def run_cancel(run_id):
     # TODO: Check if already completed
     # TODO: Check if run log exists
@@ -189,6 +195,7 @@ def run_cancel(run_id):
 
 
 @bp_runs.route("/runs/<uuid:run_id>/status", methods=["GET"])
+@flask_permissions_owner
 def run_status(run_id):
     c = get_db().cursor()
 
