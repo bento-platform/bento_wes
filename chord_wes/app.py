@@ -35,7 +35,7 @@ application.register_blueprint(bp_runs)
 def _wrap_tb(func):  # pragma: no cover
     # TODO: pass exception?
     def handle_error(_e):
-        print("[CHORD Lib] Encountered error:", file=sys.stderr)
+        print("[CHORD WES] Encountered error:", file=sys.stderr)
         traceback.print_exc()
         return func()
     return handle_error
