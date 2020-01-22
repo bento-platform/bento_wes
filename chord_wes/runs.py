@@ -3,6 +3,7 @@ import os
 import uuid
 
 from chord_lib.auth.flask_decorators import flask_permissions_owner
+from chord_lib.responses.flask_errors import *
 from flask import Blueprint, current_app, jsonify, request
 from werkzeug.utils import secure_filename
 
@@ -14,13 +15,6 @@ from .db import get_db, run_request_dict, run_log_dict, get_task_logs, get_run_d
 
 
 bp_runs = Blueprint("runs", __name__)
-
-
-def make_error(status_code: int, message: str):
-    return jsonify({
-        "msg": message,
-        "status_code": status_code
-    }), status_code
 
 
 @bp_runs.route("/runs", methods=["GET", "POST"])
@@ -82,7 +76,7 @@ def run_list():
             run_dir = os.path.join(current_app.config["SERVICE_TEMP"], str(run_id))
 
             if os.path.exists(run_dir):
-                return make_error(500, "UUID collision")
+                return flask_internal_server_error("UUID collision")
 
             os.makedirs(run_dir, exist_ok=True)
             # TODO: Delete run dir if something goes wrong...
@@ -114,8 +108,11 @@ def run_list():
 
             return jsonify({"run_id": str(run_id)})
 
-        except (ValueError, AssertionError):
-            return make_error(400, "Invalid request")
+        except ValueError:
+            return flask_bad_request_error("Value error")
+
+        except AssertionError:
+            return flask_bad_request_error("Assertion error")
 
     # GET
     # CHORD Extension: Include run details with /runs request
@@ -150,14 +147,14 @@ def run_list():
 @flask_permissions_owner
 def run_detail(run_id):
     run_details = get_run_details(get_db().cursor(), run_id)
-    return jsonify(run_details) if run_details is not None else make_error(404, "Not found")
+    return jsonify(run_details) if run_details is not None else flask_not_found_error(f"Run {run_id} not found")
 
 
 def get_stream(c, stream, run_id):
     c.execute("SELECT * FROM runs AS r, run_logs AS rl WHERE r.id = ? AND r.run_log = rl.id", (str(run_id),))
     run = c.fetchone()
     return (current_app.response_class(response=run[stream], mimetype="text/plain", status=200) if run is not None
-            else make_error(404, "Not found"))
+            else flask_not_found_error(f"Stream {stream} not found for run {run_id}"))
 
 
 @bp_runs.route("/runs/<uuid:run_id>/stdout", methods=["GET"])
@@ -185,27 +182,26 @@ def run_cancel(run_id):
     run = c.fetchone()
 
     if run is None:
-        return make_error(404, "Not found")
+        return flask_not_found_error(f"Run {run_id} not found")
 
     if run["state"] in (STATE_CANCELING, STATE_CANCELED):
-        return make_error(500, "Already cancelled")
+        return flask_bad_request_error("Run already canceled")
 
     if run["state"] in (STATE_SYSTEM_ERROR, STATE_EXECUTOR_ERROR):
-        return make_error(500, "Already terminated with error")
+        return flask_bad_request_error("Run already terminated with error")
 
     if run["state"] == STATE_COMPLETE:
-        return make_error(500, "Already completed")
+        return flask_bad_request_error("Run already completed")
 
     c.execute("SELECT * FROM run_logs WHERE id = ?", (run["run_log"],))
     run_log = c.fetchone()
 
     if run_log is None:
-        return make_error(500, "No run log present")
+        return flask_internal_server_error(f"No run log present for run {run_id}")
 
     if run_log["celery_id"] is None:
         # Never made it into the queue, so "cancel" it
-
-        return make_error(500, "No Celery ID present")
+        return flask_internal_server_error(f"No Celery ID present for run {run_id}")
 
     # TODO: This only removes it from the queue... what if it's already executing?
 
@@ -224,7 +220,7 @@ def run_status(run_id):
     run = c.fetchone()
 
     if run is None:
-        return make_error(404, "Not found")
+        return flask_not_found_error(f"Run {run_id} not found")
 
     return jsonify({
         "run_id": run["id"],

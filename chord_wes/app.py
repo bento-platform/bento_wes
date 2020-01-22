@@ -1,7 +1,11 @@
 import chord_wes
 import os
+import sys
+import traceback
 
+from chord_lib.responses.flask_errors import *
 from flask import Flask, json, jsonify
+from werkzeug.exceptions import BadRequest, NotFound
 
 from .celery import celery
 from .constants import *
@@ -24,6 +28,26 @@ application.config.from_mapping(
 )
 
 application.register_blueprint(bp_runs)
+
+
+# TODO: Figure out common pattern and move to chord_lib
+
+def _wrap_tb(func):  # pragma: no cover
+    # TODO: pass exception?
+    def handle_error(_e):
+        print("[CHORD Lib] Encountered error:", file=sys.stderr)
+        traceback.print_exc()
+        return func()
+    return handle_error
+
+
+def _wrap(func):  # pragma: no cover
+    return lambda _e: func()
+
+
+application.register_error_handler(Exception, _wrap_tb(flask_internal_server_error))  # Generic catch-all
+application.register_error_handler(BadRequest, _wrap(flask_bad_request_error))
+application.register_error_handler(NotFound, _wrap(flask_not_found_error))
 
 
 def configure_celery(app):
