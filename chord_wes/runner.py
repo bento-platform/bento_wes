@@ -365,7 +365,7 @@ def _run_workflow(db, c, celery_request_id, run_id: uuid.UUID, run: dict, run_re
 
     # Run result object
     run_results = {
-        "dataset_id": c_table_id,  # TODO: Table ID
+        "table_id": c_table_id,
         "workflow_id": workflow_id,
         "workflow_metadata": c_workflow_metadata,
         "workflow_outputs": workflow_outputs,

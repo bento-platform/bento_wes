@@ -51,12 +51,12 @@ def run_list():
             # Only "turn on" CHORD-specific features if specific tags are present
 
             chord_mode = ("workflow_id" in tags and "workflow_metadata" in tags and "ingestion_path" in tags
-                          and "dataset_id" in tags)  # TODO: table_id
+                          and "table_id" in tags)
 
             workflow_id = tags.get("workflow_id", workflow_url)
             workflow_metadata = tags.get("workflow_metadata", {})
             workflow_ingestion_path = tags.get("ingestion_path", None)
-            table_id = tags.get("dataset_id", None)  # TODO: table_id
+            table_id = tags.get("table_id", None)
 
             # Don't accept anything (ex. CWL) other than WDL TODO: CWL support
             assert workflow_type == "WDL"
@@ -67,7 +67,7 @@ def run_list():
             assert isinstance(tags, dict)
 
             if chord_mode:
-                table_id = str(uuid.UUID(table_id))  # Check and standardize dataset ID
+                table_id = str(uuid.UUID(table_id))  # Check and standardize table ID
 
             # TODO: Use JSON schemas for workflow params / engine parameters / tags
 
