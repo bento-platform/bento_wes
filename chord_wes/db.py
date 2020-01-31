@@ -2,13 +2,13 @@ import json
 import sqlite3
 import uuid
 
+from chord_lib.events import EventBus
 from chord_lib.events.types import EVENT_WES_RUN_UPDATED
 from flask import current_app, g
 from typing import Optional, Union
 from urllib.parse import urljoin
 
 from .constants import SERVICE_ARTIFACT
-from .events import *
 from .states import *
 
 
@@ -26,7 +26,7 @@ __all__ = [
 ]
 
 
-def get_db():
+def get_db() -> sqlite3.Connection:
     if "db" not in g:
         g.db = sqlite3.connect(current_app.config["DATABASE"], detect_types=sqlite3.PARSE_DECLTYPES)
         g.db.row_factory = sqlite3.Row
@@ -109,12 +109,12 @@ def task_log_dict(task_log: sqlite3.Row) -> dict:
     }
 
 
-def get_task_logs(c, run_id) -> list:
+def get_task_logs(c: sqlite3.Cursor, run_id: Union[uuid.UUID, str]) -> list:
     c.execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
     return [task_log_dict(task_log) for task_log in c.fetchall()]
 
 
-def get_run_details(c, run_id) -> Optional[dict]:
+def get_run_details(c: sqlite3.Cursor, run_id: Union[uuid.UUID, str]) -> Optional[dict]:
     # Runs, run requests, and run logs are created at the same time, so if any of them is missing return None.
 
     c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
@@ -144,7 +144,8 @@ def get_run_details(c, run_id) -> Optional[dict]:
     }
 
 
-def update_run_state_and_commit(db, c, run_id: Union[uuid.UUID, str], state: str):
+def update_run_state_and_commit(db: sqlite3.Connection, c: sqlite3.Cursor, event_bus: EventBus,
+                                run_id: Union[uuid.UUID, str], state: str):
     c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
     db.commit()
     event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_UPDATED, get_run_details(c, run_id))

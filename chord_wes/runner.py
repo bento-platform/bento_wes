@@ -4,11 +4,13 @@ import re
 import requests
 import requests_unixsocket
 import shutil
+import sqlite3
 import subprocess
 import uuid
 
 from base64 import urlsafe_b64encode
 from celery.utils.log import get_task_logger
+from chord_lib.events import EventBus
 from chord_lib.events.notifications import format_notification
 from chord_lib.events.types import EVENT_CREATE_NOTIFICATION, EVENT_WES_RUN_FINISHED
 from chord_lib.ingestion import WORKFLOW_TYPE_FILE, WORKFLOW_TYPE_FILE_ARRAY
@@ -186,10 +188,11 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
 logger = get_task_logger(__name__)
 
 
-def finish_run(db, c, run_id: uuid.UUID, run_log_id: str, state: str) -> None:
+def finish_run(db: sqlite3.Connection, c: sqlite3.Cursor, event_bus: EventBus, run_id: uuid.UUID, run_log_id: str,
+               state: str) -> None:
     # Explicitly don't commit here to sync with state update
     c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (iso_now(), run_log_id))
-    update_run_state_and_commit(db, c, run_id, state)
+    update_run_state_and_commit(db, c, event_bus, run_id, state)
 
     if state in FAILURE_STATES:
         event_bus.publish_service_event(
@@ -216,8 +219,19 @@ def finish_run(db, c, run_id: uuid.UUID, run_log_id: str, state: str) -> None:
         )
 
 
-def _run_workflow(db, c, celery_request_id, run_id: uuid.UUID, run: dict, run_request: dict, chord_mode: bool,
-                  c_workflow_metadata: dict, c_workflow_ingestion_path: Optional[str], c_table_id: Optional[str]):
+def _run_workflow(
+    db: sqlite3.Connection,
+    c: sqlite3.Cursor,
+    event_bus: EventBus,
+    celery_request_id,
+    run_id: uuid.UUID,
+    run: dict,
+    run_request: dict,
+    chord_mode: bool,
+    c_workflow_metadata: dict,
+    c_workflow_ingestion_path: Optional[str],
+    c_table_id: Optional[str]
+):
     # Setup ---------------------------------------------------------------
 
     tmp_dir = current_app.config["SERVICE_TEMP"]
@@ -226,10 +240,10 @@ def _run_workflow(db, c, celery_request_id, run_id: uuid.UUID, run: dict, run_re
     # Set up scoped helpers
 
     def _update_run_state_and_commit(state: str) -> None:
-        update_run_state_and_commit(db, c, run_id, state)
+        update_run_state_and_commit(db, c, event_bus, run_id, state)
 
     def _finish_run_and_clean_up(state: str) -> None:
-        finish_run(db, c, run_id, run["run_log"], state)
+        finish_run(db, c, event_bus, run_id, run["run_log"], state)
 
         if run_dir is None:
             return
@@ -397,6 +411,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
                  c_workflow_ingestion_path: Optional[str], c_table_id: Optional[str]):
     db = get_db()
     c = db.cursor()
+    event_bus = get_new_event_bus()
 
     # Checks ------------------------------------------------------------------
 
@@ -430,9 +445,9 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     # Pass to runner function -------------------------------------------------
 
     try:
-        _run_workflow(db, c, self.request.id, run_id, run, run_request, chord_mode, c_workflow_metadata,
+        _run_workflow(db, c, event_bus, self.request.id, run_id, run, run_request, chord_mode, c_workflow_metadata,
                       c_workflow_ingestion_path, c_table_id)
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
-        finish_run(db, c, run_id, run["run_log"], STATE_SYSTEM_ERROR)
+        finish_run(db, c, event_bus, run_id, run["run_log"], STATE_SYSTEM_ERROR)
         raise e

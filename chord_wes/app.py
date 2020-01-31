@@ -10,6 +10,7 @@ from werkzeug.exceptions import BadRequest, NotFound
 from .celery import celery
 from .constants import *
 from .db import init_db, update_db, close_db
+from .events import *
 from .runs import bp_runs
 
 
@@ -70,6 +71,7 @@ with open(application.config["CHORD_SERVICES"]) as cf:
 
 
 application.teardown_appcontext(close_db)
+application.teardown_appcontext(close_flask_event_bus)
 
 with application.app_context():
     if not os.path.exists(os.path.join(os.getcwd(), application.config["DATABASE"])):
