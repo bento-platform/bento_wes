@@ -22,7 +22,7 @@ from urllib.parse import quote, urlparse, ParseResult
 
 from .celery import celery
 from .constants import *
-from .db import get_db, update_run_state_and_commit
+from .db import get_db, update_run_state_and_commit, get_run_details
 from .events import *
 from .states import *
 
@@ -224,9 +224,7 @@ def _run_workflow(
     c: sqlite3.Cursor,
     event_bus: EventBus,
     celery_request_id,
-    run_id: uuid.UUID,
     run: dict,
-    run_request: dict,
     chord_mode: bool,
     c_workflow_metadata: dict,
     c_workflow_ingestion_path: Optional[str],
@@ -235,15 +233,15 @@ def _run_workflow(
     # Setup ---------------------------------------------------------------
 
     tmp_dir = current_app.config["SERVICE_TEMP"]
-    run_dir = os.path.join(tmp_dir, str(run_id))
+    run_dir = os.path.join(tmp_dir, run["run_id"])
 
     # Set up scoped helpers
 
     def _update_run_state_and_commit(state: str) -> None:
-        update_run_state_and_commit(db, c, event_bus, run_id, state)
+        update_run_state_and_commit(db, c, event_bus, run["run_id"], state)
 
     def _finish_run_and_clean_up(state: str) -> None:
-        finish_run(db, c, event_bus, run_id, run["run_log"], state)
+        finish_run(db, c, event_bus, run["run_id"], run["run_log"], state)
 
         if run_dir is None:
             return
@@ -258,9 +256,9 @@ def _run_workflow(
 
     _update_run_state_and_commit(STATE_INITIALIZING)
 
-    workflow_type = run_request["workflow_type"]
-    workflow_params = json.loads(run_request["workflow_params"])
-    workflow_url = run_request["workflow_url"]
+    workflow_type = run["request"]["workflow_type"]
+    workflow_params = run["request"]["workflow_params"]
+    workflow_url = run["request"]["workflow_url"]
     parsed_workflow_url = urlparse(workflow_url)  # TODO: Handle errors, handle references to attachments
 
     workflow_runner = WORKFLOW_RUNNERS[workflow_type]
@@ -375,7 +373,7 @@ def _run_workflow(
     workflow_outputs = build_workflow_outputs(run_dir, workflow_id, workflow_params, c_workflow_metadata)
 
     # Explicitly don't commit here; sync with state update
-    c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run_id)))
+    c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run["run_id"])))
 
     # Run result object
     run_results = {
@@ -422,30 +420,16 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
     # TODO: Check c_workflow_ingestion_path is valid
 
-    # Fetch run from the database, checking that it exists
-    c.execute("SELECT request, run_log FROM runs WHERE id = ?", (str(run_id),))
-    run = c.fetchone()
+    # Check that the run and its associated objects exist
+    run = get_run_details(c, run_id)
     if run is None:
-        logger.error("Cannot find run {}".format(run_id))
-        return
-
-    # Fetch run request from the database, checking that it exists
-    c.execute("SELECT * FROM run_requests WHERE id = ?", (run["request"],))
-    run_request = c.fetchone()
-    if run_request is None:
-        logger.error("Cannot find run request {} for run {}".format(run["request"], run_id))
-        return
-
-    # Check run log exists
-    c.execute("SELECT * FROM run_logs WHERE id = ?", (run["run_log"],))
-    if c.fetchone() is None:
-        logger.error("Cannot find run log {} for run {}".format(run["run_log"], run_id))
+        logger.error("Cannot find run {} (missing run, run request, or run_log)".format(run_id))
         return
 
     # Pass to runner function -------------------------------------------------
 
     try:
-        _run_workflow(db, c, event_bus, self.request.id, run_id, run, run_request, chord_mode, c_workflow_metadata,
+        _run_workflow(db, c, event_bus, self.request.id, run, chord_mode, c_workflow_metadata,
                       c_workflow_ingestion_path, c_table_id)
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
