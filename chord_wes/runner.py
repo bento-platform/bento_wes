@@ -396,8 +396,11 @@ def _run_workflow(
 
     try:
         # TODO: Just post run ID, fetch rest from the WES service?
+        # Forge CHORD_HOST headers if needed since we're under the proxy  TODO: Probably not an ideal solution
         r = requests.post(f"http+unix://{NGINX_INTERNAL_SOCKET}{c_workflow_ingestion_path}",
-                          json=run_results, timeout=INGEST_POST_TIMEOUT)
+                          json=run_results,
+                          headers={"Host": CHORD_HOST},
+                          timeout=INGEST_POST_TIMEOUT)
         return _finish_run_and_clean_up(STATE_COMPLETE if r.status_code < 400 else STATE_SYSTEM_ERROR)
 
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
