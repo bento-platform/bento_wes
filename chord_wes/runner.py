@@ -188,8 +188,10 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
 logger = get_task_logger(__name__)
 
 
-def finish_run(db: sqlite3.Connection, c: sqlite3.Cursor, event_bus: EventBus, run_id: uuid.UUID, run_log_id: str,
-               state: str) -> None:
+def finish_run(db: sqlite3.Connection, c: sqlite3.Cursor, event_bus: EventBus, run: dict, state: str) -> None:
+    run_id = run["run_id"]
+    run_log_id = run["run_log"]["id"]
+
     # Explicitly don't commit here to sync with state update
     c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (iso_now(), run_log_id))
     update_run_state_and_commit(db, c, event_bus, run_id, state)
@@ -200,9 +202,9 @@ def finish_run(db: sqlite3.Connection, c: sqlite3.Cursor, event_bus: EventBus, r
             EVENT_CREATE_NOTIFICATION,
             format_notification(
                 title="WES Run Failed",
-                description=f"WES run '{str(run_id)}' failed with state {state}",
+                description=f"WES run '{run_id}' failed with state {state}",
                 notification_type=NOTIFICATION_WES_RUN_FAILED,
-                action_target=str(run_id)
+                action_target=run_id
             )
         )
 
@@ -212,9 +214,9 @@ def finish_run(db: sqlite3.Connection, c: sqlite3.Cursor, event_bus: EventBus, r
             EVENT_CREATE_NOTIFICATION,
             format_notification(
                 title="WES Run Completed",
-                description=f"WES run '{str(run_id)}' completed successfully",
+                description=f"WES run '{run_id}' completed successfully",
                 notification_type=NOTIFICATION_WES_RUN_COMPLETED,
-                action_target=str(run_id)
+                action_target=run_id
             )
         )
 
@@ -241,7 +243,7 @@ def _run_workflow(
         update_run_state_and_commit(db, c, event_bus, run["run_id"], state)
 
     def _finish_run_and_clean_up(state: str) -> None:
-        finish_run(db, c, event_bus, run["run_id"], run["run_log"], state)
+        finish_run(db, c, event_bus, run, state)
 
         if run_dir is None:
             return
@@ -287,7 +289,7 @@ def _run_workflow(
 
     # Update run log with command and Celery ID
     c.execute("UPDATE run_logs SET cmd = ?, celery_id = ? WHERE id = ?",
-              (" ".join(cmd), celery_request_id, run["run_log"]))
+              (" ".join(cmd), celery_request_id, run["run_log"]["id"]))
     db.commit()
 
     # Download or move workflow
@@ -315,7 +317,7 @@ def _run_workflow(
         return _finish_run_and_clean_up(STATE_SYSTEM_ERROR)
 
     # TODO: To avoid having multiple names, we should maybe only set this once?
-    c.execute("UPDATE run_logs SET name = ? WHERE id = ?", (workflow_id, run["run_log"],))
+    c.execute("UPDATE run_logs SET name = ? WHERE id = ?", (workflow_id, run["run_log"]["id"],))
     db.commit()
 
     # TODO: Input file downloading if needed
@@ -326,7 +328,7 @@ def _run_workflow(
     workflow_runner_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
 
     # Sync start time commit with state update
-    c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]))
+    c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]["id"]))
     _update_run_state_and_commit(STATE_RUNNING)
 
     # -- Wait for output ------------------------------------------------------
@@ -348,7 +350,7 @@ def _run_workflow(
 
     # Explicitly don't commit here; sync with state update
     c.execute("UPDATE run_logs SET stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
-              (stdout, stderr, exit_code, run["run_log"]))
+              (stdout, stderr, exit_code, run["run_log"]["id"]))
 
     if timed_out:
         # TODO: Report error somehow
@@ -433,5 +435,5 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
                       c_workflow_ingestion_path, c_table_id)
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
-        finish_run(db, c, event_bus, run_id, run["run_log"], STATE_SYSTEM_ERROR)
+        finish_run(db, c, event_bus, run, STATE_SYSTEM_ERROR)
         raise e

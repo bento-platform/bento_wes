@@ -92,6 +92,7 @@ def _stream_url(run_id: Union[uuid.UUID, str], stream: str):
 
 def run_log_dict(run_id: Union[uuid.UUID, str], run_log: sqlite3.Row) -> dict:
     return {
+        "id": run_log["id"],  # TODO: This is non-WES-compliant
         "name": run_log["name"],
         "cmd": run_log["cmd"],
         "start_time": run_log["start_time"],
