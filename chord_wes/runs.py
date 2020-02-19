@@ -212,6 +212,10 @@ def run_cancel(run_id):
 
     # TODO: wait for revocation / failure and update status...
 
+    update_run_state_and_commit(db, c, event_bus, run["id"], STATE_CANCELED)
+
+    return current_app.response_class(status=204)  # TODO: Better response
+
 
 @bp_runs.route("/runs/<uuid:run_id>/status", methods=["GET"])
 @flask_permissions_owner
