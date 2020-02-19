@@ -6,6 +6,7 @@ import requests_unixsocket
 import shutil
 import sqlite3
 import subprocess
+import sys
 import uuid
 
 from base64 import urlsafe_b64encode
@@ -399,10 +400,11 @@ def _run_workflow(
                           json=run_results, timeout=INGEST_POST_TIMEOUT)
         return _finish_run_and_clean_up(STATE_COMPLETE if r.status_code < 400 else STATE_SYSTEM_ERROR)
 
-    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
         # Ingestion failed due to a network error, or was too slow.
         # TODO: Retry a few times...
         # TODO: Report error somehow
+        print(f"[CHORD WES] {str(e)}", flush=True, file=sys.stderr)
         return _finish_run_and_clean_up(STATE_SYSTEM_ERROR)
 
 
