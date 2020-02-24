@@ -12,9 +12,6 @@ from .events import *
 from .runs import bp_runs
 
 
-SERVICE_NAME = "CHORD WES"
-
-
 application = Flask(__name__)
 application.config.from_mapping(
     CHORD_SERVICES=os.environ.get("CHORD_SERVICES", "chord_services.json"),
