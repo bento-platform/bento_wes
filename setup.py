@@ -20,7 +20,7 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
 
-    packages=["chord_wes"],
+    packages=setuptools.find_packages(),
     include_package_data=True,
 
     url="https://github.com/c3g/chord_wes",
