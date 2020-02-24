@@ -6,6 +6,7 @@ from flask import current_app, json
 from typing import Optional, Tuple
 
 from chord_wes.backends import WESBackend
+from chord_wes.backends.wes_workflow_types import *
 from chord_wes.states import *
 
 
@@ -19,8 +20,8 @@ WDL_WORKSPACE_NAME_REGEX = re.compile(r"workflow\s+([a-zA-Z][a-zA-Z0-9_]+)")
 
 
 class ToilWDLBackend(WESBackend):
-    def _get_supported_types(self) -> Tuple[str]:
-        return "wdl",
+    def _get_supported_types(self) -> Tuple[WorkflowType]:
+        return WES_WORKFLOW_TYPE_WDL,
 
     def _get_params_file(self, run: dict) -> str:
         return "params.json"

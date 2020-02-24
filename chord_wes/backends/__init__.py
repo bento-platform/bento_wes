@@ -10,13 +10,15 @@ from base64 import urlsafe_b64encode
 from chord_lib.events import EventBus
 from chord_lib.events.notifications import format_notification
 from chord_lib.events.types import EVENT_CREATE_NOTIFICATION
-from typing import Callable, Optional, Tuple, Union
+from typing import Callable, Dict, Optional, Tuple, Union
 from urllib.parse import urlparse
 
 from chord_wes.constants import SERVICE_ARTIFACT
 from chord_wes.db import get_db, update_run_state_and_commit
 from chord_wes.states import *
 from chord_wes.utils import iso_now
+
+from .wes_workflow_types import *
 
 
 __all__ = [
@@ -32,16 +34,13 @@ MAX_WORKFLOW_FILE_BYTES = 10000000  # 10 MB
 
 WORKFLOW_TIMEOUT = 60 * 60 * 24  # 24 hours
 
-WES_TYPE_WDL = "WDL"
-WES_TYPE_CWL = "CWL"
-
 NOTIFICATION_WES_RUN_FAILED = "wes_run_failed"
 NOTIFICATION_WES_RUN_COMPLETED = "wes_run_completed"
 
 
-WORKFLOW_EXTENSIONS = {
-    WES_TYPE_WDL: "wdl",
-    WES_TYPE_CWL: "cwl",
+WORKFLOW_EXTENSIONS: Dict[WorkflowType, str] = {
+    WES_WORKFLOW_TYPE_WDL: "wdl",
+    WES_WORKFLOW_TYPE_CWL: "cwl",
 }
 
 
@@ -98,7 +97,7 @@ class WESBackend(ABC):
             self.logger.error(error)
 
     @abstractmethod
-    def _get_supported_types(self) -> Tuple[str]:
+    def _get_supported_types(self) -> Tuple[WorkflowType]:
         pass
 
     @abstractmethod
@@ -113,7 +112,7 @@ class WESBackend(ABC):
     def _workflow_file_name(run: dict):
         workflow_uri: str = run["request"]["workflow_url"]
         workflow_name = str(urlsafe_b64encode(bytes(workflow_uri, encoding="utf-8")), encoding="utf-8")
-        return f"workflow_{workflow_name}.{WORKFLOW_EXTENSIONS[run['request']['workflow_type']]}"
+        return f"workflow_{workflow_name}.{WORKFLOW_EXTENSIONS[WorkflowType(run['request']['workflow_type'])]}"
 
     def workflow_path(self, run: dict):
         return os.path.join(self.tmp_dir, self._workflow_file_name(run))
@@ -166,7 +165,7 @@ class WESBackend(ABC):
         pass
 
     def _download_and_check_workflow(self, run: dict) -> Optional[Tuple[str, str]]:
-        workflow_type: str = run["request"]["workflow_type"]
+        workflow_type: WorkflowType = WorkflowType(run["request"]["workflow_type"])
         if workflow_type not in self._get_supported_types():
             raise NotImplementedError(f"The specified WES backend cannot execute workflows of type {workflow_type}")
 
