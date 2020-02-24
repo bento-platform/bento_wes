@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import uuid
 
 from chord_lib.auth.flask_decorators import flask_permissions_owner
@@ -205,12 +206,19 @@ def run_cancel(run_id):
         # Never made it into the queue, so "cancel" it
         return flask_internal_server_error(f"No Celery ID present for run {run_id}")
 
-    # TODO: This only removes it from the queue... what if it's already executing?
-
-    celery.control.revoke(run_log["celery_id"])
+    # TODO: terminate=True might be iffy
     update_run_state_and_commit(db, c, event_bus, run["id"], STATE_CANCELING)
+    celery.control.revoke(run_log["celery_id"], terminate=True)  # Remove from queue if there, terminate if running
 
     # TODO: wait for revocation / failure and update status...
+
+    # TODO: Generalize clean-up code / fetch from back-end
+    run_dir = os.path.join(current_app.config["SERVICE_TEMP"], run["run_id"])
+    shutil.rmtree(run_dir, ignore_errors=True)
+
+    update_run_state_and_commit(db, c, event_bus, run["id"], STATE_CANCELED)
+
+    return current_app.response_class(status=204)  # TODO: Better response
 
 
 @bp_runs.route("/runs/<uuid:run_id>/status", methods=["GET"])
