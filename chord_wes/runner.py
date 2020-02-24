@@ -246,9 +246,6 @@ def _run_workflow(
     def _finish_run_and_clean_up(state: str) -> None:
         finish_run(db, c, event_bus, run, state)
 
-        if run_dir is None:
-            return
-
         # Clean up any run files at the end, after they've been either copied or "rejected" due to some failure.
         # TODO: SECURITY: Check run_dir
         # TODO: May want to keep them around for a retry depending on how the retry operation will work.
@@ -407,7 +404,7 @@ def _run_workflow(
         # Ingestion failed due to a network error, or was too slow.
         # TODO: Retry a few times...
         # TODO: Report error somehow
-        print(f"[CHORD WES] {str(e)}", flush=True, file=sys.stderr)
+        logger.error(f"[CHORD WES] {str(e)}")
         return _finish_run_and_clean_up(STATE_SYSTEM_ERROR)
 
 
