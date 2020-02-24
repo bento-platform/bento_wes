@@ -17,7 +17,7 @@ setuptools.setup(
         "requests>=2.22,<3.0",
         "requests-unixsocket>=0.2.0,<0.3.0",
         #"toil[wdl]==3.24.0",
-        "toil@git+ssh://git@github.com/afrosimon/toil@disable-content-length"
+        "toil@git+https://github.com/afrosimon/toil@disable-content-length"
     ],
 
     author="David Lougheed",
