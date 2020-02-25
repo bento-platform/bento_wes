@@ -237,7 +237,7 @@ class WESBackend(ABC):
         self.db.commit()
 
         # -- Store input for the workflow in a file in the temporary folder ---
-        with open(self._params_path(run)) as pf:
+        with open(self._params_path(run), "w") as pf:
             pf.write(self._serialize_params(workflow_params))
 
         # -- Create the runner command based on inputs ------------------------
