@@ -164,7 +164,7 @@ class WESBackend(ABC):
         """
         return os.path.join(self.run_dir(run), self._get_params_file(run))
 
-    def _download_or_move_workflow(self, run: dict) -> Optional[str]:
+    def _download_or_copy_workflow(self, run: dict) -> Optional[str]:
         workflow_uri: str = run["request"]["workflow_url"]
         parsed_workflow_url = urlparse(workflow_uri)  # TODO: Handle errors, handle references to attachments
 
@@ -210,7 +210,7 @@ class WESBackend(ABC):
         if workflow_type not in self._get_supported_types():
             raise NotImplementedError(f"The specified WES backend cannot execute workflows of type {workflow_type}")
 
-        self._download_or_move_workflow(run)
+        self._download_or_copy_workflow(run)
         return self._check_workflow(run)
 
     @abstractmethod
