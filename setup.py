@@ -16,7 +16,6 @@ setuptools.setup(
         "Flask>=1.1,<2.0",
         "requests>=2.22,<3.0",
         "requests-unixsocket>=0.2.0,<0.3.0",
-        #"toil[wdl]==3.24.0",
         "toil@git+https://github.com/afrosimon/toil@disable-content-length"
     ],
 
