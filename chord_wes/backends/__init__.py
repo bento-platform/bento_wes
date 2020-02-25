@@ -47,6 +47,17 @@ WORKFLOW_EXTENSIONS: Dict[WorkflowType, str] = {
 
 # TODO: Move
 def finish_run(db: sqlite3.Connection, c: sqlite3.Cursor, event_bus: EventBus, run: dict, state: str) -> None:
+    """
+    Updates a run's state, sets the run log's end time, and publishes an event corresponding with a run failure
+    or a run success, depending on the state.
+    :param db: A SQLite database connection
+    :param c: An SQLite connection cursor
+    :param event_bus: A chord_lib-defined event bus implementation for sending events
+    :param run: The run which just finished
+    :param state: The terminal state for the finished run
+    :return:
+    """
+
     run_id = run["run_id"]
     run_log_id = run["run_log"]["id"]
 
@@ -210,10 +221,10 @@ class WESBackend(ABC):
     def _get_command(self, workflow_path: str, params_path: str, run_dir: str) -> Command:
         pass
 
-    def _update_run_state_and_commit(self, run_id: Union[uuid.UUID, str], state: str):
+    def _update_run_state_and_commit(self, run_id: Union[uuid.UUID, str], state: str) -> None:
         update_run_state_and_commit(self.db, self.db.cursor(), self.event_bus, run_id, state)
 
-    def _finish_run_and_clean_up(self, run: dict, state: str):
+    def _finish_run_and_clean_up(self, run: dict, state: str) -> None:
         # Finish run ----------------------------------------------------------
 
         finish_run(self.db, self.db.cursor(), self.event_bus, run, state)
