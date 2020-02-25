@@ -282,7 +282,7 @@ class WESBackend(ABC):
         # -- Update run log with stdout/stderr, exit code ---------------------
         #     - Explicitly don't commit here; sync with state update
         c.execute("UPDATE run_logs SET stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
-                  (stdout, stderr, exit_code, run["run_log"]))
+                  (stdout, stderr, exit_code, run["run_log"]["id"]))
 
         if timed_out:
             # TODO: Report error somehow
