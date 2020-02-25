@@ -209,6 +209,8 @@ class WESBackend(ABC):
     def _initialize_run_and_get_command(self, run: dict, celery_id) -> Optional[Tuple[str, ...]]:
         self._update_run_state_and_commit(run["run_id"], STATE_INITIALIZING)
 
+        run_log_id: str = run["run_log"]["id"]
+
         # -- Check that the run directory exists ------------------------------
         if not os.path.exists(self.run_dir(run)):
             # TODO: Log error in run log
@@ -233,7 +235,7 @@ class WESBackend(ABC):
             return self._finish_run_and_clean_up(run, STATE_SYSTEM_ERROR)
 
         # TODO: To avoid having multiple names, we should maybe only set this once?
-        c.execute("UPDATE run_logs SET name = ? WHERE id = ?", (workflow_name, run["run_log"]["id"],))
+        c.execute("UPDATE run_logs SET name = ? WHERE id = ?", (workflow_name, run_log_id))
         self.db.commit()
 
         # -- Store input for the workflow in a file in the temporary folder ---
@@ -246,8 +248,7 @@ class WESBackend(ABC):
                                 self.run_dir(run))
 
         # -- Update run log with command and Celery ID ------------------------
-        c.execute("UPDATE run_logs SET cmd = ?, celery_id = ? WHERE id = ?",
-                  (" ".join(cmd), celery_id, run["run_log"]["id"]))
+        c.execute("UPDATE run_logs SET cmd = ?, celery_id = ? WHERE id = ?", (" ".join(cmd), celery_id, run_log_id))
         self.db.commit()
 
         return cmd
