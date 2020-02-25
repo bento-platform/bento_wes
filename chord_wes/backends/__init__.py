@@ -278,6 +278,7 @@ class WESBackend(ABC):
         return cmd
 
     def _perform_run(self, run: dict, cmd: Tuple[str, ...]) -> ProcessResult:
+        # -- Start process running the generated command ----------------------
         runner_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
         c = self.db.cursor()
         c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]["id"]))
