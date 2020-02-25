@@ -18,11 +18,12 @@ from chord_wes.db import get_db, update_run_state_and_commit
 from chord_wes.states import *
 from chord_wes.utils import iso_now
 
-from .wes_workflow_types import *
+from .backend_types import *
 
 
 __all__ = [
     "finish_run",
+    "Command",
     "WESBackend",
 ]
 
@@ -42,9 +43,6 @@ WORKFLOW_EXTENSIONS: Dict[WorkflowType, str] = {
     WES_WORKFLOW_TYPE_WDL: "wdl",
     WES_WORKFLOW_TYPE_CWL: "cwl",
 }
-
-
-ProcessResult = Tuple[str, str, int, bool]
 
 
 # TODO: Move
@@ -209,7 +207,7 @@ class WESBackend(ABC):
         pass
 
     @abstractmethod
-    def _get_command(self, workflow_path: str, params_path: str, run_dir: str) -> Tuple[str, ...]:
+    def _get_command(self, workflow_path: str, params_path: str, run_dir: str) -> Command:
         pass
 
     def _update_run_state_and_commit(self, run_id: Union[uuid.UUID, str], state: str):
@@ -230,7 +228,7 @@ class WESBackend(ABC):
 
         shutil.rmtree(self.run_dir(run), ignore_errors=True)
 
-    def _initialize_run_and_get_command(self, run: dict, celery_id) -> Optional[Tuple[str, ...]]:
+    def _initialize_run_and_get_command(self, run: dict, celery_id) -> Optional[Command]:
         self._update_run_state_and_commit(run["run_id"], STATE_INITIALIZING)
 
         run_log_id: str = run["run_log"]["id"]
@@ -277,7 +275,9 @@ class WESBackend(ABC):
 
         return cmd
 
-    def _perform_run(self, run: dict, cmd: Tuple[str, ...]) -> ProcessResult:
+    def _perform_run(self, run: dict, cmd: Command) -> Optional[ProcessResult]:
+        # Perform run =========================================================
+
         # -- Start process running the generated command ----------------------
         runner_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
         c = self.db.cursor()
@@ -299,11 +299,7 @@ class WESBackend(ABC):
         finally:
             exit_code = runner_process.returncode
 
-        return stdout, stderr, exit_code, timed_out
-
-    def _complete_run(self, run: dict, stdout: str, stderr: str, exit_code: int, timed_out: bool) \
-            -> Optional[ProcessResult]:
-        c = self.db.cursor()
+        # Complete run ========================================================
 
         # -- Update run log with stdout/stderr, exit code ---------------------
         #     - Explicitly don't commit here; sync with state update
@@ -329,6 +325,8 @@ class WESBackend(ABC):
         # If in CHORD mode, run the callback and finish the run with whatever state is returned.
         self._finish_run_and_clean_up(run, self.chord_callback(self))
 
+        return ProcessResult((stdout, stderr, exit_code, timed_out))
+
     def perform_run(self, run: dict, celery_id) -> Optional[ProcessResult]:
         if run["run_id"] in self._runs:
             raise ValueError("Run has already been registered")
@@ -340,5 +338,5 @@ class WESBackend(ABC):
         if cmd is None:
             return
 
-        # Perform and subsequently finish run ---------------------------------
-        return self._complete_run(run, *self._perform_run(run, cmd))
+        # Perform, finish, and clean up run -----------------------------------
+        return self._perform_run(run, cmd)

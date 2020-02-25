@@ -6,7 +6,7 @@ from flask import current_app, json
 from typing import Optional, Tuple
 
 from chord_wes.backends import WESBackend
-from chord_wes.backends.wes_workflow_types import *
+from chord_wes.backends.backend_types import *
 from chord_wes.states import *
 
 
@@ -98,7 +98,7 @@ class ToilWDLBackend(WESBackend):
             # Invalid/non-workflow-specifying WDL file if false-y
             return workflow_id_match.group(1) if workflow_id_match else None
 
-    def _get_command(self, workflow_path: str, params_path: str, run_dir: str) -> Tuple[str, ...]:
+    def _get_command(self, workflow_path: str, params_path: str, run_dir: str) -> Command:
         """
         Creates the command which will run toil-wdl-runner on the specified WDL workflow, with the specified
         serialized parameters in JSON format, and in the specified run directory.
@@ -107,11 +107,11 @@ class ToilWDLBackend(WESBackend):
         :param run_dir: The directory to run the workflow in
         :return: The command, in the form of a tuple of strings, to be passed to subprocess.run
         """
-        return (
+        return Command((
             "toil-wdl-runner",
             workflow_path,
             params_path,
             "-o", run_dir,
             "--workDir", self.tmp_dir,
             "--jobStore", "file:" + os.path.abspath(os.path.join(self.tmp_dir, "toil_job_store"))
-        )
+        ))
