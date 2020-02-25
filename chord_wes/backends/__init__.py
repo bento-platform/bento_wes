@@ -165,6 +165,12 @@ class WESBackend(ABC):
         return os.path.join(self.run_dir(run), self._get_params_file(run))
 
     def _download_or_copy_workflow(self, run: dict) -> Optional[str]:
+        """
+        Given a particular run, downloads the specified workflow via its URI, or copies it over if it's on the local
+        file system. # TODO: Local file system = security issue?
+        :param run: The run from which to extract the workflow URI
+        """
+
         workflow_uri: str = run["request"]["workflow_url"]
         parsed_workflow_url = urlparse(workflow_uri)  # TODO: Handle errors, handle references to attachments
 
@@ -201,11 +207,17 @@ class WESBackend(ABC):
         """
         Checks that a workflow can be executed by the backend via the workflow's URI.
         :param run: The run, including a request with the workflow URI
-        :return: Whether the workflow can be executed by the backend
+        :return: None if the workflow is valid; a tuple of an error message and an error state otherwise
         """
         pass
 
     def _download_and_check_workflow(self, run: dict) -> Optional[Tuple[str, str]]:
+        """
+        Downloads or copies a run's workflow file and checks it's validity.
+        :param run: The run specifying the workflow in question
+        :return: None if the workflow is valid; a tuple of an error message and an error state otherwise
+        """
+
         workflow_type: WorkflowType = WorkflowType(run["request"]["workflow_type"])
         if workflow_type not in self._get_supported_types():
             raise NotImplementedError(f"The specified WES backend cannot execute workflows of type {workflow_type}")
@@ -215,13 +227,31 @@ class WESBackend(ABC):
 
     @abstractmethod
     def get_workflow_name(self, workflow_path: str) -> Optional[str]:
+        """
+        Extracts a workflow's name from it's file.
+        :param workflow_path: The path to the workflow definition file
+        :return: None if the file could not be parsed for some reason; the name string otherwise
+        """
         pass
 
     @abstractmethod
     def _get_command(self, workflow_path: str, params_path: str, run_dir: str) -> Command:
+        """
+        Creates the command which will run the backend runner on the specified workflow, with the specified
+        serialized parameters, and in the specified run directory.
+        :param workflow_path: The path to the workflow file to execute
+        :param params_path: The path to the file containing specified parameters for the workflow
+        :param run_dir: The directory to run the workflow in
+        :return: The command, in the form of a tuple of strings, to be passed to subprocess.run
+        """
         pass
 
     def _update_run_state_and_commit(self, run_id: Union[uuid.UUID, str], state: str) -> None:
+        """
+        Wrapper for the database "update_run_state_and_commit" function, which updates a run's state in the database.
+        :param run_id: The ID of the run whose state is getting updated
+        :param state: The value to set the run's current state to
+        """
         update_run_state_and_commit(self.db, self.db.cursor(), self.event_bus, run_id, state)
 
     def _finish_run_and_clean_up(self, run: dict, state: str) -> None:
