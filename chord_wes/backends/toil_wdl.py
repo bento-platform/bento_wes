@@ -21,12 +21,25 @@ WDL_WORKSPACE_NAME_REGEX = re.compile(r"workflow\s+([a-zA-Z][a-zA-Z0-9_]+)")
 
 class ToilWDLBackend(WESBackend):
     def _get_supported_types(self) -> Tuple[WorkflowType]:
+        """
+        Returns a tuple of the workflow types this backend supports. In this case, only WDL is supported.
+        """
         return WES_WORKFLOW_TYPE_WDL,
 
     def _get_params_file(self, run: dict) -> str:
+        """
+        Returns the name of the params file to use for the workflow run.
+        :param run: The run description; unused here
+        :return: The name of the params file; params.json in this case
+        """
         return "params.json"
 
     def _serialize_params(self, workflow_params: dict) -> str:
+        """
+        Serializes parameters for a particular workflow run into the format expected by toil-wdl-runner.
+        :param workflow_params: A dictionary of key-value pairs representing the workflow parameters
+        :return: The serialized form of the parameters
+        """
         return json.dumps(workflow_params)
 
     def _check_workflow(self, run: dict) -> Optional[Tuple[str, str]]:
@@ -86,6 +99,14 @@ class ToilWDLBackend(WESBackend):
             return workflow_id_match.group(1) if workflow_id_match else None
 
     def _get_command(self, workflow_path: str, params_path: str, run_dir: str) -> Tuple[str, ...]:
+        """
+        Creates the command which will run toil-wdl-runner on the specified WDL workflow, with the specified
+        serialized parameters in JSON format, and in the specified run directory.
+        :param workflow_path: The path to the WDL file to execute
+        :param params_path: The path to the file containing specified parameters for the workflow
+        :param run_dir: The directory to run the workflow in
+        :return: The command, in the form of a tuple of strings, to be passed to subprocess.run
+        """
         return (
             "toil-wdl-runner",
             workflow_path,

@@ -44,6 +44,9 @@ WORKFLOW_EXTENSIONS: Dict[WorkflowType, str] = {
 }
 
 
+ProcessResult = Tuple[str, str, int, bool]
+
+
 # TODO: Move
 def finish_run(db: sqlite3.Connection, c: sqlite3.Cursor, event_bus: EventBus, run: dict, state: str) -> None:
     run_id = run["run_id"]
@@ -93,34 +96,63 @@ class WESBackend(ABC):
             raise ValueError("Missing chord_callback for chord_mode backend run")
 
     def log_error(self, error: str) -> None:
+        """
+        Given an error string, logs the error.
+        :param error: An error string
+        """
         if self.logger:
             self.logger.error(error)
 
     @abstractmethod
     def _get_supported_types(self) -> Tuple[WorkflowType]:
+        """
+        Returns a tuple of the workflow types this backend supports.
+        """
         pass
 
     @abstractmethod
     def _get_params_file(self, run: dict) -> str:
+        """
+         Returns the name of the params file to use for the workflow run.
+        :param run: The run description
+        :return: The name of the params file
+        """
         pass
 
     @abstractmethod
     def _serialize_params(self, workflow_params: dict) -> str:
+        """
+        Serializes parameters for a particular workflow run into the format expected by the backend's runner.
+        :param workflow_params: A dictionary of key-value pairs representing the workflow parameters
+        :return: The serialized form of the parameters
+        """
         pass
 
     @staticmethod
-    def _workflow_file_name(run: dict):
+    def _workflow_file_name(run: dict) -> str:
+        """
+        Extract's a run's specified workflow's URI and generates a unique name for it.
+        """
         workflow_uri: str = run["request"]["workflow_url"]
         workflow_name = str(urlsafe_b64encode(bytes(workflow_uri, encoding="utf-8")), encoding="utf-8")
         return f"workflow_{workflow_name}.{WORKFLOW_EXTENSIONS[WorkflowType(run['request']['workflow_type'])]}"
 
-    def workflow_path(self, run: dict):
+    def workflow_path(self, run: dict) -> str:
+        """
+        Gets the local filesystem path to the workflow file specified by a run's workflow URI.
+        """
         return os.path.join(self.tmp_dir, self._workflow_file_name(run))
 
-    def run_dir(self, run: dict):
+    def run_dir(self, run: dict) -> str:
+        """
+        Returns a path to the work directory for executing a run.
+        """
         return os.path.join(self.tmp_dir, run["run_id"])
 
-    def _params_path(self, run: dict):
+    def _params_path(self, run: dict) -> str:
+        """
+        Returns a path to the workflow parameters file for a run.
+        """
         return os.path.join(self.run_dir(run), self._get_params_file(run))
 
     def _download_or_move_workflow(self, run: dict) -> Optional[str]:
@@ -253,7 +285,7 @@ class WESBackend(ABC):
 
         return cmd
 
-    def _perform_run(self, run: dict, cmd: Tuple[str, ...]) -> Tuple[str, str, int, bool]:
+    def _perform_run(self, run: dict, cmd: Tuple[str, ...]) -> ProcessResult:
         runner_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
         c = self.db.cursor()
         c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]["id"]))
@@ -277,7 +309,7 @@ class WESBackend(ABC):
         return stdout, stderr, exit_code, timed_out
 
     def _complete_run(self, run: dict, stdout: str, stderr: str, exit_code: int, timed_out: bool) \
-            -> Optional[Tuple[str, str, int, bool]]:
+            -> Optional[ProcessResult]:
         c = self.db.cursor()
 
         # -- Update run log with stdout/stderr, exit code ---------------------
@@ -304,7 +336,7 @@ class WESBackend(ABC):
         # If in CHORD mode, run the callback and finish the run with whatever state is returned.
         self._finish_run_and_clean_up(run, self.chord_callback(self))
 
-    def perform_run(self, run: dict, celery_id) -> Optional[Tuple[str, str, int, bool]]:
+    def perform_run(self, run: dict, celery_id) -> Optional[ProcessResult]:
         if run["run_id"] in self._runs:
             raise ValueError("Run has already been registered")
 
