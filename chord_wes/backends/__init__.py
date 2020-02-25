@@ -212,14 +212,6 @@ class WESBackend(ABC):
     def _get_command(self, workflow_path: str, params_path: str, run_dir: str) -> Tuple[str, ...]:
         pass
 
-    def _get_process(self, run: dict) -> subprocess.Popen:
-        return subprocess.Popen(self._get_command(self.workflow_path(run),
-                                                  self._params_path(run),
-                                                  self.run_dir(run)),
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                encoding="utf-8")
-
     def _update_run_state_and_commit(self, run_id: Union[uuid.UUID, str], state: str):
         update_run_state_and_commit(self.db, self.db.cursor(), self.event_bus, run_id, state)
 
