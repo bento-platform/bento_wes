@@ -12,9 +12,6 @@ from .events import *
 from .runs import bp_runs
 
 
-SERVICE_NAME = "CHORD WES"
-
-
 application = Flask(__name__)
 application.config.from_mapping(
     CHORD_SERVICES=os.environ.get("CHORD_SERVICES", "chord_services.json"),
@@ -71,7 +68,7 @@ with application.app_context():
 def service_info():
     return jsonify({
         "id": application.config["SERVICE_ID"],
-        "name": "CHORD WES",  # TODO: Should be globally unique?
+        "name": SERVICE_NAME,  # TODO: Should be globally unique?
         "type": SERVICE_TYPE,
         "description": "Workflow execution service for a CHORD application.",
         "organization": {

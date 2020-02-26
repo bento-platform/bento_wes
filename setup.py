@@ -12,11 +12,11 @@ setuptools.setup(
     python_requires=">=3.6",
     install_requires=[
         "celery[redis]==4.4.0",
-        "chord_lib[flask]==0.3.0",
+        "chord_lib[flask]==0.5.0",
         "Flask>=1.1,<2.0",
-        "requests>=2.22,<3.0",
+        "requests>=2.23,<3.0",
         "requests-unixsocket>=0.2.0,<0.3.0",
-        "toil@git+https://github.com/afrosimon/toil@disable-content-length"
+        "toil@git+https://github.com/afrosimon/toil@disable-content-length",
     ],
 
     author="David Lougheed",
@@ -26,7 +26,7 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
 
-    packages=["chord_wes"],
+    packages=setuptools.find_packages(),
     include_package_data=True,
 
     url="https://github.com/c3g/chord_wes",

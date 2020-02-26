@@ -11,9 +11,9 @@ from werkzeug.utils import secure_filename
 from .celery import celery
 from .events import *
 from .states import *
-from .runner import update_run_state_and_commit, run_workflow
+from .runner import run_workflow
 
-from .db import get_db, run_request_dict, run_log_dict, get_task_logs, get_run_details
+from .db import get_db, run_request_dict, run_log_dict, get_task_logs, get_run_details, update_run_state_and_commit
 
 
 bp_runs = Blueprint("runs", __name__)
