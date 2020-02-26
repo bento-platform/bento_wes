@@ -255,6 +255,13 @@ class WESBackend(ABC):
         update_run_state_and_commit(self.db, self.db.cursor(), self.event_bus, run_id, state)
 
     def _finish_run_and_clean_up(self, run: dict, state: str) -> None:
+        """
+        Performs standard run-finishing operations (updating state, setting end time, etc.) as well as deleting the run
+        folder if it exists.
+        :param run: The run to perform "finishing" operations on
+        :param state: The final state of the run
+        """
+
         # Finish run ----------------------------------------------------------
 
         finish_run(self.db, self.db.cursor(), self.event_bus, run, state)
@@ -263,13 +270,22 @@ class WESBackend(ABC):
 
         del self._runs[run["run_id"]]
 
-        # Clean up any run files at the end, after they've been either copied or "rejected" due to some failure.
+        # -- Clean up any run files at the end, after they've been either -----
+        #    copied or "rejected" due to some failure.
         # TODO: SECURITY: Check run_dir
         # TODO: May want to keep them around for a retry depending on how the retry operation will work.
 
         shutil.rmtree(self.run_dir(run), ignore_errors=True)
 
     def _initialize_run_and_get_command(self, run: dict, celery_id) -> Optional[Command]:
+        """
+        Performs "initialization" operations on the run, including setting states, downloading and validating the
+        workflow file, and generating and logging the workflow-running command.
+        :param run: The run to initialize
+        :param celery_id: The Celery ID of the Celery task responsible for executing the run
+        :return: The command to execute, if no errors occurred; None otherwise
+        """
+
         self._update_run_state_and_commit(run["run_id"], STATE_INITIALIZING)
 
         run_log_id: str = run["run_log"]["id"]
@@ -317,6 +333,14 @@ class WESBackend(ABC):
         return cmd
 
     def _perform_run(self, run: dict, cmd: Command) -> Optional[ProcessResult]:
+        """
+        Performs a run based on a provided command and returns stdout, stderr, exit code, and whether the process timed
+        out while running.
+        :param run: The run to execute
+        :param cmd: The command used to execute the run
+        :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
+        """
+
         # Perform run =========================================================
 
         # -- Start process running the generated command ----------------------
@@ -369,6 +393,13 @@ class WESBackend(ABC):
         return ProcessResult((stdout, stderr, exit_code, timed_out))
 
     def perform_run(self, run: dict, celery_id) -> Optional[ProcessResult]:
+        """
+        Executes a run from start to finish (initialization, startup, and completion / cleanup.)
+        :param run: The run to execute
+        :param celery_id: The ID of the Celery task responsible for executing the workflow
+        :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
+        """
+
         if run["run_id"] in self._runs:
             raise ValueError("Run has already been registered")
 
