@@ -11,13 +11,13 @@ from flask import current_app, json
 from typing import Optional
 from urllib.parse import quote
 
+from . import states
 from .backends import finish_run, WESBackend
 from .backends.toil_wdl import ToilWDLBackend
 from .celery import celery
-from .constants import *
+from .constants import SERVICE_ARTIFACT
 from .db import get_db, get_run_details
-from .events import *
-from .states import *
+from .events import get_new_event_bus
 
 
 requests_unixsocket.monkeypatch()
@@ -107,13 +107,13 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
             # TODO: Just post run ID, fetch rest from the WES service?
             r = requests.post(f"http+unix://{NGINX_INTERNAL_SOCKET}{c_workflow_ingestion_path}",
                               json=run_results, timeout=INGEST_POST_TIMEOUT)
-            return STATE_COMPLETE if r.status_code < 400 else STATE_SYSTEM_ERROR
+            return states.STATE_COMPLETE if r.status_code < 400 else states.STATE_SYSTEM_ERROR
 
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
             # Ingestion failed due to a network error, or was too slow.
             # TODO: Retry a few times...
             # TODO: Report error somehow
-            return STATE_SYSTEM_ERROR
+            return states.STATE_SYSTEM_ERROR
 
     # TODO: Change based on workflow type / what's supported
     backend: WESBackend = ToilWDLBackend(current_app.config["SERVICE_TEMP"], chord_mode, logger, event_bus,
@@ -123,5 +123,5 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         backend.perform_run(run, self.request.id)
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
-        finish_run(db, c, event_bus, run, STATE_SYSTEM_ERROR)
+        finish_run(db, c, event_bus, run, states.STATE_SYSTEM_ERROR)
         raise e

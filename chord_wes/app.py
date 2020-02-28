@@ -1,14 +1,14 @@
 import chord_wes
 import os
 
-from chord_lib.responses.flask_errors import *
+from chord_lib.responses import flask_errors
 from flask import Flask, json, jsonify
 from werkzeug.exceptions import BadRequest, NotFound
 
 from .celery import celery
-from .constants import *
+from .constants import SERVICE_ID, SERVICE_NAME, SERVICE_TYPE
 from .db import init_db, update_db, close_db
-from .events import *
+from .events import close_flask_event_bus
 from .runs import bp_runs
 
 
@@ -28,10 +28,12 @@ application.config.from_mapping(
 application.register_blueprint(bp_runs)
 
 # Generic catch-all
-application.register_error_handler(Exception, flask_error_wrap_with_traceback(flask_internal_server_error,
-                                                                              service_name=SERVICE_NAME))
-application.register_error_handler(BadRequest, flask_error_wrap(flask_bad_request_error))
-application.register_error_handler(NotFound, flask_error_wrap(flask_not_found_error))
+application.register_error_handler(
+    Exception,
+    flask_errors.flask_error_wrap_with_traceback(flask_errors.flask_internal_server_error, service_name=SERVICE_NAME)
+)
+application.register_error_handler(BadRequest, flask_errors.flask_error_wrap(flask_errors.flask_bad_request_error))
+application.register_error_handler(NotFound, flask_errors.flask_error_wrap(flask_errors.flask_not_found_error))
 
 
 def configure_celery(app):
