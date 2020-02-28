@@ -34,3 +34,10 @@ WOM_TOOL_LOCATION=/path/to/womtool.jar
 `wes_run_updated`: TODO
 
 `wes_run_completed`: TODO
+
+
+## Running Tests
+
+```bash
+python3 -m pytest --cov=chord_wes --cov-branch
+```

@@ -8,3 +8,5 @@ womtool*
 toilwdl_compiled.py
 .idea/workspace.xml
 .idea/dataSources*
+.coverage
+htmlcov/
