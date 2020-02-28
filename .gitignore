@@ -2,8 +2,9 @@ __pycache__
 env/
 *.wdl
 *.vcf*
-*.json
+/*.json
 *.db
+tmp/
 womtool*
 toilwdl_compiled.py
 .idea/workspace.xml

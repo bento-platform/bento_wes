@@ -1,5 +1,8 @@
 # CHORD Workflow Execution Service (WES)
 
+![Build Status](https://api.travis-ci.org/c3g/chord_wes.svg?branch=master)
+[![codecov](https://codecov.io/gh/c3g/chord_wes/branch/master/graph/badge.svg)](https://codecov.io/gh/c3g/chord_wes)
+
 ## Overview
 
 Workflow execution service for CHORD. This service implements the
