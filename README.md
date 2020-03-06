@@ -42,5 +42,5 @@ WOM_TOOL_LOCATION=/path/to/womtool.jar
 ## Running Tests
 
 ```bash
-python3 -m pytest --cov=chord_wes --cov-branch
+python3 -m tox
 ```

@@ -2,9 +2,7 @@ language: python
 python:
   - "3.6"
   - "3.8"
-install:
-  - pip install -r requirements.txt
 script:
-  python3 -m pytest --cov=chord_wes --cov-branch
+  python3 -m tox
 after_success:
   - codecov
