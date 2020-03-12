@@ -101,7 +101,12 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         # TODO: If this is used to ingest, we'll have to wait for a confirmation before cleaning up; otherwise files
         #  could get removed before they get processed.
 
-        # Try to complete ingest POST request
+        # Try to complete ingest POST request (in DRS now!)
+
+        url = f"http+unix://{NGINX_INTERNAL_SOCKET}/api/drs/ingest"
+
+        print("CHORD_CALLBACK")
+        print(url)
 
         try:
             # TODO: Just post run ID, fetch rest from the WES service?
