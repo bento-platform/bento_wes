@@ -28,6 +28,27 @@ NGINX_INTERNAL_SOCKET = quote(os.environ.get("NGINX_INTERNAL_SOCKET", "/chord/tm
 INGEST_POST_TIMEOUT = 60 * 10  # 10 minutes
 
 
+def ingest_in_drs(path):
+    # TODO: might want to refactor at some point
+    url = f"http+unix://{NGINX_INTERNAL_SOCKET}/api/drs/ingest"
+    params = {"path": path}
+
+    r = requests.post(url, json=params, timeout=INGEST_POST_TIMEOUT)
+
+    r.raise_for_status()
+
+    print("CHORD_WES ingesting into DRS")
+    print(r.json)
+
+    data = r.json
+
+    for access_method in data["access_methods"]:
+        if access_method["type"] == "file":
+            return access_method["access_url"]["url"]
+
+    return None
+
+
 def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workflow_metadata: dict):
     output_params = chord_lib.ingestion.make_output_params(workflow_id, workflow_params,
                                                            c_workflow_metadata["inputs"])
@@ -40,10 +61,26 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
 
         # Rewrite file outputs to include full path to temporary location
         if output["type"] == WORKFLOW_TYPE_FILE:
-            workflow_outputs[output["id"]] = os.path.abspath(os.path.join(run_dir, workflow_outputs[output["id"]]))
+            full_path = os.path.abspath(os.path.join(run_dir, workflow_outputs[output["id"]]))
+            drs_uri = ingest_in_drs(full_path)
+
+            if drs_uri:
+                workflow_outputs[output["id"]] = drs_uri
+            else:
+                workflow_outputs[output["id"]] = full_path
         elif output["type"] == WORKFLOW_TYPE_FILE_ARRAY:
-            workflow_outputs[output["id"]] = [os.path.abspath(os.path.join(run_dir, wo))
-                                              for wo in workflow_outputs[output["id"]]]
+            new_outputs = []
+
+            for wo in workflow_outputs[output["id"]]:
+                full_path = os.path.abspath(os.path.join(run_dir, wo))
+                drs_uri = ingest_in_drs(full_path)
+
+                if drs_uri:
+                    new_outputs.append(drs_uri)
+                else:
+                    new_outputs.append(full_path)
+
+            workflow_outputs[output["id"]] = new_outputs
 
     return workflow_outputs
 
@@ -100,13 +137,6 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_FINISHED, run_results)
         # TODO: If this is used to ingest, we'll have to wait for a confirmation before cleaning up; otherwise files
         #  could get removed before they get processed.
-
-        # Try to complete ingest POST request (in DRS now!)
-
-        url = f"http+unix://{NGINX_INTERNAL_SOCKET}/api/drs/ingest"
-
-        print("CHORD_CALLBACK")
-        print(url)
 
         try:
             # TODO: Just post run ID, fetch rest from the WES service?
