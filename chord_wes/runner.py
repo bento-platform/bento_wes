@@ -1,15 +1,15 @@
-import chord_lib.ingestion
 import os
-import requests
-import requests_unixsocket
 import uuid
+from typing import Optional
+from urllib.parse import quote
 
 from celery.utils.log import get_task_logger
+import chord_lib.ingestion
 from chord_lib.events.types import EVENT_WES_RUN_FINISHED
 from chord_lib.ingestion import WORKFLOW_TYPE_FILE, WORKFLOW_TYPE_FILE_ARRAY
 from flask import current_app, json
-from typing import Optional
-from urllib.parse import quote
+import requests
+import requests_unixsocket
 
 from . import states
 from .backends import finish_run, WESBackend
@@ -33,12 +33,11 @@ def ingest_in_drs(path):
     url = f"http+unix://{NGINX_INTERNAL_SOCKET}/api/drs/ingest"
     params = {"path": path}
 
-    r = requests.post(url, json=params, timeout=INGEST_POST_TIMEOUT)
-
-    r.raise_for_status()
-
-    print("CHORD_WES ingesting into DRS")
-    print(r.json)
+    try:
+        r = requests.post(url, json=params, timeout=INGEST_POST_TIMEOUT)
+        r.raise_for_status()
+    except requests.RequestException:
+        return None
 
     data = r.json()
 
@@ -53,8 +52,6 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
     output_params = chord_lib.ingestion.make_output_params(workflow_id, workflow_params,
                                                            c_workflow_metadata["inputs"])
 
-    # TODO: Allow outputs to be served over different URL schemes instead of just an absolute file location
-
     workflow_outputs = {}
     for output in c_workflow_metadata["outputs"]:
         workflow_outputs[output["id"]] = chord_lib.ingestion.formatted_output(output, output_params)
@@ -64,6 +61,7 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
             full_path = os.path.abspath(os.path.join(run_dir, workflow_outputs[output["id"]]))
             drs_uri = ingest_in_drs(full_path)
 
+            # TODO: for now, this step is optional
             if drs_uri:
                 workflow_outputs[output["id"]] = drs_uri
             else:
