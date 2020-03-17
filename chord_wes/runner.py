@@ -40,7 +40,7 @@ def ingest_in_drs(path):
     print("CHORD_WES ingesting into DRS")
     print(r.json)
 
-    data = r.json
+    data = r.json()
 
     for access_method in data["access_methods"]:
         if access_method["type"] == "file":
