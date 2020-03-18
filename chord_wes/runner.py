@@ -41,11 +41,7 @@ def ingest_in_drs(path):
 
     data = r.json()
 
-    for access_method in data["access_methods"]:
-        if access_method["type"] == "file":
-            return access_method["access_url"]["url"]
-
-    return None
+    return data["self_uri"]
 
 
 def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workflow_metadata: dict):
