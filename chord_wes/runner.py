@@ -59,9 +59,12 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
         # Rewrite file outputs to include full path to temporary location
         if output["type"] == WORKFLOW_TYPE_FILE:
             full_path = os.path.abspath(os.path.join(run_dir, workflow_outputs[output["id"]]))
-            drs_uri = ingest_in_drs(full_path)
+            drs_uri = None
 
-            # TODO: for now, this step is optional
+            if current_app.config['WRITE_OUTPUT_TO_DRS']:
+                # As it stands, will return None in case of failure
+                drs_uri = ingest_in_drs(full_path)
+
             if drs_uri:
                 workflow_outputs[output["id"]] = drs_uri
             else:
@@ -71,7 +74,10 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
 
             for wo in workflow_outputs[output["id"]]:
                 full_path = os.path.abspath(os.path.join(run_dir, wo))
-                drs_uri = ingest_in_drs(full_path)
+                drs_uri = None
+
+                if current_app.config['WRITE_OUTPUT_TO_DRS']:
+                    drs_uri = ingest_in_drs(full_path)
 
                 if drs_uri:
                     new_outputs.append(drs_uri)
