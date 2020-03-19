@@ -1,15 +1,15 @@
-import chord_lib.ingestion
 import os
-import requests
-import requests_unixsocket
 import uuid
+from typing import Optional
+from urllib.parse import quote
 
 from celery.utils.log import get_task_logger
+import chord_lib.ingestion
 from chord_lib.events.types import EVENT_WES_RUN_FINISHED
 from chord_lib.ingestion import WORKFLOW_TYPE_FILE, WORKFLOW_TYPE_FILE_ARRAY
 from flask import current_app, json
-from typing import Optional
-from urllib.parse import quote
+import requests
+import requests_unixsocket
 
 from . import states
 from .backends import finish_run, WESBackend
@@ -28,11 +28,25 @@ NGINX_INTERNAL_SOCKET = quote(os.environ.get("NGINX_INTERNAL_SOCKET", "/chord/tm
 INGEST_POST_TIMEOUT = 60 * 10  # 10 minutes
 
 
+def ingest_in_drs(path):
+    # TODO: might want to refactor at some point
+    url = f"http+unix://{NGINX_INTERNAL_SOCKET}/api/drs/ingest"
+    params = {"path": path}
+
+    try:
+        r = requests.post(url, json=params, timeout=INGEST_POST_TIMEOUT)
+        r.raise_for_status()
+    except requests.RequestException:
+        return None
+
+    data = r.json()
+
+    return data["self_uri"]
+
+
 def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workflow_metadata: dict):
     output_params = chord_lib.ingestion.make_output_params(workflow_id, workflow_params,
                                                            c_workflow_metadata["inputs"])
-
-    # TODO: Allow outputs to be served over different URL schemes instead of just an absolute file location
 
     workflow_outputs = {}
     for output in c_workflow_metadata["outputs"]:
@@ -40,10 +54,33 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
 
         # Rewrite file outputs to include full path to temporary location
         if output["type"] == WORKFLOW_TYPE_FILE:
-            workflow_outputs[output["id"]] = os.path.abspath(os.path.join(run_dir, workflow_outputs[output["id"]]))
+            full_path = os.path.abspath(os.path.join(run_dir, workflow_outputs[output["id"]]))
+            drs_url = None
+
+            if current_app.config['WRITE_OUTPUT_TO_DRS']:
+                # As it stands, will return None in case of failure
+                drs_url = ingest_in_drs(full_path)
+
+            if drs_url:
+                workflow_outputs[output["id"]] = drs_url
+            else:
+                workflow_outputs[output["id"]] = full_path
         elif output["type"] == WORKFLOW_TYPE_FILE_ARRAY:
-            workflow_outputs[output["id"]] = [os.path.abspath(os.path.join(run_dir, wo))
-                                              for wo in workflow_outputs[output["id"]]]
+            new_outputs = []
+
+            for wo in workflow_outputs[output["id"]]:
+                full_path = os.path.abspath(os.path.join(run_dir, wo))
+                drs_url = None
+
+                if current_app.config['WRITE_OUTPUT_TO_DRS']:
+                    drs_url = ingest_in_drs(full_path)
+
+                if drs_url:
+                    new_outputs.append(drs_url)
+                else:
+                    new_outputs.append(full_path)
+
+            workflow_outputs[output["id"]] = new_outputs
 
     return workflow_outputs
 
@@ -100,8 +137,6 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_FINISHED, run_results)
         # TODO: If this is used to ingest, we'll have to wait for a confirmation before cleaning up; otherwise files
         #  could get removed before they get processed.
-
-        # Try to complete ingest POST request
 
         try:
             # TODO: Just post run ID, fetch rest from the WES service?
