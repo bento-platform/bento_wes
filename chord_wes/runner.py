@@ -1,15 +1,17 @@
+import chord_lib.ingestion
 import os
+import sys
+import requests
+import requests_unixsocket
 import uuid
-from typing import Optional
-from urllib.parse import quote
 
 from celery.utils.log import get_task_logger
-import chord_lib.ingestion
 from chord_lib.events.types import EVENT_WES_RUN_FINISHED
 from chord_lib.ingestion import WORKFLOW_TYPE_FILE, WORKFLOW_TYPE_FILE_ARRAY
 from flask import current_app, json
-import requests
-import requests_unixsocket
+from typing import Optional
+from urllib.parse import quote
+
 
 from . import states
 from .backends import finish_run, WESBackend
@@ -36,7 +38,10 @@ def ingest_in_drs(path):
     try:
         r = requests.post(url, json=params, timeout=INGEST_POST_TIMEOUT)
         r.raise_for_status()
-    except requests.RequestException:
+    except requests.RequestException as e:
+        if hasattr(e, "response"):
+            print(f"[{SERVICE_NAME}] Encountered DRS request exception: {e.response.json()}", flush=True,
+                  file=sys.stderr)
         return None
 
     data = r.json()
