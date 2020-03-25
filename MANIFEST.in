@@ -1,1 +1,2 @@
 include chord_wes/schema.sql
+include chord_wes/package.cfg

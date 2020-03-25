@@ -14,5 +14,6 @@ htmlcov/
 # IDE stuff
 .idea/workspace.xml
 .idea/dataSources*
+.idea/rSettings.xml
 *.swp
 *.swo
