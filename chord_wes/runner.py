@@ -61,10 +61,8 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
                 # As it stands, will return None in case of failure
                 drs_url = ingest_in_drs(full_path)
 
-            if drs_url:
-                workflow_outputs[output["id"]] = drs_url
-            else:
-                workflow_outputs[output["id"]] = full_path
+            workflow_outputs[output["id"]] = drs_url if drs_url else full_path
+
         elif output["type"] == WORKFLOW_TYPE_FILE_ARRAY:
             new_outputs = []
 
@@ -75,10 +73,7 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
                 if current_app.config['WRITE_OUTPUT_TO_DRS']:
                     drs_url = ingest_in_drs(full_path)
 
-                if drs_url:
-                    new_outputs.append(drs_url)
-                else:
-                    new_outputs.append(full_path)
+                new_outputs.append(drs_url if drs_url else full_path)
 
             workflow_outputs[output["id"]] = new_outputs
 
