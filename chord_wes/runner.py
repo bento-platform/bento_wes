@@ -15,7 +15,7 @@ from . import states
 from .backends import finish_run, WESBackend
 from .backends.toil_wdl import ToilWDLBackend
 from .celery import celery
-from .constants import SERVICE_ARTIFACT
+from .constants import SERVICE_ARTIFACT, SERVICE_NAME
 from .db import get_db, get_run_details
 from .events import get_new_event_bus
 
@@ -40,6 +40,8 @@ def ingest_in_drs(path):
         return None
 
     data = r.json()
+
+    print(f"[{SERVICE_NAME}] Ingested {path} as {data['self_uri']}", flush=True)
 
     return data["self_uri"]
 
