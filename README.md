@@ -1,5 +1,8 @@
 # CHORD Workflow Execution Service (WES)
 
+![Build Status](https://api.travis-ci.com/c3g/chord_wes.svg?branch=master)
+[![codecov](https://codecov.io/gh/c3g/chord_wes/branch/master/graph/badge.svg)](https://codecov.io/gh/c3g/chord_wes)
+
 ## Overview
 
 Workflow execution service for CHORD. This service implements the
@@ -26,6 +29,7 @@ SERVICE_ID=
 SERVICE_TEMP=tmp
 SERVICE_URL_BASE_PATH=/
 WOM_TOOL_LOCATION=/path/to/womtool.jar
+WRITE_OUTPUT_TO_DRS=0
 ```
 
 
@@ -34,3 +38,10 @@ WOM_TOOL_LOCATION=/path/to/womtool.jar
 `wes_run_updated`: TODO
 
 `wes_run_completed`: TODO
+
+
+## Running Tests
+
+```bash
+python3 -m tox
+```

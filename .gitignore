@@ -1,10 +1,19 @@
 __pycache__
 env/
+.tox
 *.wdl
 *.vcf*
-*.json
+/*.json
 *.db
+tmp/
 womtool*
 toilwdl_compiled.py
+.coverage
+htmlcov/
+
+# IDE stuff
 .idea/workspace.xml
 .idea/dataSources*
+.idea/rSettings.xml
+*.swp
+*.swo

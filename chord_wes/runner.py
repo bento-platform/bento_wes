@@ -1,5 +1,6 @@
 import chord_lib.ingestion
 import os
+import sys
 import requests
 import requests_unixsocket
 import uuid
@@ -11,13 +12,14 @@ from flask import current_app, json
 from typing import Optional
 from urllib.parse import quote
 
+
+from . import states
 from .backends import finish_run, WESBackend
 from .backends.toil_wdl import ToilWDLBackend
 from .celery import celery
-from .constants import *
+from .constants import SERVICE_ARTIFACT, SERVICE_NAME
 from .db import get_db, get_run_details
-from .events import *
-from .states import *
+from .events import get_new_event_bus
 
 
 requests_unixsocket.monkeypatch()
@@ -28,11 +30,30 @@ NGINX_INTERNAL_SOCKET = quote(os.environ.get("NGINX_INTERNAL_SOCKET", "/chord/tm
 INGEST_POST_TIMEOUT = 60 * 10  # 10 minutes
 
 
+def ingest_in_drs(path):
+    # TODO: might want to refactor at some point
+    url = f"http+unix://{NGINX_INTERNAL_SOCKET}/api/drs/ingest"
+    params = {"path": path}
+
+    try:
+        r = requests.post(url, json=params, timeout=INGEST_POST_TIMEOUT)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        if hasattr(e, "response"):
+            print(f"[{SERVICE_NAME}] Encountered DRS request exception: {e.response.json()}", flush=True,
+                  file=sys.stderr)
+        return None
+
+    data = r.json()
+
+    print(f"[{SERVICE_NAME}] Ingested {path} as {data['self_uri']}", flush=True)
+
+    return data["self_uri"]
+
+
 def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workflow_metadata: dict):
     output_params = chord_lib.ingestion.make_output_params(workflow_id, workflow_params,
                                                            c_workflow_metadata["inputs"])
-
-    # TODO: Allow outputs to be served over different URL schemes instead of just an absolute file location
 
     workflow_outputs = {}
     for output in c_workflow_metadata["outputs"]:
@@ -40,10 +61,28 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
 
         # Rewrite file outputs to include full path to temporary location
         if output["type"] == WORKFLOW_TYPE_FILE:
-            workflow_outputs[output["id"]] = os.path.abspath(os.path.join(run_dir, workflow_outputs[output["id"]]))
+            full_path = os.path.abspath(os.path.join(run_dir, workflow_outputs[output["id"]]))
+            drs_url = None
+
+            if current_app.config['WRITE_OUTPUT_TO_DRS']:
+                # As it stands, will return None in case of failure
+                drs_url = ingest_in_drs(full_path)
+
+            workflow_outputs[output["id"]] = drs_url if drs_url else full_path
+
         elif output["type"] == WORKFLOW_TYPE_FILE_ARRAY:
-            workflow_outputs[output["id"]] = [os.path.abspath(os.path.join(run_dir, wo))
-                                              for wo in workflow_outputs[output["id"]]]
+            new_outputs = []
+
+            for wo in workflow_outputs[output["id"]]:
+                full_path = os.path.abspath(os.path.join(run_dir, wo))
+                drs_url = None
+
+                if current_app.config['WRITE_OUTPUT_TO_DRS']:
+                    drs_url = ingest_in_drs(full_path)
+
+                new_outputs.append(drs_url if drs_url else full_path)
+
+            workflow_outputs[output["id"]] = new_outputs
 
     return workflow_outputs
 
@@ -101,19 +140,17 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         # TODO: If this is used to ingest, we'll have to wait for a confirmation before cleaning up; otherwise files
         #  could get removed before they get processed.
 
-        # Try to complete ingest POST request
-
         try:
             # TODO: Just post run ID, fetch rest from the WES service?
             r = requests.post(f"http+unix://{NGINX_INTERNAL_SOCKET}{c_workflow_ingestion_path}",
                               json=run_results, timeout=INGEST_POST_TIMEOUT)
-            return STATE_COMPLETE if r.status_code < 400 else STATE_SYSTEM_ERROR
+            return states.STATE_COMPLETE if r.status_code < 400 else states.STATE_SYSTEM_ERROR
 
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
             # Ingestion failed due to a network error, or was too slow.
             # TODO: Retry a few times...
             # TODO: Report error somehow
-            return STATE_SYSTEM_ERROR
+            return states.STATE_SYSTEM_ERROR
 
     # TODO: Change based on workflow type / what's supported
     backend: WESBackend = ToilWDLBackend(current_app.config["SERVICE_TEMP"], chord_mode, logger, event_bus,
@@ -123,5 +160,5 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         backend.perform_run(run, self.request.id)
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
-        finish_run(db, c, event_bus, run, STATE_SYSTEM_ERROR)
+        finish_run(db, c, event_bus, run, states.STATE_SYSTEM_ERROR)
         raise e

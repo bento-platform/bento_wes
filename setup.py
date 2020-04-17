@@ -1,26 +1,31 @@
 #!/usr/bin/env python
 
+import configparser
+import os
 import setuptools
 
 with open("README.md", "r") as rf:
     long_description = rf.read()
 
+config = configparser.ConfigParser()
+config.read(os.path.join(os.path.dirname(os.path.realpath(__file__)), "chord_wes", "package.cfg"))
+
 setuptools.setup(
-    name="chord_wes",
-    version="0.1.0",
+    name=config["package"]["name"],
+    version=config["package"]["version"],
 
     python_requires=">=3.6",
     install_requires=[
         "celery[redis]==4.4.0",
-        "chord_lib[flask]==0.5.0",
+        "chord_lib[flask]==0.7.0",
         "Flask>=1.1,<2.0",
         "requests>=2.23,<3.0",
         "requests-unixsocket>=0.2.0,<0.3.0",
         "toil@git+https://github.com/DataBiosphere/toil@master"
     ],
 
-    author="David Lougheed",
-    author_email="david.lougheed@mail.mcgill.ca",
+    author=config["package"]["authors"],
+    author_email=config["package"]["author_emails"],
 
     description="Workflow execution service for CHORD.",
     long_description=long_description,

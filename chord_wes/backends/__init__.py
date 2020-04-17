@@ -13,17 +13,16 @@ from chord_lib.events.types import EVENT_CREATE_NOTIFICATION
 from typing import Callable, Dict, Optional, Tuple, Union
 from urllib.parse import urlparse
 
+from chord_wes import states
 from chord_wes.constants import SERVICE_ARTIFACT
 from chord_wes.db import get_db, update_run_state_and_commit
-from chord_wes.states import *
 from chord_wes.utils import iso_now
 
-from .backend_types import *
+from .backend_types import Command, ProcessResult, WorkflowType, WES_WORKFLOW_TYPE_CWL, WES_WORKFLOW_TYPE_WDL
 
 
 __all__ = [
     "finish_run",
-    "Command",
     "WESBackend",
 ]
 
@@ -65,7 +64,7 @@ def finish_run(db: sqlite3.Connection, c: sqlite3.Cursor, event_bus: EventBus, r
     c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (iso_now(), run_log_id))
     update_run_state_and_commit(db, c, event_bus, run_id, state)
 
-    if state in FAILURE_STATES:
+    if state in states.FAILURE_STATES:
         event_bus.publish_service_event(
             SERVICE_ARTIFACT,
             EVENT_CREATE_NOTIFICATION,
@@ -77,7 +76,7 @@ def finish_run(db: sqlite3.Connection, c: sqlite3.Cursor, event_bus: EventBus, r
             )
         )
 
-    elif state in SUCCESS_STATES:
+    elif state in states.SUCCESS_STATES:
         event_bus.publish_service_event(
             SERVICE_ARTIFACT,
             EVENT_CREATE_NOTIFICATION,
@@ -190,12 +189,12 @@ class WESBackend(ABC):
 
                 elif not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
                     # Request issues
-                    return STATE_SYSTEM_ERROR
+                    return states.STATE_SYSTEM_ERROR
 
             except requests.exceptions.ConnectionError:
                 if not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
                     # Network issues
-                    return STATE_SYSTEM_ERROR
+                    return states.STATE_SYSTEM_ERROR
 
         else:  # TODO: Other else cases
             # file://
@@ -286,7 +285,7 @@ class WESBackend(ABC):
         :return: The command to execute, if no errors occurred; None otherwise
         """
 
-        self._update_run_state_and_commit(run["run_id"], STATE_INITIALIZING)
+        self._update_run_state_and_commit(run["run_id"], states.STATE_INITIALIZING)
 
         run_log_id: str = run["run_log"]["id"]
 
@@ -294,7 +293,7 @@ class WESBackend(ABC):
         if not os.path.exists(self.run_dir(run)):
             # TODO: Log error in run log
             self.log_error("Run directory not found")
-            return self._finish_run_and_clean_up(run, STATE_SYSTEM_ERROR)
+            return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
 
         c = self.db.cursor()
 
@@ -311,7 +310,7 @@ class WESBackend(ABC):
         if workflow_name is None:
             # Invalid/non-workflow-specifying workflow file
             self.log_error("Could not find workflow name in workflow file")
-            return self._finish_run_and_clean_up(run, STATE_SYSTEM_ERROR)
+            return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
 
         # TODO: To avoid having multiple names, we should maybe only set this once?
         c.execute("UPDATE run_logs SET name = ? WHERE id = ?", (workflow_name, run_log_id))
@@ -347,7 +346,7 @@ class WESBackend(ABC):
         runner_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
         c = self.db.cursor()
         c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]["id"]))
-        self._update_run_state_and_commit(run["run_id"], STATE_RUNNING)
+        self._update_run_state_and_commit(run["run_id"], states.STATE_RUNNING)
 
         # -- Wait for output --------------------------------------------------
 
@@ -373,19 +372,19 @@ class WESBackend(ABC):
 
         if timed_out:
             # TODO: Report error somehow
-            return self._finish_run_and_clean_up(run, STATE_SYSTEM_ERROR)
+            return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
 
         # -- Final steps: check exit code and report results ------------------
 
         if exit_code != 0:
             # TODO: Report error somehow
-            return self._finish_run_and_clean_up(run, STATE_EXECUTOR_ERROR)
+            return self._finish_run_and_clean_up(run, states.STATE_EXECUTOR_ERROR)
 
         # Exit code is 0 otherwise
 
         if not self.chord_mode:
             # TODO: What should be done if this run was not a CHORD routine?
-            return self._finish_run_and_clean_up(run, STATE_COMPLETE)
+            return self._finish_run_and_clean_up(run, states.STATE_COMPLETE)
 
         # If in CHORD mode, run the callback and finish the run with whatever state is returned.
         self._finish_run_and_clean_up(run, self.chord_callback(self))

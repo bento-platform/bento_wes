@@ -4,13 +4,17 @@ import shutil
 import uuid
 
 from chord_lib.auth.flask_decorators import flask_permissions_owner
-from chord_lib.responses.flask_errors import *
+from chord_lib.responses.flask_errors import (
+    flask_bad_request_error,
+    flask_internal_server_error,
+    flask_not_found_error,
+)
 from flask import Blueprint, current_app, jsonify, request
 from werkzeug.utils import secure_filename
 
+from . import states
 from .celery import celery
-from .events import *
-from .states import *
+from .events import get_flask_event_bus
 from .runner import run_workflow
 
 from .db import get_db, run_request_dict, run_log_dict, get_task_logs, get_run_details, update_run_state_and_commit
@@ -98,12 +102,12 @@ def run_list():
                        json.dumps(workflow_engine_parameters), workflow_url, json.dumps(tags)))
             c.execute("INSERT INTO run_logs (id, name) VALUES (?, ?)", (str(log_id), workflow_id))
             c.execute("INSERT INTO runs (id, request, state, run_log, outputs) VALUES (?, ?, ?, ?, ?)",
-                      (str(run_id), str(req_id), STATE_UNKNOWN, str(log_id), json.dumps({})))
+                      (str(run_id), str(req_id), states.STATE_UNKNOWN, str(log_id), json.dumps({})))
             db.commit()
 
             # TODO: figure out timeout
             # TODO: retry policy
-            c.execute("UPDATE runs SET state = ? WHERE id = ?", (STATE_QUEUED, str(run_id)))
+            c.execute("UPDATE runs SET state = ? WHERE id = ?", (states.STATE_QUEUED, str(run_id)))
             db.commit()
 
             run_workflow.delay(run_id, chord_mode, workflow_metadata, workflow_ingestion_path, table_id)
@@ -187,13 +191,13 @@ def run_cancel(run_id):
     if run is None:
         return flask_not_found_error(f"Run {run_id} not found")
 
-    if run["state"] in (STATE_CANCELING, STATE_CANCELED):
+    if run["state"] in (states.STATE_CANCELING, states.STATE_CANCELED):
         return flask_bad_request_error("Run already canceled")
 
-    if run["state"] in (STATE_SYSTEM_ERROR, STATE_EXECUTOR_ERROR):
+    if run["state"] in states.FAILURE_STATES:
         return flask_bad_request_error("Run already terminated with error")
 
-    if run["state"] == STATE_COMPLETE:
+    if run["state"] in states.SUCCESS_STATES:
         return flask_bad_request_error("Run already completed")
 
     c.execute("SELECT * FROM run_logs WHERE id = ?", (run["run_log"],))
@@ -207,7 +211,7 @@ def run_cancel(run_id):
         return flask_internal_server_error(f"No Celery ID present for run {run_id}")
 
     # TODO: terminate=True might be iffy
-    update_run_state_and_commit(db, c, event_bus, run["id"], STATE_CANCELING)
+    update_run_state_and_commit(db, c, event_bus, run["id"], states.STATE_CANCELING)
     celery.control.revoke(run_log["celery_id"], terminate=True)  # Remove from queue if there, terminate if running
 
     # TODO: wait for revocation / failure and update status...
@@ -216,7 +220,7 @@ def run_cancel(run_id):
     run_dir = os.path.join(current_app.config["SERVICE_TEMP"], run["run_id"])
     shutil.rmtree(run_dir, ignore_errors=True)
 
-    update_run_state_and_commit(db, c, event_bus, run["id"], STATE_CANCELED)
+    update_run_state_and_commit(db, c, event_bus, run["id"], states.STATE_CANCELED)
 
     return current_app.response_class(status=204)  # TODO: Better response
 

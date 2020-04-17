@@ -8,8 +8,8 @@ from flask import current_app, g
 from typing import Optional, Union
 from urllib.parse import urljoin
 
+from . import states
 from .constants import SERVICE_ARTIFACT
-from .states import *
 
 
 __all__ = [
@@ -62,7 +62,7 @@ def update_db():
     # Update all runs that have "stuck" states to have an error state instead on restart. This way, systems don't get
     # stuck checking their status, and if they're in a weird state at boot they should receive an error status anyway.
     c.execute("UPDATE runs SET state = ? WHERE state = ? OR state = ?",
-              (STATE_SYSTEM_ERROR, STATE_INITIALIZING, STATE_RUNNING))
+              (states.STATE_SYSTEM_ERROR, states.STATE_INITIALIZING, states.STATE_RUNNING))
     db.commit()
 
     # TODO: Migrations if needed
