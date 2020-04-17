@@ -16,12 +16,12 @@ setuptools.setup(
 
     python_requires=">=3.6",
     install_requires=[
-        "celery[redis]==4.4.0",
+        "celery[redis]==4.4.2",
         "chord_lib[flask]==0.7.0",
         "Flask>=1.1,<2.0",
         "requests>=2.23,<3.0",
         "requests-unixsocket>=0.2.0,<0.3.0",
-        "toil@git+https://github.com/DataBiosphere/toil@master"
+        "toil==4.0.0"
     ],
 
     author=config["package"]["authors"],
