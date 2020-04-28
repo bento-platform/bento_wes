@@ -51,6 +51,17 @@ def ingest_in_drs(path):
     return data["self_uri"]
 
 
+def should_ingest_to_drs(path: str) -> bool:
+    return current_app.config["WRITE_OUTPUT_TO_DRS"] and not \
+        any(path.endswith(t) for t in current_app.config["DRS_SKIP_TYPES"])
+
+
+def return_drs_url_or_full_path(full_path: str) -> str:
+    # TODO: As it stands, ingest_in_drs will return None in case of DRS ingest failure
+    drs_url = ingest_in_drs(full_path) if should_ingest_to_drs(full_path) else None
+    return drs_url or full_path
+
+
 def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workflow_metadata: dict):
     output_params = chord_lib.ingestion.make_output_params(workflow_id, workflow_params,
                                                            c_workflow_metadata["inputs"])
@@ -59,30 +70,17 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
     for output in c_workflow_metadata["outputs"]:
         workflow_outputs[output["id"]] = chord_lib.ingestion.formatted_output(output, output_params)
 
-        # Rewrite file outputs to include full path to temporary location
+        # Rewrite file outputs to include full path to temporary location, or ingested DRS object URI
+
         if output["type"] == WORKFLOW_TYPE_FILE:
-            full_path = os.path.abspath(os.path.join(run_dir, workflow_outputs[output["id"]]))
-            drs_url = None
-
-            if current_app.config['WRITE_OUTPUT_TO_DRS']:
-                # As it stands, will return None in case of failure
-                drs_url = ingest_in_drs(full_path)
-
-            workflow_outputs[output["id"]] = drs_url if drs_url else full_path
+            workflow_outputs[output["id"]] = return_drs_url_or_full_path(
+                full_path=os.path.abspath(os.path.join(run_dir, workflow_outputs[output["id"]])))
 
         elif output["type"] == WORKFLOW_TYPE_FILE_ARRAY:
-            new_outputs = []
-
-            for wo in workflow_outputs[output["id"]]:
-                full_path = os.path.abspath(os.path.join(run_dir, wo))
-                drs_url = None
-
-                if current_app.config['WRITE_OUTPUT_TO_DRS']:
-                    drs_url = ingest_in_drs(full_path)
-
-                new_outputs.append(drs_url if drs_url else full_path)
-
-            workflow_outputs[output["id"]] = new_outputs
+            workflow_outputs[output["id"]] = [
+                return_drs_url_or_full_path(full_path=os.path.abspath(os.path.join(run_dir, wo)))
+                for wo in workflow_outputs[output["id"]]
+            ]
 
     return workflow_outputs
 

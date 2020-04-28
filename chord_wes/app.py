@@ -23,7 +23,8 @@ application.config.from_mapping(
     SERVICE_TEMP=os.environ.get("SERVICE_TEMP", "tmp"),
     SERVICE_URL_BASE_PATH=os.environ.get("SERVICE_URL_BASE_PATH", "/"),
     WOM_TOOL_LOCATION=os.environ.get("WOM_TOOL_LOCATION", "womtool.jar"),
-    WRITE_OUTPUT_TO_DRS=os.environ.get("WRITE_OUTPUT_TO_DRS", "false").lower().strip() == "true"
+    WRITE_OUTPUT_TO_DRS=os.environ.get("WRITE_OUTPUT_TO_DRS", "false").lower().strip() == "true",
+    DRS_SKIP_TYPES=tuple(t.strip() for t in os.environ.get("DRS_SKIP_TYPES", "").split(",") if t.strip())
 )
 
 application.register_blueprint(bp_runs)
