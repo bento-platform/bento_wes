@@ -32,7 +32,7 @@ INGEST_POST_TIMEOUT = 60 * 10  # 10 minutes
 
 def ingest_in_drs(path):
     # TODO: might want to refactor at some point
-    url = f"http+unix://{NGINX_INTERNAL_SOCKET}/api/drs/ingest"
+    url = f"http+unix://{NGINX_INTERNAL_SOCKET}/api/drs/private/ingest"
     params = {"path": path}
 
     try:
