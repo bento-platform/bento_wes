@@ -22,6 +22,7 @@ ca.c3g.chord:wes:VERSION
 ```bash
 CHORD_SERVICES=/path/to/chord_services.json
 CHORD_URL=http://127.0.0.1:5000/
+CHORD_HOST=127.0.0.1
 CELERY_RESULT_BACKEND=redis://
 CELERY_BROKER_URL=redis://
 DATABASE=chord_wes.db

@@ -16,6 +16,7 @@ application = Flask(__name__)
 application.config.from_mapping(
     CHORD_SERVICES=os.environ.get("CHORD_SERVICES", "chord_services.json"),
     CHORD_URL=os.environ.get("CHORD_URL", "http://127.0.0.1:5000/"),
+    CHORD_HOST=os.environ.get("CHORD_HOST", "127.0.0.1"),
     CELERY_RESULT_BACKEND=os.environ.get("CELERY_RESULT_BACKEND", "redis://"),
     CELERY_BROKER_URL=os.environ.get("CELERY_BROKER_URL", "redis://"),
     DATABASE=os.environ.get("DATABASE", "chord_wes.db"),

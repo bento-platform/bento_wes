@@ -140,8 +140,14 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
         try:
             # TODO: Just post run ID, fetch rest from the WES service?
-            r = requests.post(f"http+unix://{NGINX_INTERNAL_SOCKET}{c_workflow_ingestion_path}",
-                              json=run_results, timeout=INGEST_POST_TIMEOUT)
+            # TODO: In the future, allow localhost requests to chord_metadata_service so we don't need to manually
+            #  set the Host header?
+            r = requests.post(
+                f"http+unix://{NGINX_INTERNAL_SOCKET}{c_workflow_ingestion_path}",
+                headers={"Host": current_app.config["CHORD_HOST"]},  # TODO: Calculate from CHORD_URL instead?
+                json=run_results,
+                timeout=INGEST_POST_TIMEOUT
+            )
             return states.STATE_COMPLETE if r.status_code < 400 else states.STATE_SYSTEM_ERROR
 
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
