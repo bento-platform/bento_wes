@@ -6,7 +6,7 @@ billiard==3.6.3.0
 celery==4.4.2
 certifi==2020.4.5.1
 chardet==3.0.4
-chord-lib==0.7.0
+chord-lib==0.8.0
 click==7.1.2
 coverage==5.1
 dill==0.2.7.1
@@ -40,7 +40,7 @@ pyrsistent==0.16.0
 pytest==5.4.1
 pytest-cov==2.8.1
 python-dateutil==2.8.1
-pytz==2019.3
+pytz==2020.1
 redis==3.4.1
 requests==2.23.0
 requests-unixsocket==0.2.0
