@@ -10,7 +10,7 @@ from chord_lib.events.types import EVENT_WES_RUN_FINISHED
 from chord_lib.ingestion import WORKFLOW_TYPE_FILE, WORKFLOW_TYPE_FILE_ARRAY
 from flask import current_app, json
 from typing import Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 
 from . import states
@@ -144,7 +144,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
             #  set the Host header?
             r = requests.post(
                 f"http+unix://{NGINX_INTERNAL_SOCKET}{c_workflow_ingestion_path}",
-                headers={"Host": current_app.config["CHORD_HOST"]},  # TODO: Calculate from CHORD_URL instead?
+                headers={"Host": urlparse(current_app.config["CHORD_URL"] or "").netloc or ""},
                 json=run_results,
                 timeout=INGEST_POST_TIMEOUT
             )
