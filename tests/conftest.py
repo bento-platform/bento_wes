@@ -7,8 +7,8 @@ os.environ["CHORD_SERVICES"] = os.path.join(os.path.dirname(__file__), "chord_se
 
 @pytest.fixture
 def app():
-    from chord_wes.app import application
-    from chord_wes.db import init_db
+    from bento_wes.app import application
+    from bento_wes.db import init_db
 
     application.config["TESTING"] = True
     application.config["DATABASE"] = ":memory:"

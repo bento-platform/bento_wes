@@ -1,19 +1,19 @@
-# CHORD Workflow Execution Service (WES)
+# Bento Workflow Execution Service (WES)
 
-![Build Status](https://api.travis-ci.com/c3g/chord_wes.svg?branch=master)
-[![codecov](https://codecov.io/gh/c3g/chord_wes/branch/master/graph/badge.svg)](https://codecov.io/gh/c3g/chord_wes)
+![Build Status](https://api.travis-ci.com/bento-platform/bento_wes.svg?branch=master)
+[![codecov](https://codecov.io/gh/bento-platform/bento_wes/branch/master/graph/badge.svg)](https://codecov.io/gh/bento-platform/bento_wes)
 
 ## Overview
 
-Workflow execution service for CHORD. This service implements the
+Workflow execution service for the Bento platform. This service implements the
 [GA4GH WES API schema](https://github.com/ga4gh/workflow-execution-service-schemas)
-with additional CHORD-specific features.
+with additional Bento-specific features.
 
 
 ## `/service-info` Type
 
 ```
-ca.c3g.chord:wes:VERSION
+ca.c3g.bento:wes:VERSION
 ```
 
 
@@ -24,7 +24,7 @@ CHORD_SERVICES=/path/to/chord_services.json
 CHORD_URL=http://127.0.0.1:5000/
 CELERY_RESULT_BACKEND=redis://
 CELERY_BROKER_URL=redis://
-DATABASE=chord_wes.db
+DATABASE=bento_wes.db
 SERVICE_ID=
 SERVICE_TEMP=tmp
 SERVICE_URL_BASE_PATH=/

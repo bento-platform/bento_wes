@@ -13,10 +13,10 @@ from chord_lib.events.types import EVENT_CREATE_NOTIFICATION
 from typing import Callable, Dict, Optional, Tuple, Union
 from urllib.parse import urlparse
 
-from chord_wes import states
-from chord_wes.constants import SERVICE_ARTIFACT
-from chord_wes.db import get_db, update_run_state_and_commit
-from chord_wes.utils import iso_now
+from bento_wes import states
+from bento_wes.constants import SERVICE_ARTIFACT
+from bento_wes.db import get_db, update_run_state_and_commit
+from bento_wes.utils import iso_now
 
 from .backend_types import Command, ProcessResult, WorkflowType, WES_WORKFLOW_TYPE_CWL, WES_WORKFLOW_TYPE_WDL
 

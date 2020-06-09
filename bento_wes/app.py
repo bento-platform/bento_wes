@@ -1,4 +1,4 @@
-import chord_wes
+import bento_wes
 import os
 
 from chord_lib.responses import flask_errors
@@ -18,7 +18,7 @@ application.config.from_mapping(
     CHORD_URL=os.environ.get("CHORD_URL", "http://127.0.0.1:5000/"),
     CELERY_RESULT_BACKEND=os.environ.get("CELERY_RESULT_BACKEND", "redis://"),
     CELERY_BROKER_URL=os.environ.get("CELERY_BROKER_URL", "redis://"),
-    DATABASE=os.environ.get("DATABASE", "chord_wes.db"),
+    DATABASE=os.environ.get("DATABASE", "bento_wes.db"),
     SERVICE_ID=SERVICE_ID,
     SERVICE_TEMP=os.environ.get("SERVICE_TEMP", "tmp"),
     SERVICE_URL_BASE_PATH=os.environ.get("SERVICE_URL_BASE_PATH", "/"),
@@ -80,5 +80,5 @@ def service_info():
             "url": "http://www.computationalgenomics.ca"
         },
         "contactUrl": "mailto:david.lougheed@mail.mcgill.ca",
-        "version": chord_wes.__version__
+        "version": bento_wes.__version__
     })

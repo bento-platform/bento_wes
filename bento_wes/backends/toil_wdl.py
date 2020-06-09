@@ -5,9 +5,9 @@ import subprocess
 from flask import current_app, json
 from typing import Optional, Tuple
 
-from chord_wes.backends import WESBackend
-from chord_wes.backends.backend_types import Command, WorkflowType, WES_WORKFLOW_TYPE_WDL
-from chord_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
+from bento_wes.backends import WESBackend
+from bento_wes.backends.backend_types import Command, WorkflowType, WES_WORKFLOW_TYPE_WDL
+from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
 
 
 __all__ = [
