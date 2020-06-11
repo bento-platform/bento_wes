@@ -2,8 +2,8 @@ import json
 import sqlite3
 import uuid
 
-from chord_lib.events import EventBus
-from chord_lib.events.types import EVENT_WES_RUN_UPDATED
+from bento_lib.events import EventBus
+from bento_lib.events.types import EVENT_WES_RUN_UPDATED
 from flask import current_app, g
 from typing import Optional, Union
 from urllib.parse import urljoin

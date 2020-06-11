@@ -1,7 +1,7 @@
 import bento_wes
 import os
 
-from chord_lib.responses import flask_errors
+from bento_lib.responses import flask_errors
 from flask import Flask, json, jsonify
 from werkzeug.exceptions import BadRequest, NotFound
 

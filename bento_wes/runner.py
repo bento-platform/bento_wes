@@ -1,4 +1,4 @@
-import chord_lib.ingestion
+import bento_lib.ingestion
 import os
 import sys
 import requests
@@ -6,8 +6,8 @@ import requests_unixsocket
 import uuid
 
 from celery.utils.log import get_task_logger
-from chord_lib.events.types import EVENT_WES_RUN_FINISHED
-from chord_lib.ingestion import WORKFLOW_TYPE_FILE, WORKFLOW_TYPE_FILE_ARRAY
+from bento_lib.events.types import EVENT_WES_RUN_FINISHED
+from bento_lib.ingestion import WORKFLOW_TYPE_FILE, WORKFLOW_TYPE_FILE_ARRAY
 from flask import current_app, json
 from typing import Optional
 from urllib.parse import quote, urlparse
@@ -63,12 +63,12 @@ def return_drs_url_or_full_path(full_path: str) -> str:
 
 
 def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workflow_metadata: dict):
-    output_params = chord_lib.ingestion.make_output_params(workflow_id, workflow_params,
+    output_params = bento_lib.ingestion.make_output_params(workflow_id, workflow_params,
                                                            c_workflow_metadata["inputs"])
 
     workflow_outputs = {}
     for output in c_workflow_metadata["outputs"]:
-        workflow_outputs[output["id"]] = chord_lib.ingestion.formatted_output(output, output_params)
+        workflow_outputs[output["id"]] = bento_lib.ingestion.formatted_output(output, output_params)
 
         # Rewrite file outputs to include full path to temporary location, or ingested DRS object URI
 

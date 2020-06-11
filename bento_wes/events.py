@@ -1,4 +1,4 @@
-from chord_lib.events import EventBus, types as et
+from bento_lib.events import EventBus, types as et
 from flask import g
 
 

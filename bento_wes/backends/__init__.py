@@ -7,9 +7,9 @@ import uuid
 
 from abc import ABC, abstractmethod
 from base64 import urlsafe_b64encode
-from chord_lib.events import EventBus
-from chord_lib.events.notifications import format_notification
-from chord_lib.events.types import EVENT_CREATE_NOTIFICATION
+from bento_lib.events import EventBus
+from bento_lib.events.notifications import format_notification
+from bento_lib.events.types import EVENT_CREATE_NOTIFICATION
 from typing import Callable, Dict, Optional, Tuple, Union
 from urllib.parse import urlparse
 
