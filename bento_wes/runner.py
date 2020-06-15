@@ -68,19 +68,25 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
 
     workflow_outputs = {}
     for output in c_workflow_metadata["outputs"]:
-        workflow_outputs[output["id"]] = bento_lib.ingestion.formatted_output(output, output_params)
+        fo = bento_lib.ingestion.formatted_output(output, output_params)
+
+        # Skip optional outputs resulting from optional inputs
+        if fo is None:
+            continue
 
         # Rewrite file outputs to include full path to temporary location, or ingested DRS object URI
 
         if output["type"] == WORKFLOW_TYPE_FILE:
-            workflow_outputs[output["id"]] = return_drs_url_or_full_path(
-                full_path=os.path.abspath(os.path.join(run_dir, workflow_outputs[output["id"]])))
+            workflow_outputs[output["id"]] = return_drs_url_or_full_path(os.path.abspath(os.path.join(run_dir, fo)))
 
         elif output["type"] == WORKFLOW_TYPE_FILE_ARRAY:
             workflow_outputs[output["id"]] = [
-                return_drs_url_or_full_path(full_path=os.path.abspath(os.path.join(run_dir, wo)))
-                for wo in workflow_outputs[output["id"]]
+                return_drs_url_or_full_path(os.path.abspath(os.path.join(run_dir, wo)))
+                for wo in fo
             ]
+
+        else:
+            workflow_outputs[output["id"]] = fo
 
     return workflow_outputs
 
