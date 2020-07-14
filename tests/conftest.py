@@ -23,5 +23,4 @@ def app():
 
 @pytest.fixture
 def client(app):
-    client = app.test_client()
-    yield client
+    yield app.test_client()

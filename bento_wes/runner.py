@@ -33,13 +33,14 @@ INGEST_POST_TIMEOUT = 60 * 10  # 10 minutes
 def ingest_in_drs(path):
     # TODO: might want to refactor at some point
     url = f"http+unix://{NGINX_INTERNAL_SOCKET}/api/drs/private/ingest"
-    params = {"path": path}
+    params = {"path": path, **({"deduplicate": True} if current_app.config["DRS_DEDUPLICATE"] else {})}
 
     try:
         r = requests.post(url, json=params, timeout=INGEST_POST_TIMEOUT)
         r.raise_for_status()
     except requests.RequestException as e:
         if hasattr(e, "response"):
+            # noinspection PyUnresolvedReferences
             print(f"[{SERVICE_NAME}] Encountered DRS request exception: {e.response.json()}", flush=True,
                   file=sys.stderr)
         return None

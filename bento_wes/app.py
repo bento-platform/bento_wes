@@ -24,6 +24,7 @@ application.config.from_mapping(
     SERVICE_URL_BASE_PATH=os.environ.get("SERVICE_URL_BASE_PATH", "/"),
     WOM_TOOL_LOCATION=os.environ.get("WOM_TOOL_LOCATION", "womtool.jar"),
     WRITE_OUTPUT_TO_DRS=os.environ.get("WRITE_OUTPUT_TO_DRS", "false").lower().strip() == "true",
+    DRS_DEDUPLICATE=os.environ.get("DRS_DEDUPLICATE", "true").lower().strip() == "true",
     DRS_SKIP_TYPES=tuple(t.strip() for t in os.environ.get("DRS_SKIP_TYPES", "").split(",") if t.strip())
 )
 
