@@ -16,12 +16,12 @@ setuptools.setup(
 
     python_requires=">=3.6",
     install_requires=[
-        "celery[redis]==4.4.2",
+        "celery[redis]>=4.4.6,<4.5",
         "bento_lib[flask]==0.11.0",
         "Flask>=1.1.2,<2.0",
-        "requests>=2.23,<3.0",
+        "requests>=2.24.0,<3.0",
         "requests-unixsocket>=0.2.0,<0.3.0",
-        "toil==4.1.0"
+        "toil>=4.1.0,<4.2"
     ],
 
     author=config["package"]["authors"],
