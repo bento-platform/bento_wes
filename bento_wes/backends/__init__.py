@@ -207,7 +207,10 @@ class WESBackend(ABC):
                 if NGINX_INTERNAL_SOCKET:  # TODO: Replace with token auth if possible?
                     workflow_uri = workflow_uri.replace(self.chord_url, f"http+unix://{self.internal_socket}/")
 
-                wr = requests.get(workflow_uri)
+                wr = requests.get(
+                    workflow_uri,
+                    headers={"Host": urlparse(self.chord_url or "").netloc or ""},
+                )
 
                 if wr.status_code == 200 and len(wr.content) < MAX_WORKFLOW_FILE_BYTES:
                     if os.path.exists(workflow_path):
