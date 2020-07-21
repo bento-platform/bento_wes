@@ -1,5 +1,6 @@
 import os
 import requests
+import requests_unixsocket
 import shutil
 import sqlite3
 import subprocess
@@ -19,6 +20,10 @@ from bento_wes.db import get_db, update_run_state_and_commit
 from bento_wes.utils import iso_now
 
 from .backend_types import Command, ProcessResult, WorkflowType, WES_WORKFLOW_TYPE_CWL, WES_WORKFLOW_TYPE_WDL
+from ..config import NGINX_INTERNAL_SOCKET
+
+
+requests_unixsocket.monkeypatch()
 
 
 __all__ = [
@@ -90,18 +95,39 @@ def finish_run(db: sqlite3.Connection, c: sqlite3.Cursor, event_bus: EventBus, r
 
 
 class WESBackend(ABC):
-    def __init__(self, tmp_dir: str, chord_mode: bool = False, logger=None,
-                 event_bus: Optional[EventBus] = None, chord_callback: Optional[Callable[["WESBackend"], str]] = None):
+    def __init__(
+        self,
+        tmp_dir: str,
+        chord_mode: bool = False,
+        logger=None,
+        event_bus: Optional[EventBus] = None,
+        chord_callback: Optional[Callable[["WESBackend"], str]] = None,
+        chord_url: Optional[str] = None,
+        internal_socket: Optional[str] = None,
+    ):
         self.db = get_db()
+
         self.tmp_dir = tmp_dir
         self.chord_mode = chord_mode
-        self.chord_callback = chord_callback
         self.logger = logger
         self.event_bus = event_bus  # TODO: New event bus?
+
+        self.chord_callback = chord_callback
+        self.chord_url = chord_url
+        self.internal_socket = internal_socket
+
         self._runs = {}
+
+        # Check that CHORD-dependent values are present
 
         if chord_mode and not chord_callback:
             raise ValueError("Missing chord_callback for chord_mode backend run")
+
+        if chord_mode and not chord_url:
+            raise ValueError("Missing chord_url for chord_mode backend run")
+
+        if chord_mode and not internal_socket:
+            raise ValueError("Missing internal_socket for chord_mode backend run")
 
     def log_error(self, error: str) -> None:
         """
@@ -175,9 +201,12 @@ class WESBackend(ABC):
 
         workflow_path = self.workflow_path(run)
 
-        # TODO: Auth
+        # TODO: Better auth? May only be allowed to access specific workflows
         if parsed_workflow_url.scheme in ALLOWED_WORKFLOW_REQUEST_SCHEMES:
             try:
+                if NGINX_INTERNAL_SOCKET:  # TODO: Replace with token auth if possible?
+                    workflow_uri = workflow_uri.replace(self.chord_url, f"http+unix://{self.internal_socket}/")
+
                 wr = requests.get(workflow_uri)
 
                 if wr.status_code == 200 and len(wr.content) < MAX_WORKFLOW_FILE_BYTES:

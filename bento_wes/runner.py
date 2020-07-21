@@ -10,7 +10,7 @@ from bento_lib.events.types import EVENT_WES_RUN_FINISHED
 from bento_lib.ingestion import WORKFLOW_TYPE_FILE, WORKFLOW_TYPE_FILE_ARRAY
 from flask import current_app, json
 from typing import Optional
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 
 
 from . import states
@@ -25,18 +25,13 @@ from .events import get_new_event_bus
 requests_unixsocket.monkeypatch()
 
 
-NGINX_INTERNAL_SOCKET = quote(os.environ.get("NGINX_INTERNAL_SOCKET", "/chord/tmp/nginx_internal.sock"), safe="")
-
-INGEST_POST_TIMEOUT = 60 * 10  # 10 minutes
-
-
 def ingest_in_drs(path):
     # TODO: might want to refactor at some point
-    url = f"http+unix://{NGINX_INTERNAL_SOCKET}/api/drs/private/ingest"
+    url = f"http+unix://{current_app.config['NGINX_INTERNAL_SOCKET']}/api/drs/private/ingest"
     params = {"path": path, **({"deduplicate": True} if current_app.config["DRS_DEDUPLICATE"] else {})}
 
     try:
-        r = requests.post(url, json=params, timeout=INGEST_POST_TIMEOUT)
+        r = requests.post(url, json=params, timeout=current_app.config["INGEST_POST_TIMEOUT"])
         r.raise_for_status()
     except requests.RequestException as e:
         if hasattr(e, "response"):
@@ -150,10 +145,10 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
             # TODO: In the future, allow localhost requests to chord_metadata_service so we don't need to manually
             #  set the Host header?
             r = requests.post(
-                f"http+unix://{NGINX_INTERNAL_SOCKET}{c_workflow_ingestion_path}",
+                f"http+unix://{current_app.config['NGINX_INTERNAL_SOCKET']}{c_workflow_ingestion_path}",
                 headers={"Host": urlparse(current_app.config["CHORD_URL"] or "").netloc or ""},
                 json=run_results,
-                timeout=INGEST_POST_TIMEOUT
+                timeout=current_app.config["INGEST_POST_TIMEOUT"]
             )
             return states.STATE_COMPLETE if r.status_code < 400 else states.STATE_SYSTEM_ERROR
 
@@ -164,8 +159,15 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
             return states.STATE_SYSTEM_ERROR
 
     # TODO: Change based on workflow type / what's supported
-    backend: WESBackend = ToilWDLBackend(current_app.config["SERVICE_TEMP"], chord_mode, logger, event_bus,
-                                         chord_callback)
+    backend: WESBackend = ToilWDLBackend(
+        tmp_dir=current_app.config["SERVICE_TEMP"],
+        chord_mode=chord_mode,
+        logger=logger,
+        event_bus=event_bus,
+        chord_callback=chord_callback,
+        chord_url=(current_app.config["CHORD_URL"] or None),
+        internal_socket=(current_app.config["NGINX_INTERNAL_SOCKET"] or None)
+    )
 
     try:
         backend.perform_run(run, self.request.id)

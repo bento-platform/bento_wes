@@ -6,27 +6,15 @@ from flask import Flask, json, jsonify
 from werkzeug.exceptions import BadRequest, NotFound
 
 from .celery import celery
-from .constants import SERVICE_ID, SERVICE_NAME, SERVICE_TYPE
+from .config import Config
+from .constants import SERVICE_NAME, SERVICE_TYPE
 from .db import init_db, update_db, close_db
 from .events import close_flask_event_bus
 from .runs import bp_runs
 
 
 application = Flask(__name__)
-application.config.from_mapping(
-    CHORD_SERVICES=os.environ.get("CHORD_SERVICES", "chord_services.json"),
-    CHORD_URL=os.environ.get("CHORD_URL", "http://127.0.0.1:5000/"),
-    CELERY_RESULT_BACKEND=os.environ.get("CELERY_RESULT_BACKEND", "redis://"),
-    CELERY_BROKER_URL=os.environ.get("CELERY_BROKER_URL", "redis://"),
-    DATABASE=os.environ.get("DATABASE", "bento_wes.db"),
-    SERVICE_ID=SERVICE_ID,
-    SERVICE_TEMP=os.environ.get("SERVICE_TEMP", "tmp"),
-    SERVICE_URL_BASE_PATH=os.environ.get("SERVICE_URL_BASE_PATH", "/"),
-    WOM_TOOL_LOCATION=os.environ.get("WOM_TOOL_LOCATION", "womtool.jar"),
-    WRITE_OUTPUT_TO_DRS=os.environ.get("WRITE_OUTPUT_TO_DRS", "false").lower().strip() == "true",
-    DRS_DEDUPLICATE=os.environ.get("DRS_DEDUPLICATE", "true").lower().strip() == "true",
-    DRS_SKIP_TYPES=tuple(t.strip() for t in os.environ.get("DRS_SKIP_TYPES", "").split(",") if t.strip())
-)
+application.config.from_object(Config)
 
 application.register_blueprint(bp_runs)
 
