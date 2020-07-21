@@ -15,7 +15,7 @@ from typing import Callable, Dict, Optional, Tuple, Union
 from urllib.parse import urlparse
 
 from bento_wes import states
-from bento_wes.constants import SERVICE_ARTIFACT
+from bento_wes.constants import SERVICE_NAME, SERVICE_ARTIFACT
 from bento_wes.db import get_db, update_run_state_and_commit
 from bento_wes.utils import iso_now
 
@@ -206,6 +206,9 @@ class WESBackend(ABC):
             try:
                 if NGINX_INTERNAL_SOCKET:  # TODO: Replace with token auth if possible?
                     workflow_uri = workflow_uri.replace(self.chord_url, f"http+unix://{self.internal_socket}/")
+
+                if self.logger:
+                    self.logger.info(f"[{SERVICE_NAME}] [INFO] Fetching workflow file from {workflow_uri}")
 
                 wr = requests.get(
                     workflow_uri,
