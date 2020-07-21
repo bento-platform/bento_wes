@@ -20,7 +20,6 @@ from bento_wes.db import get_db, update_run_state_and_commit
 from bento_wes.utils import iso_now
 
 from .backend_types import Command, ProcessResult, WorkflowType, WES_WORKFLOW_TYPE_CWL, WES_WORKFLOW_TYPE_WDL
-from ..config import NGINX_INTERNAL_SOCKET
 
 
 requests_unixsocket.monkeypatch()
@@ -204,7 +203,7 @@ class WESBackend(ABC):
         # TODO: Better auth? May only be allowed to access specific workflows
         if parsed_workflow_url.scheme in ALLOWED_WORKFLOW_REQUEST_SCHEMES:
             try:
-                if NGINX_INTERNAL_SOCKET:  # TODO: Replace with token auth if possible?
+                if self.internal_socket:  # TODO: Replace with token auth if possible?
                     workflow_uri = workflow_uri.replace(self.chord_url, f"http+unix://{self.internal_socket}/")
 
                 if self.logger:
