@@ -21,7 +21,7 @@ setuptools.setup(
         "Flask>=1.1.2,<2.0",
         "requests>=2.24.0,<3.0",
         "requests-unixsocket>=0.2.0,<0.3.0",
-        "toil>=4.1.0,<4.2"
+        "toil>=4.2.0,<4.3"
     ],
 
     author=config["package"]["authors"],
