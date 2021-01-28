@@ -26,7 +26,8 @@ requests_unixsocket.monkeypatch()
 
 
 def ingest_in_drs(path):
-    # TODO: might want to refactor at some point
+    # TODO: Not compliant with "standard" DRS
+    #  - document how this has to work or provide an alternative
     url = f"{current_app.config['DRS_URL']}/private/ingest"
     params = {"path": path, **({"deduplicate": True} if current_app.config["DRS_DEDUPLICATE"] else {})}
 
