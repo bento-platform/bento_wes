@@ -27,7 +27,7 @@ requests_unixsocket.monkeypatch()
 
 def ingest_in_drs(path):
     # TODO: might want to refactor at some point
-    url = f"http+unix://{current_app.config['NGINX_INTERNAL_SOCKET']}/api/drs/private/ingest"
+    url = f"{current_app.config['DRS_URL']}/private/ingest"
     params = {"path": path, **({"deduplicate": True} if current_app.config["DRS_DEDUPLICATE"] else {})}
 
     try:
