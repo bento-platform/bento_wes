@@ -2,7 +2,7 @@ import bento_wes
 import os
 
 from bento_lib.responses import flask_errors
-from flask import Flask, json, jsonify
+from flask import Flask, jsonify
 from werkzeug.exceptions import BadRequest, NotFound
 
 from .celery import celery
@@ -40,10 +40,6 @@ def configure_celery(app):
 
 
 configure_celery(application)
-
-
-with open(application.config["CHORD_SERVICES"]) as cf:
-    SERVICES = json.load(cf)
 
 
 application.teardown_appcontext(close_db)

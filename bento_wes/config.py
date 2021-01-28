@@ -14,7 +14,6 @@ NGINX_INTERNAL_SOCKET = quote(os.environ.get("NGINX_INTERNAL_SOCKET", "/chord/tm
 
 
 class Config:
-    CHORD_SERVICES = os.environ.get("CHORD_SERVICES", "chord_services.json")
     CHORD_URL = os.environ.get("CHORD_URL", "http://127.0.0.1:5000/")
     DATABASE = os.environ.get("DATABASE", "bento_wes.db")
     SERVICE_ID = SERVICE_ID

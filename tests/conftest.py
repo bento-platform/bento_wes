@@ -1,8 +1,4 @@
-import os
 import pytest
-
-
-os.environ["CHORD_SERVICES"] = os.path.join(os.path.dirname(__file__), "chord_services.json")
 
 
 @pytest.fixture
