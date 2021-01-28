@@ -125,9 +125,6 @@ class WESBackend(ABC):
         if chord_mode and not chord_url:
             raise ValueError("Missing chord_url for chord_mode backend run")
 
-        if chord_mode and not internal_socket:
-            raise ValueError("Missing internal_socket for chord_mode backend run")
-
     def log_error(self, error: str) -> None:
         """
         Given an error string, logs the error.
@@ -204,6 +201,9 @@ class WESBackend(ABC):
         if parsed_workflow_url.scheme in ALLOWED_WORKFLOW_REQUEST_SCHEMES:
             try:
                 if self.internal_socket:  # TODO: Replace with token auth if possible?
+                    # If we're in 'internal socket' mode, i.e. a classic Bento
+                    # Singularity-based instance, replace the external CHORD URL with the
+                    # internal socket path. Otherwise, don't touch it.
                     workflow_uri = workflow_uri.replace(self.chord_url, f"http+unix://{self.internal_socket}/")
 
                 if self.logger:
