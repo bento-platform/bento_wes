@@ -69,8 +69,8 @@ class ToilWDLBackend(WESBackend):
             # Validation error with WDL file
             # TODO: Add some stdout or stderr to logs?
             return (
-                "Failed with {} due to non-0 validation return code:\n\tstdout: {}\n\tstderr: {}".format(
-                    STATE_EXECUTOR_ERROR, v_out, v_err),
+                f"Failed with {STATE_EXECUTOR_ERROR} due to non-0 validation return code:\n"
+                f"\tstdout: {v_out}\n\tstderr: {v_err}",
                 STATE_EXECUTOR_ERROR
             )
 
@@ -79,8 +79,8 @@ class ToilWDLBackend(WESBackend):
             # Toil can't process WDL dependencies right now  TODO
             # TODO: Add some stdout or stderr to logs?
             return (
-                "Failed with {} due to dependencies in WDL:\n\tstdout: {}\n\tstderr: {}".format(
-                    STATE_EXECUTOR_ERROR, v_out, v_err),
+                f"Failed with {STATE_EXECUTOR_ERROR} due to dependencies in WDL:\n"
+                f"\tstdout: {v_out}\n\tstderr: {v_err}",
                 STATE_EXECUTOR_ERROR
             )
 

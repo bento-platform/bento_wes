@@ -109,7 +109,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     # Check that the run and its associated objects exist
     run = get_run_details(c, run_id)
     if run is None:
-        logger.error("Cannot find run {} (missing run, run request, or run_log)".format(run_id))
+        logger.error(f"Cannot find run {run_id} (missing run, run request, or run_log)")
         return
 
     # Pass to workflow execution backend---------------------------------------
