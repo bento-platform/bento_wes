@@ -19,8 +19,11 @@ class Config:
     SERVICE_ID = SERVICE_ID
     SERVICE_TEMP = os.environ.get("SERVICE_TEMP", "tmp")
     SERVICE_URL_BASE_PATH = os.environ.get("SERVICE_URL_BASE_PATH", "/")
-    WOM_TOOL_LOCATION = os.environ.get("WOM_TOOL_LOCATION", "womtool.jar")
 
+    # WDL-file-related configuration
+    WOM_TOOL_LOCATION = os.environ.get("WOM_TOOL_LOCATION")
+
+    # DRS-related configuration
     DRS_URL = os.environ.get("DRS_URL", f"http+unix://{NGINX_INTERNAL_SOCKET}/api/drs").strip().rstrip("/")
     WRITE_OUTPUT_TO_DRS = os.environ.get("WRITE_OUTPUT_TO_DRS", "false").lower().strip() == "true"
     DRS_DEDUPLICATE = os.environ.get("DRS_DEDUPLICATE", "true").lower().strip() == "true"

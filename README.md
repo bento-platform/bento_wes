@@ -41,9 +41,10 @@ SERVICE_TEMP=tmp
 SERVICE_URL_BASE_PATH=/
 
 # Location of WOMtool, used to validate WDL files
+# - If not set, no WDL validation will be done
 WOM_TOOL_LOCATION=/path/to/womtool.jar
 
-# Configuration / behaviour options:
+# DRS configuration options:
 # - Where the DRS instance to use is located. Technically, if not set this 
 #   defaults to using a different environment variable, NGINX_INTERNAL_SOCKET,
 #   as a path to a Bento instance's internal NGINX UNIX socket and adding a 

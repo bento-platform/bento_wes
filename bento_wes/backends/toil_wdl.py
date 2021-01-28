@@ -55,10 +55,15 @@ class ToilWDLBackend(WESBackend):
         except FileNotFoundError:
             return "Java is missing (required to validate WDL files)", STATE_SYSTEM_ERROR
 
-        # Validate WDL, listing dependencies
+        # Validate WDL if WOM_TOOL_LOCATION is set, listing dependencies
 
-        vr = subprocess.Popen(("java", "-jar", current_app.config["WOM_TOOL_LOCATION"], "validate", "-l",
-                               self.workflow_path(run)),
+        womtool_path = current_app.config["WOM_TOOL_LOCATION"]
+
+        if not womtool_path:
+            # WOMtool not specified; assume the WDL is valid
+            return None
+
+        vr = subprocess.Popen(("java", "-jar", womtool_path, "validate", "-l", self.workflow_path(run)),
                               stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE,
                               encoding="utf-8")
