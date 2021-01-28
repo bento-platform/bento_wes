@@ -60,8 +60,12 @@ class ToilWDLBackend(WESBackend):
         womtool_path = current_app.config["WOM_TOOL_LOCATION"]
 
         if not womtool_path:
-            # WOMtool not specified; assume the WDL is valid
-            return None
+            # WOMtool not specified; assume the WDL is valid if WORKFLOW_HOST_ALLOW_LIST has been adequately specified
+            return None if self.workflow_host_allow_list else (
+                f"Failed with {STATE_EXECUTOR_ERROR} due to missing or invalid WOMtool (Bad WOM_TOOL_LOCATION)\n"
+                f"\tWOM_TOOL_LOCATION: {womtool_path}",
+                STATE_EXECUTOR_ERROR
+            )
 
         vr = subprocess.Popen(("java", "-jar", womtool_path, "validate", "-l", self.workflow_path(run)),
                               stdout=subprocess.PIPE,
