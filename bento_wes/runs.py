@@ -164,8 +164,8 @@ def run_list():
 @bp_runs.route("/runs/<uuid:run_id>", methods=["GET"])
 @flask_permissions_owner
 def run_detail(run_id):
-    run_details = get_run_details(get_db().cursor(), run_id)
-    return jsonify(run_details) if run_details is not None else flask_not_found_error(f"Run {run_id} not found")
+    run_details, err = get_run_details(get_db().cursor(), run_id)
+    return jsonify(run_details) if run_details is not None else flask_not_found_error(f"Run {run_id} not found ({err})")
 
 
 def get_stream(c, stream, run_id):

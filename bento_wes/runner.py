@@ -108,9 +108,9 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     # TODO: Check c_workflow_ingestion_url is valid?
 
     # Check that the run and its associated objects exist
-    run = get_run_details(c, run_id)
+    run, err = get_run_details(c, run_id)
     if run is None:
-        logger.error(f"Cannot find run {run_id} (missing run, run request, or run_log)")
+        logger.error(f"Cannot find run {run_id} ({err})")
         return
 
     # Get list of allowed workflow hosts from configuration for any checks inside the runner
