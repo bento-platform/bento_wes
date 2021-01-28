@@ -49,15 +49,9 @@ class ToilWDLBackend(WESBackend):
         :return: None if the workflow is valid; a tuple of an error message and an error state otherwise
         """
 
-        # Check for Java (needed to run the WOM tool)
-        try:
-            subprocess.run(("java", "-version"))
-        except FileNotFoundError:
-            return "Java is missing (required to validate WDL files)", STATE_SYSTEM_ERROR
-
-        # Validate WDL if WOM_TOOL_LOCATION is set, listing dependencies
-
         womtool_path = current_app.config["WOM_TOOL_LOCATION"]
+
+        # If WOMtool isn't specified, exit early (either as an error or just skipping validation)
 
         if not womtool_path:
             # WOMtool not specified; assume the WDL is valid if WORKFLOW_HOST_ALLOW_LIST has been adequately specified
@@ -66,6 +60,14 @@ class ToilWDLBackend(WESBackend):
                 f"\tWOM_TOOL_LOCATION: {womtool_path}",
                 STATE_EXECUTOR_ERROR
             )
+
+        # Check for Java (needed to run WOMtool)
+        try:
+            subprocess.run(("java", "-version"))
+        except FileNotFoundError:
+            return "Java is missing (required to validate WDL files)", STATE_SYSTEM_ERROR
+
+        # Validate WDL, listing dependencies
 
         vr = subprocess.Popen(("java", "-jar", womtool_path, "validate", "-l", self.workflow_path(run)),
                               stdout=subprocess.PIPE,
