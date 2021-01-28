@@ -50,12 +50,24 @@ def run_list():
 
             # Only "turn on" CHORD-specific features if specific tags are present
 
-            chord_mode = ("workflow_id" in tags and "workflow_metadata" in tags and "ingestion_path" in tags
-                          and "table_id" in tags)
+            chord_mode = all((
+                "workflow_id" in tags,
+                "workflow_metadata" in tags,
+
+                # Allow either a path to be specified for ingestion (for the 'classic'
+                # Bento singularity architecture) or
+                "ingestion_path" in tags or "ingestion_url" in tags,
+
+                "table_id" in tags,
+            ))
 
             workflow_id = tags.get("workflow_id", workflow_url)
             workflow_metadata = tags.get("workflow_metadata", {})
             workflow_ingestion_path = tags.get("ingestion_path", None)
+            workflow_ingestion_url = tags.get(
+                "ingestion_url",
+                (f"http+unix://{current_app.config['NGINX_INTERNAL_SOCKET']}{workflow_ingestion_path}"
+                 if workflow_ingestion_path else None))
             table_id = tags.get("table_id", None)
 
             # Don't accept anything (ex. CWL) other than WDL TODO: CWL support
@@ -110,7 +122,7 @@ def run_list():
             c.execute("UPDATE runs SET state = ? WHERE id = ?", (states.STATE_QUEUED, str(run_id)))
             db.commit()
 
-            run_workflow.delay(run_id, chord_mode, workflow_metadata, workflow_ingestion_path, table_id)
+            run_workflow.delay(run_id, chord_mode, workflow_metadata, workflow_ingestion_url, table_id)
 
             return jsonify({"run_id": str(run_id)})
 

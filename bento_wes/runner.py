@@ -92,7 +92,7 @@ logger = get_task_logger(__name__)
 
 @celery.task(bind=True)
 def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata: dict,
-                 c_workflow_ingestion_path: Optional[str], c_table_id: Optional[str]):
+                 c_workflow_ingestion_url: Optional[str], c_table_id: Optional[str]):
     db = get_db()
     c = db.cursor()
     event_bus = get_new_event_bus()
@@ -100,7 +100,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     # Checks ------------------------------------------------------------------
 
     # Check that workflow ingestion URL is set if CHORD mode is on
-    if chord_mode and c_workflow_ingestion_path is None:
+    if chord_mode and c_workflow_ingestion_url is None:
         logger.error("An ingestion URL must be set.")
         return
 
@@ -145,7 +145,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
             # TODO: In the future, allow localhost requests to chord_metadata_service so we don't need to manually
             #  set the Host header?
             r = requests.post(
-                f"http+unix://{current_app.config['NGINX_INTERNAL_SOCKET']}{c_workflow_ingestion_path}",
+                c_workflow_ingestion_url,
                 headers={"Host": urlparse(current_app.config["CHORD_URL"] or "").netloc or ""},
                 json=run_results,
                 timeout=current_app.config["INGEST_POST_TIMEOUT"]
