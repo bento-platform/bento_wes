@@ -105,13 +105,18 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         logger.error("An ingestion URL must be set.")
         return
 
-    # TODO: Check c_workflow_ingestion_path is valid
+    # TODO: Check c_workflow_ingestion_url is valid?
 
     # Check that the run and its associated objects exist
     run = get_run_details(c, run_id)
     if run is None:
         logger.error(f"Cannot find run {run_id} (missing run, run request, or run_log)")
         return
+
+    # Get list of allowed workflow hosts from configuration for any checks inside the runner
+    # If it's blank, assume that means "any host is allowed" and pass None to the runner
+    workflow_host_allow_list = {
+        a.strip() for a in current_app.config["WORKFLOW_HOST_ALLOW_LIST"].split(",") if a.strip()} or None
 
     # Pass to workflow execution backend---------------------------------------
 
@@ -167,7 +172,8 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         event_bus=event_bus,
         chord_callback=chord_callback,
         chord_url=(current_app.config["CHORD_URL"] or None),
-        internal_socket=(current_app.config["NGINX_INTERNAL_SOCKET"] or None)
+        internal_socket=(current_app.config["NGINX_INTERNAL_SOCKET"] or None),
+        workflow_host_allow_list=workflow_host_allow_list
     )
 
     try:

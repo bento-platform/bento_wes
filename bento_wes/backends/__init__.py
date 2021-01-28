@@ -103,6 +103,7 @@ class WESBackend(ABC):
         chord_callback: Optional[Callable[["WESBackend"], str]] = None,
         chord_url: Optional[str] = None,
         internal_socket: Optional[str] = None,
+        workflow_host_allow_list: Optional[set] = None,
     ):
         self.db = get_db()
 
@@ -114,6 +115,7 @@ class WESBackend(ABC):
         self.chord_callback = chord_callback
         self.chord_url = chord_url
         self.internal_socket = internal_socket
+        self.workflow_host_allow_list = workflow_host_allow_list
 
         self._runs = {}
 
@@ -200,6 +202,18 @@ class WESBackend(ABC):
         # TODO: Better auth? May only be allowed to access specific workflows
         if parsed_workflow_url.scheme in ALLOWED_WORKFLOW_REQUEST_SCHEMES:
             try:
+                if self.workflow_host_allow_list is not None:
+                    # We need to check that the workflow in question is from an
+                    # allowed set of workflow hosts
+                    # TODO: Handle parsing errors
+                    parsed_workflow_uri = urlparse(workflow_uri)
+                    if (parsed_workflow_uri.scheme != "file" and
+                            parsed_workflow_uri.netloc not in self.workflow_host_allow_list):
+                        # Dis-allowed workflow URL
+                        self.logger.error(
+                            f"[{SERVICE_NAME}] [ERROR] Dis-allowed workflow host: {parsed_workflow_uri.netloc}")
+                        return states.STATE_EXECUTOR_ERROR
+
                 if self.internal_socket:  # TODO: Replace with token auth if possible?
                     # If we're in 'internal socket' mode, i.e. a classic Bento
                     # Singularity-based instance, replace the external CHORD URL with the

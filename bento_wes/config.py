@@ -22,6 +22,7 @@ class Config:
 
     # WDL-file-related configuration
     WOM_TOOL_LOCATION = os.environ.get("WOM_TOOL_LOCATION")
+    WORKFLOW_HOST_ALLOW_LIST = os.environ.get("WORKFLOW_HOST_ALLOW_LIST")
 
     # DRS-related configuration
     DRS_URL = os.environ.get("DRS_URL", f"http+unix://{NGINX_INTERNAL_SOCKET}/api/drs").strip().rstrip("/")

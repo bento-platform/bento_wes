@@ -42,7 +42,13 @@ SERVICE_URL_BASE_PATH=/
 
 # Location of WOMtool, used to validate WDL files
 # - If not set, no WDL validation will be done
+# - SECURITY: If not set, WDL_HOST_ALLOW_LIST must contain a comma-separated 
+#   list of hosts workflow files can be downloaded from
 WOM_TOOL_LOCATION=/path/to/womtool.jar
+
+# Allow-list (comma-separated) for hosts that workflow files can be downloaded
+# from - prevents possibly insecure WDLs from being ran
+WORKFLOW_HOST_ALLOW_LIST=
 
 # DRS configuration options:
 # - Where the DRS instance to use is located. Technically, if not set this 
