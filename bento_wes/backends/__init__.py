@@ -1,28 +1,22 @@
 import os
-import requests
-import requests_unixsocket
 import shutil
 import sqlite3
 import subprocess
 import uuid
 
 from abc import ABC, abstractmethod
-from base64 import urlsafe_b64encode
 from bento_lib.events import EventBus
 from bento_lib.events.notifications import format_notification
 from bento_lib.events.types import EVENT_CREATE_NOTIFICATION
 from typing import Callable, Dict, Optional, Tuple, Union
-from urllib.parse import urlparse
 
 from bento_wes import states
-from bento_wes.constants import SERVICE_NAME, SERVICE_ARTIFACT
+from bento_wes.constants import SERVICE_ARTIFACT
 from bento_wes.db import get_db, update_run_state_and_commit
 from bento_wes.utils import iso_now
+from bento_wes.workflows import WorkflowType, WES_WORKFLOW_TYPE_CWL, WES_WORKFLOW_TYPE_WDL, WorkflowManager
 
-from .backend_types import Command, ProcessResult, WorkflowType, WES_WORKFLOW_TYPE_CWL, WES_WORKFLOW_TYPE_WDL
-
-
-requests_unixsocket.monkeypatch()
+from .backend_types import Command, ProcessResult
 
 
 __all__ = [
@@ -97,25 +91,31 @@ class WESBackend(ABC):
     def __init__(
         self,
         tmp_dir: str,
-        chord_mode: bool = False,
         logger=None,
         event_bus: Optional[EventBus] = None,
+        workflow_host_allow_list: Optional[set] = None,
+        chord_mode: bool = False,
         chord_callback: Optional[Callable[["WESBackend"], str]] = None,
         chord_url: Optional[str] = None,
-        internal_socket: Optional[str] = None,
-        workflow_host_allow_list: Optional[set] = None,
     ):
         self.db = get_db()
 
         self.tmp_dir = tmp_dir
-        self.chord_mode = chord_mode
         self.logger = logger
         self.event_bus = event_bus  # TODO: New event bus?
 
+        self.workflow_host_allow_list = workflow_host_allow_list
+
+        # Bento-specific parameters
+        self.chord_mode = chord_mode
         self.chord_callback = chord_callback
         self.chord_url = chord_url
-        self.internal_socket = internal_socket
-        self.workflow_host_allow_list = workflow_host_allow_list
+
+        self._workflow_manager: WorkflowManager = WorkflowManager(
+            self.tmp_dir,
+            self.chord_url,
+            self.logger,
+            self.workflow_host_allow_list)
 
         self._runs = {}
 
@@ -160,20 +160,12 @@ class WESBackend(ABC):
         """
         pass
 
-    @staticmethod
-    def _workflow_file_name(run: dict) -> str:
-        """
-        Extract's a run's specified workflow's URI and generates a unique name for it.
-        """
-        workflow_uri: str = run["request"]["workflow_url"]
-        workflow_name = str(urlsafe_b64encode(bytes(workflow_uri, encoding="utf-8")), encoding="utf-8")
-        return f"workflow_{workflow_name}.{WORKFLOW_EXTENSIONS[WorkflowType(run['request']['workflow_type'])]}"
-
     def workflow_path(self, run: dict) -> str:
         """
         Gets the local filesystem path to the workflow file specified by a run's workflow URI.
         """
-        return os.path.join(self.tmp_dir, self._workflow_file_name(run))
+        return self._workflow_manager.workflow_path(run["request"]["workflow_url"],
+                                                    WorkflowType(run["request"]["workflow_type"]))
 
     def run_dir(self, run: dict) -> str:
         """
@@ -187,68 +179,6 @@ class WESBackend(ABC):
         """
         return os.path.join(self.run_dir(run), self._get_params_file(run))
 
-    def _download_or_copy_workflow(self, run: dict) -> Optional[str]:
-        """
-        Given a particular run, downloads the specified workflow via its URI, or copies it over if it's on the local
-        file system. # TODO: Local file system = security issue?
-        :param run: The run from which to extract the workflow URI
-        """
-
-        workflow_uri: str = run["request"]["workflow_url"]
-        parsed_workflow_url = urlparse(workflow_uri)  # TODO: Handle errors, handle references to attachments
-
-        workflow_path = self.workflow_path(run)
-
-        # TODO: Better auth? May only be allowed to access specific workflows
-        if parsed_workflow_url.scheme in ALLOWED_WORKFLOW_REQUEST_SCHEMES:
-            try:
-                if self.workflow_host_allow_list is not None:
-                    # We need to check that the workflow in question is from an
-                    # allowed set of workflow hosts
-                    # TODO: Handle parsing errors
-                    parsed_workflow_uri = urlparse(workflow_uri)
-                    if (parsed_workflow_uri.scheme != "file" and
-                            parsed_workflow_uri.netloc not in self.workflow_host_allow_list):
-                        # Dis-allowed workflow URL
-                        self.logger.error(
-                            f"[{SERVICE_NAME}] [ERROR] Dis-allowed workflow host: {parsed_workflow_uri.netloc}")
-                        return states.STATE_EXECUTOR_ERROR
-
-                if self.internal_socket:  # TODO: Replace with token auth if possible?
-                    # If we're in 'internal socket' mode, i.e. a classic Bento
-                    # Singularity-based instance, replace the external CHORD URL with the
-                    # internal socket path. Otherwise, don't touch it.
-                    workflow_uri = workflow_uri.replace(self.chord_url, f"http+unix://{self.internal_socket}/")
-
-                if self.logger:
-                    self.logger.info(f"[{SERVICE_NAME}] [INFO] Fetching workflow file from {workflow_uri}")
-
-                wr = requests.get(
-                    workflow_uri,
-                    headers={"Host": urlparse(self.chord_url or "").netloc or ""},
-                )
-
-                if wr.status_code == 200 and len(wr.content) < MAX_WORKFLOW_FILE_BYTES:
-                    if os.path.exists(workflow_path):
-                        os.remove(workflow_path)
-
-                    with open(workflow_path, "wb") as nwf:
-                        nwf.write(wr.content)
-
-                elif not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
-                    # Request issues
-                    return states.STATE_SYSTEM_ERROR
-
-            except requests.exceptions.ConnectionError:
-                if not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
-                    # Network issues
-                    return states.STATE_SYSTEM_ERROR
-
-        else:  # TODO: Other else cases
-            # file://
-            # TODO: Handle exceptions
-            shutil.copyfile(parsed_workflow_url.path, workflow_path)
-
     @abstractmethod
     def _check_workflow(self, run: dict) -> Optional[Tuple[str, str]]:
         """
@@ -258,9 +188,9 @@ class WESBackend(ABC):
         """
         pass
 
-    def _download_and_check_workflow(self, run: dict) -> Optional[Tuple[str, str]]:
+    def _check_workflow_and_type(self, run: dict) -> Optional[Tuple[str, str]]:
         """
-        Downloads or copies a run's workflow file and checks it's validity.
+        Checks a workflow file's validity.
         :param run: The run specifying the workflow in question
         :return: None if the workflow is valid; a tuple of an error message and an error state otherwise
         """
@@ -269,7 +199,6 @@ class WESBackend(ABC):
         if workflow_type not in self._get_supported_types():
             raise NotImplementedError(f"The specified WES backend cannot execute workflows of type {workflow_type}")
 
-        self._download_or_copy_workflow(run)
         return self._check_workflow(run)
 
     @abstractmethod
@@ -347,8 +276,8 @@ class WESBackend(ABC):
 
         workflow_params: dict = run["request"]["workflow_params"]
 
-        # -- Download the workflow, if possible / needed ----------------------
-        error = self._download_and_check_workflow(run)
+        # -- Validate the workflow --------------------------------------------
+        error = self._check_workflow_and_type(run)
         if error is not None:
             self.log_error(error[0])
             return self._finish_run_and_clean_up(run, error[1])

@@ -16,11 +16,146 @@ from . import states
 from .celery import celery
 from .events import get_flask_event_bus
 from .runner import run_workflow
+from .workflows import WorkflowType, UnsupportedWorkflowType, WorkflowDownloadError, WorkflowManager
 
 from .db import get_db, run_request_dict, run_log_dict, get_task_logs, get_run_details, update_run_state_and_commit
 
 
 bp_runs = Blueprint("runs", __name__)
+
+
+def _create_run(db, c):
+    try:
+        assert "workflow_params" in request.form
+        assert "workflow_type" in request.form
+        assert "workflow_type_version" in request.form
+        assert "workflow_engine_parameters" in request.form
+        assert "workflow_url" in request.form
+        assert "tags" in request.form
+
+        workflow_params = json.loads(request.form["workflow_params"])
+        workflow_type = request.form["workflow_type"].upper().strip()
+        workflow_type_version = request.form["workflow_type_version"].strip()
+        workflow_engine_parameters = json.loads(request.form["workflow_engine_parameters"])  # TODO: Unused
+        workflow_url = request.form["workflow_url"].lower()  # TODO: This can refer to an attachment
+        workflow_attachment_list = request.files.getlist("workflow_attachment")  # TODO: Use this fully
+        tags = json.loads(request.form["tags"])
+
+        # TODO: Move CHORD-specific stuff out somehow?
+
+        # Only "turn on" CHORD-specific features if specific tags are present
+
+        chord_mode = all((
+            "workflow_id" in tags,
+            "workflow_metadata" in tags,
+
+            # Allow either a path to be specified for ingestion (for the 'classic'
+            # Bento singularity architecture) or
+            "ingestion_path" in tags or "ingestion_url" in tags,
+
+            "table_id" in tags,
+        ))
+
+        workflow_id = tags.get("workflow_id", workflow_url)
+        workflow_metadata = tags.get("workflow_metadata", {})
+        workflow_ingestion_path = tags.get("ingestion_path", None)
+        workflow_ingestion_url = tags.get(
+            "ingestion_url",
+            (f"http+unix://{current_app.config['NGINX_INTERNAL_SOCKET']}{workflow_ingestion_path}"
+             if workflow_ingestion_path else None))
+        table_id = tags.get("table_id", None)
+
+        # Don't accept anything (ex. CWL) other than WDL TODO: CWL support
+        assert workflow_type == "WDL"
+        assert workflow_type_version == "1.0"
+
+        assert isinstance(workflow_params, dict)
+        assert isinstance(workflow_engine_parameters, dict)
+        assert isinstance(tags, dict)
+
+        if chord_mode:
+            table_id = str(uuid.UUID(table_id))  # Check and standardize table ID
+
+        # TODO: Use JSON schemas for workflow params / engine parameters / tags
+
+        # Get list of allowed workflow hosts from configuration for any checks inside the runner
+        # If it's blank, assume that means "any host is allowed" and pass None to the runner
+        workflow_host_allow_list = {a.strip() for a in current_app.config["WORKFLOW_HOST_ALLOW_LIST"].split(",")
+                                    if a.strip()} or None
+
+        # Download workflow file (potentially using passed auth headers, if
+        # present and we're querying ourself)
+
+        # TODO: Move this back to runner, since we'll need to handle the callback anyway with local URLs...
+
+        wm = WorkflowManager(
+            current_app.config["SERVICE_TEMP"],
+            current_app.config["CHORD_URL"],
+            logger=current_app.logger,
+            workflow_host_allow_list=workflow_host_allow_list)
+
+        # Optional Authorization HTTP header to forward to nested requests
+        # TODO: Move X-Auth... constant to bento_lib
+        auth_header = request.headers.get("X-Authorization", request.headers.get("Authorization"))
+
+        try:
+            wm.download_or_copy_workflow(
+                workflow_url,
+                WorkflowType(workflow_type),
+                auth_headers={"Authorization": auth_header} if auth_header else {})
+        except UnsupportedWorkflowType:
+            return flask_bad_request_error(f"Unsupported workflow type: {workflow_type}")
+        except (WorkflowDownloadError, ConnectionError):
+            return flask_bad_request_error(f"Could not access workflow file: {workflow_url}")
+
+        # Begin creating the job after validating the request
+
+        req_id = uuid.uuid4()
+        run_id = uuid.uuid4()
+        log_id = uuid.uuid4()
+
+        # Create run directory
+
+        run_dir = os.path.join(current_app.config["SERVICE_TEMP"], str(run_id))
+
+        if os.path.exists(run_dir):
+            return flask_internal_server_error("UUID collision")
+
+        os.makedirs(run_dir, exist_ok=True)
+        # TODO: Delete run dir if something goes wrong...
+
+        # Move workflow attachments to run directory
+
+        for attachment in workflow_attachment_list:
+            # TODO: Check and fix input if filename is non-secure
+            # TODO: Do we put these in a subdirectory?
+            # TODO: Support WDL uploads for workflows
+            attachment.save(os.path.join(run_dir, secure_filename(attachment.filename)))
+
+        # Will be updated to STATE_ QUEUED once submitted
+        c.execute("INSERT INTO run_requests (id, workflow_params, workflow_type, workflow_type_version, "
+                  "workflow_engine_parameters, workflow_url, tags) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                  (str(req_id), json.dumps(workflow_params), workflow_type, workflow_type_version,
+                   json.dumps(workflow_engine_parameters), workflow_url, json.dumps(tags)))
+        c.execute("INSERT INTO run_logs (id, name) VALUES (?, ?)", (str(log_id), workflow_id))
+        c.execute("INSERT INTO runs (id, request, state, run_log, outputs) VALUES (?, ?, ?, ?, ?)",
+                  (str(run_id), str(req_id), states.STATE_UNKNOWN, str(log_id), json.dumps({})))
+        db.commit()
+
+        # TODO: figure out timeout
+        # TODO: retry policy
+        c.execute("UPDATE runs SET state = ? WHERE id = ?", (states.STATE_QUEUED, str(run_id)))
+        db.commit()
+
+        run_workflow.delay(run_id, chord_mode, workflow_metadata, workflow_ingestion_url, table_id)
+
+        return jsonify({"run_id": str(run_id)})
+
+    except ValueError:
+        return flask_bad_request_error("Value error")
+
+    except AssertionError:
+        return flask_bad_request_error("Assertion error")
 
 
 @bp_runs.route("/runs", methods=["GET", "POST"])
@@ -30,107 +165,7 @@ def run_list():
     c = db.cursor()
 
     if request.method == "POST":
-        try:
-            assert "workflow_params" in request.form
-            assert "workflow_type" in request.form
-            assert "workflow_type_version" in request.form
-            assert "workflow_engine_parameters" in request.form
-            assert "workflow_url" in request.form
-            assert "tags" in request.form
-
-            workflow_params = json.loads(request.form["workflow_params"])
-            workflow_type = request.form["workflow_type"].upper().strip()
-            workflow_type_version = request.form["workflow_type_version"].strip()
-            workflow_engine_parameters = json.loads(request.form["workflow_engine_parameters"])  # TODO: Unused
-            workflow_url = request.form["workflow_url"].lower()  # TODO: This can refer to an attachment
-            workflow_attachment_list = request.files.getlist("workflow_attachment")  # TODO: Use this fully
-            tags = json.loads(request.form["tags"])
-
-            # TODO: Move CHORD-specific stuff out somehow?
-
-            # Only "turn on" CHORD-specific features if specific tags are present
-
-            chord_mode = all((
-                "workflow_id" in tags,
-                "workflow_metadata" in tags,
-
-                # Allow either a path to be specified for ingestion (for the 'classic'
-                # Bento singularity architecture) or
-                "ingestion_path" in tags or "ingestion_url" in tags,
-
-                "table_id" in tags,
-            ))
-
-            workflow_id = tags.get("workflow_id", workflow_url)
-            workflow_metadata = tags.get("workflow_metadata", {})
-            workflow_ingestion_path = tags.get("ingestion_path", None)
-            workflow_ingestion_url = tags.get(
-                "ingestion_url",
-                (f"http+unix://{current_app.config['NGINX_INTERNAL_SOCKET']}{workflow_ingestion_path}"
-                 if workflow_ingestion_path else None))
-            table_id = tags.get("table_id", None)
-
-            # Don't accept anything (ex. CWL) other than WDL TODO: CWL support
-            assert workflow_type == "WDL"
-            assert workflow_type_version == "1.0"
-
-            assert isinstance(workflow_params, dict)
-            assert isinstance(workflow_engine_parameters, dict)
-            assert isinstance(tags, dict)
-
-            if chord_mode:
-                table_id = str(uuid.UUID(table_id))  # Check and standardize table ID
-
-            # TODO: Use JSON schemas for workflow params / engine parameters / tags
-
-            # Begin creating the job after validating the request
-
-            req_id = uuid.uuid4()
-            run_id = uuid.uuid4()
-            log_id = uuid.uuid4()
-
-            # Create run directory
-
-            run_dir = os.path.join(current_app.config["SERVICE_TEMP"], str(run_id))
-
-            if os.path.exists(run_dir):
-                return flask_internal_server_error("UUID collision")
-
-            os.makedirs(run_dir, exist_ok=True)
-            # TODO: Delete run dir if something goes wrong...
-
-            # Move workflow attachments to run directory
-
-            for attachment in workflow_attachment_list:
-                # TODO: Check and fix input if filename is non-secure
-                # TODO: Do we put these in a subdirectory?
-                # TODO: Support WDL uploads for workflows
-                attachment.save(os.path.join(run_dir, secure_filename(attachment.filename)))
-
-            # Will be updated to STATE_ QUEUED once submitted
-            c.execute("INSERT INTO run_requests (id, workflow_params, workflow_type, workflow_type_version, "
-                      "workflow_engine_parameters, workflow_url, tags) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                      (str(req_id), json.dumps(workflow_params), workflow_type, workflow_type_version,
-                       json.dumps(workflow_engine_parameters), workflow_url, json.dumps(tags)))
-            c.execute("INSERT INTO run_logs (id, name) VALUES (?, ?)", (str(log_id), workflow_id))
-            c.execute("INSERT INTO runs (id, request, state, run_log, outputs) VALUES (?, ?, ?, ?, ?)",
-                      (str(run_id), str(req_id), states.STATE_UNKNOWN, str(log_id), json.dumps({})))
-            db.commit()
-
-            # TODO: figure out timeout
-            # TODO: retry policy
-            c.execute("UPDATE runs SET state = ? WHERE id = ?", (states.STATE_QUEUED, str(run_id)))
-            db.commit()
-
-            run_workflow.delay(run_id, chord_mode, workflow_metadata, workflow_ingestion_url, table_id)
-
-            return jsonify({"run_id": str(run_id)})
-
-        except ValueError:
-            return flask_bad_request_error("Value error")
-
-        except AssertionError:
-            return flask_bad_request_error("Assertion error")
+        return _create_run(db, c)
 
     # GET
     # CHORD Extension: Include run details with /runs request

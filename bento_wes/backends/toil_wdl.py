@@ -6,8 +6,9 @@ from flask import current_app, json
 from typing import Optional, Tuple
 
 from bento_wes.backends import WESBackend
-from bento_wes.backends.backend_types import Command, WorkflowType, WES_WORKFLOW_TYPE_WDL
+from bento_wes.backends.backend_types import Command
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
+from bento_wes.workflows import WorkflowType, WES_WORKFLOW_TYPE_WDL
 
 
 __all__ = [

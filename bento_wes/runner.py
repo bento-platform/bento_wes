@@ -20,6 +20,7 @@ from .celery import celery
 from .constants import SERVICE_ARTIFACT, SERVICE_NAME
 from .db import get_db, get_run_details
 from .events import get_new_event_bus
+from .workflows import parse_workflow_host_allow_list
 
 
 requests_unixsocket.monkeypatch()
@@ -72,6 +73,7 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
             continue
 
         # Rewrite file outputs to include full path to temporary location, or ingested DRS object URI
+        # TODO: Ideally we shouldn't need one DRS request per file -- bundles would maybe be better.
 
         if output["type"] == WORKFLOW_TYPE_FILE:
             workflow_outputs[output["id"]] = return_drs_url_or_full_path(os.path.abspath(os.path.join(run_dir, fo)))
@@ -112,11 +114,6 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     if run is None:
         logger.error(f"Cannot find run {run_id} ({err})")
         return
-
-    # Get list of allowed workflow hosts from configuration for any checks inside the runner
-    # If it's blank, assume that means "any host is allowed" and pass None to the runner
-    workflow_host_allow_list = {
-        a.strip() for a in current_app.config["WORKFLOW_HOST_ALLOW_LIST"].split(",") if a.strip()} or None
 
     # Pass to workflow execution backend---------------------------------------
 
@@ -164,16 +161,20 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
             # TODO: Report error somehow
             return states.STATE_SYSTEM_ERROR
 
-    # TODO: Change based on workflow type / what's supported
+    # TODO: Change based on workflow type / what's supported - get first runner
+    #  'enabled' (somehow) which supports the type
     backend: WESBackend = ToilWDLBackend(
         tmp_dir=current_app.config["SERVICE_TEMP"],
-        chord_mode=chord_mode,
         logger=logger,
         event_bus=event_bus,
+
+        # Get list of allowed workflow hosts from configuration for any checks inside the runner
+        workflow_host_allow_list=parse_workflow_host_allow_list(current_app.config["WORKFLOW_HOST_ALLOW_LIST"]),
+
+        # Bento-specific stuff
+        chord_mode=chord_mode,
         chord_callback=chord_callback,
         chord_url=(current_app.config["CHORD_URL"] or None),
-        internal_socket=(current_app.config["NGINX_INTERNAL_SOCKET"] or None),
-        workflow_host_allow_list=workflow_host_allow_list
     )
 
     try:
