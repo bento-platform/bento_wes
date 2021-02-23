@@ -8,6 +8,7 @@ def app():
 
     application.config["TESTING"] = True
     application.config["DATABASE"] = ":memory:"
+    application.config["OTT_ENDPOINT_NAMESPACE"] = ""  # Don't need one-time tokens for testing
 
     with application.app_context():
         init_db()

@@ -9,7 +9,7 @@ from celery.utils.log import get_task_logger
 from bento_lib.events.types import EVENT_WES_RUN_FINISHED
 from bento_lib.ingestion import WORKFLOW_TYPE_FILE, WORKFLOW_TYPE_FILE_ARRAY
 from flask import current_app, json
-from typing import Optional
+from typing import List, Optional
 from urllib.parse import urlparse
 
 
@@ -26,14 +26,19 @@ from .workflows import parse_workflow_host_allow_list
 requests_unixsocket.monkeypatch()
 
 
-def ingest_in_drs(path):
+def ingest_in_drs(path: str, ott_tokens: List[str]):
     # TODO: Not compliant with "standard" DRS
     #  - document how this has to work or provide an alternative
     url = f"{current_app.config['DRS_URL']}/private/ingest"
     params = {"path": path, **({"deduplicate": True} if current_app.config["DRS_DEDUPLICATE"] else {})}
 
+    # Include the next one-time-use token if we have one
+    next_token = ott_tokens.pop() if ott_tokens else None
+
     try:
-        r = requests.post(url, json=params, timeout=current_app.config["INGEST_POST_TIMEOUT"])
+        r = requests.post(
+            url, headers=({"X-OTT": next_token} if next_token else {}), json=params,
+            timeout=current_app.config["INGEST_POST_TIMEOUT"])
         r.raise_for_status()
     except requests.RequestException as e:
         if hasattr(e, "response"):
@@ -54,13 +59,14 @@ def should_ingest_to_drs(path: str) -> bool:
         any(path.endswith(t) for t in current_app.config["DRS_SKIP_TYPES"])
 
 
-def return_drs_url_or_full_path(full_path: str) -> str:
+def return_drs_url_or_full_path(full_path: str, ott_tokens: List[str]) -> str:
     # TODO: As it stands, ingest_in_drs will return None in case of DRS ingest failure
-    drs_url = ingest_in_drs(full_path) if should_ingest_to_drs(full_path) else None
+    drs_url = ingest_in_drs(full_path, ott_tokens) if should_ingest_to_drs(full_path) else None
     return drs_url or full_path
 
 
-def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workflow_metadata: dict):
+def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workflow_metadata: dict,
+                           c_ott_tokens: List[str]):
     output_params = bento_lib.ingestion.make_output_params(workflow_id, workflow_params,
                                                            c_workflow_metadata["inputs"])
 
@@ -76,11 +82,12 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
         # TODO: Ideally we shouldn't need one DRS request per file -- bundles would maybe be better.
 
         if output["type"] == WORKFLOW_TYPE_FILE:
-            workflow_outputs[output["id"]] = return_drs_url_or_full_path(os.path.abspath(os.path.join(run_dir, fo)))
+            workflow_outputs[output["id"]] = return_drs_url_or_full_path(
+                os.path.abspath(os.path.join(run_dir, fo)), c_ott_tokens)
 
         elif output["type"] == WORKFLOW_TYPE_FILE_ARRAY:
             workflow_outputs[output["id"]] = [
-                return_drs_url_or_full_path(os.path.abspath(os.path.join(run_dir, wo)))
+                return_drs_url_or_full_path(os.path.abspath(os.path.join(run_dir, wo)), c_ott_tokens)
                 for wo in fo
             ]
 
@@ -95,7 +102,7 @@ logger = get_task_logger(__name__)
 
 @celery.task(bind=True)
 def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata: dict,
-                 c_workflow_ingestion_url: Optional[str], c_table_id: Optional[str]):
+                 c_workflow_ingestion_url: Optional[str], c_table_id: Optional[str], c_ott_tokens: List[str]):
     db = get_db()
     c = db.cursor()
     event_bus = get_new_event_bus()
@@ -124,7 +131,8 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
         # TODO: Verify ingestion URL (vulnerability??)
 
-        workflow_outputs = build_workflow_outputs(run_dir, workflow_name, workflow_params, c_workflow_metadata)
+        workflow_outputs = build_workflow_outputs(
+            run_dir, workflow_name, workflow_params, c_workflow_metadata, c_ott_tokens)
 
         # Explicitly don't commit here; sync with state update
         c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run["run_id"])))

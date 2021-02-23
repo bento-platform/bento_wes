@@ -1,5 +1,6 @@
 import json
 import os
+import requests
 import shutil
 import uuid
 
@@ -10,13 +11,20 @@ from bento_lib.responses.flask_errors import (
     flask_not_found_error,
 )
 from flask import Blueprint, current_app, jsonify, request
+from urllib.parse import urljoin, urlparse
 from werkzeug.utils import secure_filename
 
 from . import states
 from .celery import celery
 from .events import get_flask_event_bus
 from .runner import run_workflow
-from .workflows import WorkflowType, UnsupportedWorkflowType, WorkflowDownloadError, WorkflowManager
+from .workflows import (
+    WorkflowType,
+    UnsupportedWorkflowType,
+    WorkflowDownloadError,
+    WorkflowManager,
+    count_bento_workflow_file_outputs
+)
 
 from .db import get_db, run_request_dict, run_log_dict, get_task_logs, get_run_details, update_run_state_and_commit
 
@@ -108,6 +116,24 @@ def _create_run(db, c):
         except (WorkflowDownloadError, ConnectionError):
             return flask_bad_request_error(f"Could not access workflow file: {workflow_url}")
 
+        # Generate one-time tokens for ingestion purposes if in Bento mode
+
+        one_time_tokens = []
+        drs_url: str = current_app.config["DRS_URL"]
+        ott_endpoint_namespace: str = current_app.config["OTT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
+        if chord_mode and ott_endpoint_namespace and urlparse(drs_url).scheme != "http+unix":
+            # Generate the correct number of one-time tokens for the DRS scope
+            # to allow for the callback to ingest files
+            # Skip doing this if the DRS URL is an internal UNIX socket
+            # TODO: Remove this ^ bit and pull the plug on socket requests
+            tr = requests.post(urljoin(ott_endpoint_namespace.rstrip("/") + "/", "generate"), json={
+                # TODO: This assumes DRS is on the same domain as WES, which isn't necessarily correct
+                #  An error should be thrown if there's a mismatch and we're still trying to do OTT stuff, probably
+                "scope": urlparse(drs_url).path + "/",
+                "number": count_bento_workflow_file_outputs(workflow_id, workflow_params, workflow_metadata),
+            })
+            one_time_tokens = tr.json()
+
         # Begin creating the job after validating the request
 
         req_id = uuid.uuid4()
@@ -147,7 +173,7 @@ def _create_run(db, c):
         c.execute("UPDATE runs SET state = ? WHERE id = ?", (states.STATE_QUEUED, str(run_id)))
         db.commit()
 
-        run_workflow.delay(run_id, chord_mode, workflow_metadata, workflow_ingestion_url, table_id)
+        run_workflow.delay(run_id, chord_mode, workflow_metadata, workflow_ingestion_url, table_id, one_time_tokens)
 
         return jsonify({"run_id": str(run_id)})
 

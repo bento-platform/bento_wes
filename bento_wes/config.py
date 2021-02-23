@@ -24,6 +24,9 @@ class Config:
     WOM_TOOL_LOCATION = os.environ.get("WOM_TOOL_LOCATION")
     WORKFLOW_HOST_ALLOW_LIST = os.environ.get("WORKFLOW_HOST_ALLOW_LIST")
 
+    # OTT-related configuration
+    OTT_ENDPOINT_NAMESPACE = os.environ.get("OTT_ENDPOINT_NAMESPACE", f"{CHORD_URL}api/")
+
     # DRS-related configuration
     DRS_URL = os.environ.get("DRS_URL", f"http+unix://{NGINX_INTERNAL_SOCKET}/api/drs").strip().rstrip("/")
     WRITE_OUTPUT_TO_DRS = os.environ.get("WRITE_OUTPUT_TO_DRS", "false").lower().strip() == "true"
