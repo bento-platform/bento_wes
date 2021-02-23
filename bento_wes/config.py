@@ -25,7 +25,7 @@ class Config:
     WORKFLOW_HOST_ALLOW_LIST = os.environ.get("WORKFLOW_HOST_ALLOW_LIST")
 
     # OTT-related configuration
-    OTT_ENDPOINT_NAMESPACE = os.environ.get("OTT_ENDPOINT_NAMESPACE", f"{CHORD_URL}api/")
+    OTT_ENDPOINT_NAMESPACE = os.environ.get("OTT_ENDPOINT_NAMESPACE", f"{CHORD_URL}api/auth/ott/")
 
     # DRS-related configuration
     DRS_URL = os.environ.get("DRS_URL", f"http+unix://{NGINX_INTERNAL_SOCKET}/api/drs").strip().rstrip("/")
