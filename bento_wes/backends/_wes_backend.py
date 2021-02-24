@@ -65,6 +65,24 @@ class WESBackend(ABC):
         if chord_mode and not chord_url:
             raise ValueError("Missing chord_url for chord_mode backend run")
 
+        self.log_debug(f"Instantiating WESBackend with debug={self.debug}")
+
+    def log_debug(self, message: str) -> None:
+        """
+        Given a message, logs it as DEBUG.
+        :param message: A message to log
+        """
+        if self.logger:
+            self.logger.debug(message)
+
+    def log_info(self, message: str) -> None:
+        """
+        Given a message, logs it as INFO.
+        :param message: A message to log
+        """
+        if self.logger:
+            self.logger.info(message)
+
     def log_error(self, error: str) -> None:
         """
         Given an error string, logs the error.

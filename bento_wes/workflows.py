@@ -9,7 +9,6 @@ from typing import Dict, NewType, Optional, Set
 from urllib.parse import urlparse
 
 from bento_wes import states
-from bento_wes.constants import SERVICE_NAME
 
 __all__ = [
     "WorkflowType",
@@ -96,7 +95,13 @@ class WorkflowManager:
         self.chord_url = chord_url
         self.logger = logger
         self.workflow_host_allow_list = workflow_host_allow_list
-        self._debug = debug
+        self._debug_mode = debug
+
+        self._debug(f"Instantiating WorkflowManager with debug={self._debug}")
+
+    def _debug(self, message: str):
+        if self.logger:
+            self.logger.debug(message)
 
     def _info(self, message: str):
         if self.logger:
@@ -141,10 +146,10 @@ class WorkflowManager:
                     if (parsed_workflow_uri.scheme != "file" and
                             parsed_workflow_uri.netloc not in self.workflow_host_allow_list):
                         # Dis-allowed workflow URL
-                        self._error(f"[{SERVICE_NAME}] [ERROR] Dis-allowed workflow host: {parsed_workflow_uri.netloc}")
+                        self._error(f"Dis-allowed workflow host: {parsed_workflow_uri.netloc}")
                         return states.STATE_EXECUTOR_ERROR
 
-                self._info(f"[{SERVICE_NAME}] [INFO] Fetching workflow file from {workflow_uri}")
+                self._info(f"Fetching workflow file from {workflow_uri}")
 
                 # SECURITY: We cannot pass our auth token outside the Bento instance.
                 # Validate that CHORD_URL is a) a valid URL and b) a prefix of our
@@ -166,7 +171,7 @@ class WorkflowManager:
                         "Host": urlparse(self.chord_url or "").netloc or "",
                         **(auth_headers if use_auth_headers else {}),
                     },
-                    verify=not self._debug,
+                    verify=not self._debug_mode,
                 )
 
                 if wr.status_code == 200 and len(wr.content) < MAX_WORKFLOW_FILE_BYTES:
