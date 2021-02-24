@@ -119,9 +119,11 @@ class ToilWDLBackend(WESBackend):
         :param run_dir: The directory to run the workflow in
         :return: The command, in the form of a tuple of strings, to be passed to subprocess.run
         """
+        # TODO: Separate cleaning process from run?
         return Command((
             "toil-wdl-runner",
-            *(("--logLevel=DEBUG",) if self.debug else ()),  # Output way more logging if in debug mode
+            # Output more logging if in debug mode and avoid cleaning up helpful logs
+            *(("--logLevel=DEBUG", "--clean=never", "--cleanWorkDir", "never") if self.debug else ()),
             workflow_path,
             params_path,
             "-o", run_dir,

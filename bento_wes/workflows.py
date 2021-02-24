@@ -97,7 +97,7 @@ class WorkflowManager:
         self.workflow_host_allow_list = workflow_host_allow_list
         self._debug_mode = debug
 
-        self._debug(f"Instantiating WorkflowManager with debug={self._debug}")
+        self._debug(f"Instantiating WorkflowManager with debug_mode={self._debug_mode}")
 
     def _debug(self, message: str):
         if self.logger:
