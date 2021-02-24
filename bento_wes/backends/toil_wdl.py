@@ -121,6 +121,7 @@ class ToilWDLBackend(WESBackend):
         """
         return Command((
             "toil-wdl-runner",
+            *(("--logLevel=DEBUG",) if self.debug else ()),  # Output way more logging if in debug mode
             workflow_path,
             params_path,
             "-o", run_dir,

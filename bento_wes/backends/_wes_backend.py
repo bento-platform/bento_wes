@@ -45,12 +45,14 @@ class WESBackend(ABC):
         self.chord_callback = chord_callback
         self.chord_url = chord_url
 
+        self.debug = debug
+
         self._workflow_manager: WorkflowManager = WorkflowManager(
             self.tmp_dir,
             self.chord_url,
             self.logger,
             self.workflow_host_allow_list,
-            debug,
+            self.debug,
         )
 
         self._runs = {}
