@@ -171,7 +171,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
                 verify=not current_app.config["DEBUG"],
             )
 
-            if r.status_code >= 400:
+            if not r.ok:
                 # An error occurred, do some logging
                 logger.error(
                     f"Encountered error while POSTing to ingestion URL\n"
