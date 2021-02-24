@@ -38,7 +38,7 @@ def ingest_in_drs(path: str, otts: List[str]):
     try:
         r = requests.post(
             url,
-            headers=({"X-OTT": next_token} if next_token else {}),
+            headers={"X-OTT": next_token} if next_token else {},
             json=params,
             timeout=current_app.config["INGEST_POST_TIMEOUT"],
             verify=not current_app.config["DEBUG"],
@@ -105,7 +105,8 @@ logger = get_task_logger(__name__)
 
 @celery.task(bind=True)
 def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata: dict,
-                 c_workflow_ingestion_url: Optional[str], c_table_id: Optional[str], c_otts: List[str]):
+                 c_workflow_ingestion_url: Optional[str], c_table_id: Optional[str], c_otts: List[str],
+                 c_use_otts_for_drs: bool):
     db = get_db()
     c = db.cursor()
     event_bus = get_new_event_bus()
@@ -135,7 +136,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         # TODO: Verify ingestion URL (vulnerability??)
 
         workflow_outputs = build_workflow_outputs(
-            run_dir, workflow_name, workflow_params, c_workflow_metadata, c_otts)
+            run_dir, workflow_name, workflow_params, c_workflow_metadata, c_otts if c_use_otts_for_drs else [])
 
         # Explicitly don't commit here; sync with state update
         c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run["run_id"])))
