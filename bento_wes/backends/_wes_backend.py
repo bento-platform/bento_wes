@@ -1,0 +1,326 @@
+import os
+import shutil
+import subprocess
+import uuid
+
+from abc import ABC, abstractmethod
+from bento_lib.events import EventBus
+from typing import Callable, Optional, Tuple, Union
+
+from bento_wes import states
+from bento_wes.db import get_db, update_run_state_and_commit
+from bento_wes.utils import iso_now
+from bento_wes.workflows import WorkflowType, WorkflowManager
+
+from .backend_types import Command, ProcessResult
+from ._finish_run import finish_run
+
+__all__ = ["WESBackend"]
+
+WORKFLOW_TIMEOUT = 60 * 60 * 24  # 24 hours
+
+
+class WESBackend(ABC):
+    def __init__(
+        self,
+        tmp_dir: str,
+        logger=None,
+        event_bus: Optional[EventBus] = None,
+        workflow_host_allow_list: Optional[set] = None,
+        chord_mode: bool = False,
+        chord_callback: Optional[Callable[["WESBackend"], str]] = None,
+        chord_url: Optional[str] = None,
+        debug: bool = False,
+    ):
+        self.db = get_db()
+
+        self.tmp_dir = tmp_dir
+        self.logger = logger
+        self.event_bus = event_bus  # TODO: New event bus?
+
+        self.workflow_host_allow_list = workflow_host_allow_list
+
+        # Bento-specific parameters
+        self.chord_mode = chord_mode
+        self.chord_callback = chord_callback
+        self.chord_url = chord_url
+
+        self._workflow_manager: WorkflowManager = WorkflowManager(
+            self.tmp_dir,
+            self.chord_url,
+            self.logger,
+            self.workflow_host_allow_list,
+            debug,
+        )
+
+        self._runs = {}
+
+        # Check that CHORD-dependent values are present
+
+        if chord_mode and not chord_callback:
+            raise ValueError("Missing chord_callback for chord_mode backend run")
+
+        if chord_mode and not chord_url:
+            raise ValueError("Missing chord_url for chord_mode backend run")
+
+    def log_error(self, error: str) -> None:
+        """
+        Given an error string, logs the error.
+        :param error: An error string
+        """
+        if self.logger:
+            self.logger.error(error)
+
+    @abstractmethod
+    def _get_supported_types(self) -> Tuple[WorkflowType]:
+        """
+        Returns a tuple of the workflow types this backend supports.
+        """
+        pass
+
+    @abstractmethod
+    def _get_params_file(self, run: dict) -> str:
+        """
+         Returns the name of the params file to use for the workflow run.
+        :param run: The run description
+        :return: The name of the params file
+        """
+        pass
+
+    @abstractmethod
+    def _serialize_params(self, workflow_params: dict) -> str:
+        """
+        Serializes parameters for a particular workflow run into the format expected by the backend's runner.
+        :param workflow_params: A dictionary of key-value pairs representing the workflow parameters
+        :return: The serialized form of the parameters
+        """
+        pass
+
+    def workflow_path(self, run: dict) -> str:
+        """
+        Gets the local filesystem path to the workflow file specified by a run's workflow URI.
+        """
+        return self._workflow_manager.workflow_path(run["request"]["workflow_url"],
+                                                    WorkflowType(run["request"]["workflow_type"]))
+
+    def run_dir(self, run: dict) -> str:
+        """
+        Returns a path to the work directory for executing a run.
+        """
+        return os.path.join(self.tmp_dir, run["run_id"])
+
+    def _params_path(self, run: dict) -> str:
+        """
+        Returns a path to the workflow parameters file for a run.
+        """
+        return os.path.join(self.run_dir(run), self._get_params_file(run))
+
+    @abstractmethod
+    def _check_workflow(self, run: dict) -> Optional[Tuple[str, str]]:
+        """
+        Checks that a workflow can be executed by the backend via the workflow's URI.
+        :param run: The run, including a request with the workflow URI
+        :return: None if the workflow is valid; a tuple of an error message and an error state otherwise
+        """
+        pass
+
+    def _check_workflow_and_type(self, run: dict) -> Optional[Tuple[str, str]]:
+        """
+        Checks a workflow file's validity.
+        :param run: The run specifying the workflow in question
+        :return: None if the workflow is valid; a tuple of an error message and an error state otherwise
+        """
+
+        workflow_type: WorkflowType = WorkflowType(run["request"]["workflow_type"])
+        if workflow_type not in self._get_supported_types():
+            raise NotImplementedError(f"The specified WES backend cannot execute workflows of type {workflow_type}")
+
+        return self._check_workflow(run)
+
+    @abstractmethod
+    def get_workflow_name(self, workflow_path: str) -> Optional[str]:
+        """
+        Extracts a workflow's name from it's file.
+        :param workflow_path: The path to the workflow definition file
+        :return: None if the file could not be parsed for some reason; the name string otherwise
+        """
+        pass
+
+    @abstractmethod
+    def _get_command(self, workflow_path: str, params_path: str, run_dir: str) -> Command:
+        """
+        Creates the command which will run the backend runner on the specified workflow, with the specified
+        serialized parameters, and in the specified run directory.
+        :param workflow_path: The path to the workflow file to execute
+        :param params_path: The path to the file containing specified parameters for the workflow
+        :param run_dir: The directory to run the workflow in
+        :return: The command, in the form of a tuple of strings, to be passed to subprocess.run
+        """
+        pass
+
+    def _update_run_state_and_commit(self, run_id: Union[uuid.UUID, str], state: str) -> None:
+        """
+        Wrapper for the database "update_run_state_and_commit" function, which updates a run's state in the database.
+        :param run_id: The ID of the run whose state is getting updated
+        :param state: The value to set the run's current state to
+        """
+        update_run_state_and_commit(self.db, self.db.cursor(), self.event_bus, run_id, state)
+
+    def _finish_run_and_clean_up(self, run: dict, state: str) -> None:
+        """
+        Performs standard run-finishing operations (updating state, setting end time, etc.) as well as deleting the run
+        folder if it exists.
+        :param run: The run to perform "finishing" operations on
+        :param state: The final state of the run
+        """
+
+        # Finish run ----------------------------------------------------------
+
+        finish_run(self.db, self.db.cursor(), self.event_bus, run, state)
+
+        # Clean up ------------------------------------------------------------
+
+        del self._runs[run["run_id"]]
+
+        # -- Clean up any run files at the end, after they've been either -----
+        #    copied or "rejected" due to some failure.
+        # TODO: SECURITY: Check run_dir
+        # TODO: May want to keep them around for a retry depending on how the retry operation will work.
+
+        shutil.rmtree(self.run_dir(run), ignore_errors=True)
+
+    def _initialize_run_and_get_command(self, run: dict, celery_id) -> Optional[Command]:
+        """
+        Performs "initialization" operations on the run, including setting states, downloading and validating the
+        workflow file, and generating and logging the workflow-running command.
+        :param run: The run to initialize
+        :param celery_id: The Celery ID of the Celery task responsible for executing the run
+        :return: The command to execute, if no errors occurred; None otherwise
+        """
+
+        self._update_run_state_and_commit(run["run_id"], states.STATE_INITIALIZING)
+
+        run_log_id: str = run["run_log"]["id"]
+
+        # -- Check that the run directory exists ------------------------------
+        if not os.path.exists(self.run_dir(run)):
+            # TODO: Log error in run log
+            self.log_error("Run directory not found")
+            return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
+
+        c = self.db.cursor()
+
+        workflow_params: dict = run["request"]["workflow_params"]
+
+        # -- Validate the workflow --------------------------------------------
+        error = self._check_workflow_and_type(run)
+        if error is not None:
+            self.log_error(error[0])
+            return self._finish_run_and_clean_up(run, error[1])
+
+        # -- Find "real" workflow name from workflow file ---------------------
+        workflow_name = self.get_workflow_name(self.workflow_path(run))
+        if workflow_name is None:
+            # Invalid/non-workflow-specifying workflow file
+            self.log_error("Could not find workflow name in workflow file")
+            return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
+
+        # TODO: To avoid having multiple names, we should maybe only set this once?
+        c.execute("UPDATE run_logs SET name = ? WHERE id = ?", (workflow_name, run_log_id))
+        self.db.commit()
+
+        # -- Store input for the workflow in a file in the temporary folder ---
+        with open(self._params_path(run), "w") as pf:
+            pf.write(self._serialize_params(workflow_params))
+
+        # -- Create the runner command based on inputs ------------------------
+        cmd = self._get_command(self.workflow_path(run),
+                                self._params_path(run),
+                                self.run_dir(run))
+
+        # -- Update run log with command and Celery ID ------------------------
+        c.execute("UPDATE run_logs SET cmd = ?, celery_id = ? WHERE id = ?", (" ".join(cmd), celery_id, run_log_id))
+        self.db.commit()
+
+        return cmd
+
+    def _perform_run(self, run: dict, cmd: Command) -> Optional[ProcessResult]:
+        """
+        Performs a run based on a provided command and returns stdout, stderr, exit code, and whether the process timed
+        out while running.
+        :param run: The run to execute
+        :param cmd: The command used to execute the run
+        :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
+        """
+
+        # Perform run =========================================================
+
+        # -- Start process running the generated command ----------------------
+        runner_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
+        c = self.db.cursor()
+        c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]["id"]))
+        self._update_run_state_and_commit(run["run_id"], states.STATE_RUNNING)
+
+        # -- Wait for output --------------------------------------------------
+
+        timed_out = False
+
+        try:
+            stdout, stderr = runner_process.communicate(timeout=WORKFLOW_TIMEOUT)
+
+        except subprocess.TimeoutExpired:
+            runner_process.kill()
+            stdout, stderr = runner_process.communicate()
+            timed_out = True
+
+        finally:
+            exit_code = runner_process.returncode
+
+        # Complete run ========================================================
+
+        # -- Update run log with stdout/stderr, exit code ---------------------
+        #     - Explicitly don't commit here; sync with state update
+        c.execute("UPDATE run_logs SET stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
+                  (stdout, stderr, exit_code, run["run_log"]["id"]))
+
+        if timed_out:
+            # TODO: Report error somehow
+            return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
+
+        # -- Final steps: check exit code and report results ------------------
+
+        if exit_code != 0:
+            # TODO: Report error somehow
+            return self._finish_run_and_clean_up(run, states.STATE_EXECUTOR_ERROR)
+
+        # Exit code is 0 otherwise
+
+        if not self.chord_mode:
+            # TODO: What should be done if this run was not a CHORD routine?
+            return self._finish_run_and_clean_up(run, states.STATE_COMPLETE)
+
+        # If in CHORD mode, run the callback and finish the run with whatever state is returned.
+        self._finish_run_and_clean_up(run, self.chord_callback(self))
+
+        return ProcessResult((stdout, stderr, exit_code, timed_out))
+
+    def perform_run(self, run: dict, celery_id) -> Optional[ProcessResult]:
+        """
+        Executes a run from start to finish (initialization, startup, and completion / cleanup.)
+        :param run: The run to execute
+        :param celery_id: The ID of the Celery task responsible for executing the workflow
+        :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
+        """
+
+        if run["run_id"] in self._runs:
+            raise ValueError("Run has already been registered")
+
+        self._runs[run["run_id"]] = run
+
+        # Initialization (loading / downloading files) ------------------------
+        cmd = self._initialize_run_and_get_command(run, celery_id)
+        if cmd is None:
+            return
+
+        # Perform, finish, and clean up run -----------------------------------
+        return self._perform_run(run, cmd)
