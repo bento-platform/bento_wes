@@ -128,15 +128,25 @@ def _create_run(db, c):
             # to allow for the callback to ingest files
             # Skip doing this if the DRS URL is an internal UNIX socket
             # TODO: Remove this ^ bit and pull the plug on socket requests
-            tr = requests.post(urljoin(ott_endpoint_namespace.rstrip("/") + "/", "generate"), json={
-                # TODO: This assumes DRS is on the same domain as WES, which isn't necessarily correct
-                #  An error should be thrown if there's a mismatch and we're still trying to do OTT stuff, probably
-                "scope": urlparse(drs_url).path + "/",
-                # Number of one-time-use tokens =
-                #   Number of files to ingest into DRS
-                #   + 1 for the service ingest request
-                "number": count_bento_workflow_file_outputs(workflow_id, workflow_params, workflow_metadata) + 1,
-            }, verify=not current_app.config["DEBUG"])
+            tr = requests.post(
+                urljoin(ott_endpoint_namespace.rstrip("/") + "/", "generate"),
+                headers={"Authorization": auth_header} if auth_header else {},  # TODO: Host?
+                json={
+                    # TODO: This assumes DRS is on the same domain as WES, which isn't necessarily correct
+                    #  An error should be thrown if there's a mismatch and we're still trying to do OTT stuff, probably
+                    "scope": urlparse(drs_url).path + "/",
+                    # Number of one-time-use tokens =
+                    #   Number of files to ingest into DRS
+                    #   + 1 for the service ingest request
+                    "number": count_bento_workflow_file_outputs(workflow_id, workflow_params, workflow_metadata) + 1,
+                },
+                verify=not current_app.config["DEBUG"]
+            )
+
+            if not tr.ok:
+                # An error occurred while requesting OTTs, so we cannot complete the run request
+                return flask_internal_server_error(f"Got error while requesting one-time-use tokens: {tr.content}")
+
             one_time_tokens = tr.json()
 
         # Begin creating the job after validating the request
