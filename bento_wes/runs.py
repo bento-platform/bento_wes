@@ -132,7 +132,10 @@ def _create_run(db, c):
                 # TODO: This assumes DRS is on the same domain as WES, which isn't necessarily correct
                 #  An error should be thrown if there's a mismatch and we're still trying to do OTT stuff, probably
                 "scope": urlparse(drs_url).path + "/",
-                "number": count_bento_workflow_file_outputs(workflow_id, workflow_params, workflow_metadata),
+                # Number of one-time-use tokens =
+                #   Number of files to ingest into DRS
+                #   + 1 for the service ingest request
+                "number": count_bento_workflow_file_outputs(workflow_id, workflow_params, workflow_metadata) + 1,
             }, verify=not current_app.config["DEBUG"])
             one_time_tokens = tr.json()
 

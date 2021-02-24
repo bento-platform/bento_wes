@@ -26,14 +26,14 @@ from .workflows import parse_workflow_host_allow_list
 requests_unixsocket.monkeypatch()
 
 
-def ingest_in_drs(path: str, ott_tokens: List[str]):
+def ingest_in_drs(path: str, otts: List[str]):
     # TODO: Not compliant with "standard" DRS
     #  - document how this has to work or provide an alternative
     url = f"{current_app.config['DRS_URL']}/private/ingest"
     params = {"path": path, **({"deduplicate": True} if current_app.config["DRS_DEDUPLICATE"] else {})}
 
     # Include the next one-time-use token if we have one
-    next_token = ott_tokens.pop() if ott_tokens else None
+    next_token = otts.pop() if otts else None
 
     try:
         r = requests.post(
@@ -63,14 +63,13 @@ def should_ingest_to_drs(path: str) -> bool:
         any(path.endswith(t) for t in current_app.config["DRS_SKIP_TYPES"])
 
 
-def return_drs_url_or_full_path(full_path: str, ott_tokens: List[str]) -> str:
+def return_drs_url_or_full_path(full_path: str, otts: List[str]) -> str:
     # TODO: As it stands, ingest_in_drs will return None in case of DRS ingest failure
-    drs_url = ingest_in_drs(full_path, ott_tokens) if should_ingest_to_drs(full_path) else None
+    drs_url = ingest_in_drs(full_path, otts) if should_ingest_to_drs(full_path) else None
     return drs_url or full_path
 
 
-def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workflow_metadata: dict,
-                           c_ott_tokens: List[str]):
+def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workflow_metadata: dict, c_otts: List[str]):
     output_params = bento_lib.ingestion.make_output_params(workflow_id, workflow_params,
                                                            c_workflow_metadata["inputs"])
 
@@ -87,11 +86,11 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
 
         if output["type"] == WORKFLOW_TYPE_FILE:
             workflow_outputs[output["id"]] = return_drs_url_or_full_path(
-                os.path.abspath(os.path.join(run_dir, fo)), c_ott_tokens)
+                os.path.abspath(os.path.join(run_dir, fo)), c_otts)
 
         elif output["type"] == WORKFLOW_TYPE_FILE_ARRAY:
             workflow_outputs[output["id"]] = [
-                return_drs_url_or_full_path(os.path.abspath(os.path.join(run_dir, wo)), c_ott_tokens)
+                return_drs_url_or_full_path(os.path.abspath(os.path.join(run_dir, wo)), c_otts)
                 for wo in fo
             ]
 
@@ -106,7 +105,7 @@ logger = get_task_logger(__name__)
 
 @celery.task(bind=True)
 def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata: dict,
-                 c_workflow_ingestion_url: Optional[str], c_table_id: Optional[str], c_ott_tokens: List[str]):
+                 c_workflow_ingestion_url: Optional[str], c_table_id: Optional[str], c_otts: List[str]):
     db = get_db()
     c = db.cursor()
     event_bus = get_new_event_bus()
@@ -136,7 +135,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         # TODO: Verify ingestion URL (vulnerability??)
 
         workflow_outputs = build_workflow_outputs(
-            run_dir, workflow_name, workflow_params, c_workflow_metadata, c_ott_tokens)
+            run_dir, workflow_name, workflow_params, c_workflow_metadata, c_otts)
 
         # Explicitly don't commit here; sync with state update
         c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run["run_id"])))
@@ -155,21 +154,36 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         # TODO: If this is used to ingest, we'll have to wait for a confirmation before cleaning up; otherwise files
         #  could get removed before they get processed.
 
+        headers = {"Host": urlparse(current_app.config["CHORD_URL"] or "").netloc or ""}
+        if c_otts:
+            # If we have OTTs
+            headers["X-OTT"] = c_otts.pop()
+
         try:
-            # TODO: Just post run ID, fetch rest from the WES service?
+            # TODO: Just post run ID, fetch rest from the WES service results?
             # TODO: In the future, allow localhost requests to chord_metadata_service so we don't need to manually
             #  set the Host header?
             r = requests.post(
                 c_workflow_ingestion_url,
-                headers={"Host": urlparse(current_app.config["CHORD_URL"] or "").netloc or ""},
+                headers=headers,
                 json=run_results,
                 timeout=current_app.config["INGEST_POST_TIMEOUT"],
                 verify=not current_app.config["DEBUG"],
             )
-            return states.STATE_COMPLETE if r.status_code < 400 else states.STATE_SYSTEM_ERROR
 
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            if r.status_code >= 400:
+                # An error occurred, do some logging
+                logger.error(
+                    f"Encountered error while POSTing to ingestion URL\n"
+                    f"\tURL:     {c_workflow_ingestion_url}\n"
+                    f"\tHeaders: {headers}")
+                return states.STATE_SYSTEM_ERROR
+
+            return states.STATE_COMPLETE
+
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as ee:
             # Ingestion failed due to a network error, or was too slow.
+            logger.error(f"Encountered ConnectionError or Timeout: {type(ee).__name__} {ee}")
             # TODO: Retry a few times...
             # TODO: Report error somehow
             return states.STATE_SYSTEM_ERROR
@@ -196,5 +210,6 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         backend.perform_run(run, self.request.id)
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
+        logger.error(f"Uncaught exception while performing run: {type(e).__name__} {e}")
         finish_run(db, c, event_bus, run, states.STATE_SYSTEM_ERROR)
         raise e
