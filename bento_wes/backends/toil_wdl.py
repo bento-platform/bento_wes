@@ -123,10 +123,10 @@ class ToilWDLBackend(WESBackend):
         return Command((
             "toil-wdl-runner",
             # Output more logging if in debug mode and avoid cleaning up helpful logs
-            *(("--logLevel=DEBUG", "--clean=never", "--cleanWorkDir", "never") if self.debug else ()),
             workflow_path,
             params_path,
             "-o", run_dir,
+            *(("--logLevel=DEBUG", "--clean=never", "--cleanWorkDir", "never") if self.debug else ()),
             "--workDir", self.tmp_dir,
             "--jobStore", "file:" + os.path.abspath(os.path.join(self.tmp_dir, "toil_job_store"))
         ))
