@@ -25,7 +25,8 @@ ca.c3g.bento:wes:VERSION
 # of Singularity-based Bento instances
 CHORD_URL=http://127.0.0.1:5000/
 
-# Debug mode for the service
+# Debug mode for the service - falls back to FLASK_ENV (development = true, 
+# any other value = false) if not set
 # SECURITY NOTE: This SHOULD NOT EVER be enabled in production, as it removes
 # checks for TLS certificate validity!
 CHORD_DEBUG=False
