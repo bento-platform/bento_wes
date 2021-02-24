@@ -305,18 +305,21 @@ class WESBackend(ABC):
 
         if timed_out:
             # TODO: Report error somehow
+            self.log_error("Encountered timeout while performing run")
             return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
 
         # -- Final steps: check exit code and report results ------------------
 
         if exit_code != 0:
             # TODO: Report error somehow
+            self.log_error("Encountered a non-zero exit code while performing run")
             return self._finish_run_and_clean_up(run, states.STATE_EXECUTOR_ERROR)
 
         # Exit code is 0 otherwise
 
         if not self.chord_mode:
             # TODO: What should be done if this run was not a CHORD routine?
+            self.log_debug("Not in Bento mode; finishing without running the callback")
             return self._finish_run_and_clean_up(run, states.STATE_COMPLETE)
 
         # If in CHORD mode, run the callback and finish the run with whatever state is returned.

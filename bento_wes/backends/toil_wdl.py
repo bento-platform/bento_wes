@@ -126,7 +126,7 @@ class ToilWDLBackend(WESBackend):
             workflow_path,
             params_path,
             "-o", run_dir,
-            *(("--logLevel=DEBUG", "--clean=never", "--cleanWorkDir", "never", "--stats") if self.debug else ()),
+            *(("--logLevel=DEBUG", "--clean=never", "--cleanWorkDir", "never") if self.debug else ()),
             "--workDir", self.tmp_dir,
             "--jobStore", "file:" + os.path.abspath(os.path.join(self.tmp_dir, "toil_job_store"))
         ))
