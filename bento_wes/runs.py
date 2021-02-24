@@ -113,8 +113,8 @@ def _create_run(db, c):
                 auth_headers={"Authorization": auth_header} if auth_header else {})
         except UnsupportedWorkflowType:
             return flask_bad_request_error(f"Unsupported workflow type: {workflow_type}")
-        except (WorkflowDownloadError, ConnectionError):
-            return flask_bad_request_error(f"Could not access workflow file: {workflow_url}")
+        except (WorkflowDownloadError, ConnectionError) as e:
+            return flask_bad_request_error(f"Could not access workflow file: {workflow_url} (Python error: {e})")
 
         # Generate one-time tokens for ingestion purposes if in Bento mode
 

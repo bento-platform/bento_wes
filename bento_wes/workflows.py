@@ -170,6 +170,10 @@ class WorkflowManager:
 
                 elif not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
                     # Request issues
+                    if self.logger:
+                        self.logger.error(f"Error downloading workflow: {workflow_uri} "
+                                          f"(use_auth_headers={use_auth_headers}, "
+                                          f"wr.status_code={wr.status_code})")
                     raise WorkflowDownloadError()
 
             except requests.exceptions.ConnectionError:
