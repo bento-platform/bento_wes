@@ -97,6 +97,14 @@ class WorkflowManager:
         self.logger = logger
         self.workflow_host_allow_list = workflow_host_allow_list
 
+    def _info(self, message: str):
+        if self.logger:
+            self.logger.info(message)
+
+    def _error(self, message: str):
+        if self.logger:
+            self.logger.error(message)
+
     def workflow_path(self, workflow_uri: str, workflow_type: WorkflowType) -> str:
         """
         Generates a unique filesystem path name for a specified workflow URI.
@@ -132,12 +140,10 @@ class WorkflowManager:
                     if (parsed_workflow_uri.scheme != "file" and
                             parsed_workflow_uri.netloc not in self.workflow_host_allow_list):
                         # Dis-allowed workflow URL
-                        self.logger.error(
-                            f"[{SERVICE_NAME}] [ERROR] Dis-allowed workflow host: {parsed_workflow_uri.netloc}")
+                        self._error(f"[{SERVICE_NAME}] [ERROR] Dis-allowed workflow host: {parsed_workflow_uri.netloc}")
                         return states.STATE_EXECUTOR_ERROR
 
-                if self.logger:
-                    self.logger.info(f"[{SERVICE_NAME}] [INFO] Fetching workflow file from {workflow_uri}")
+                self._info(f"[{SERVICE_NAME}] [INFO] Fetching workflow file from {workflow_uri}")
 
                 # SECURITY: We cannot pass our auth token outside the Bento instance.
                 # Validate that CHORD_URL is a) a valid URL and b) a prefix of our
@@ -170,16 +176,15 @@ class WorkflowManager:
 
                 elif not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
                     # Request issues
-                    if self.logger:
-                        self.logger.error(f"Error downloading workflow: {workflow_uri} "
-                                          f"(use_auth_headers={use_auth_headers}, "
-                                          f"wr.status_code={wr.status_code})")
-                    raise WorkflowDownloadError()
+                    self._error(f"Error downloading workflow: {workflow_uri} "
+                                f"(use_auth_headers={use_auth_headers}, "
+                                f"wr.status_code={wr.status_code})")
+                    raise WorkflowDownloadError(f"WorkflowDownloadError: {workflow_path} does not exist")
 
-            except requests.exceptions.ConnectionError:
+            except requests.exceptions.ConnectionError as e:
                 if not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
                     # Network issues
-                    raise ConnectionError()
+                    raise e
 
         else:  # TODO: Other else cases
             # file://
