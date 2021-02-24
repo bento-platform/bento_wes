@@ -25,6 +25,11 @@ ca.c3g.bento:wes:VERSION
 # of Singularity-based Bento instances
 CHORD_URL=http://127.0.0.1:5000/
 
+# Debug mode for the service
+# SECURITY NOTE: This SHOULD NOT EVER be enabled in production, as it removes
+# checks for TLS certificate validity!
+CHORD_DEBUG=False
+
 # Celery configuration
 CELERY_RESULT_BACKEND=redis://
 CELERY_BROKER_URL=redis://

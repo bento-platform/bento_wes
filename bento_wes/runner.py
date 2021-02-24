@@ -37,8 +37,12 @@ def ingest_in_drs(path: str, ott_tokens: List[str]):
 
     try:
         r = requests.post(
-            url, headers=({"X-OTT": next_token} if next_token else {}), json=params,
-            timeout=current_app.config["INGEST_POST_TIMEOUT"])
+            url,
+            headers=({"X-OTT": next_token} if next_token else {}),
+            json=params,
+            timeout=current_app.config["INGEST_POST_TIMEOUT"],
+            verify=not current_app.config["DEBUG"],
+        )
         r.raise_for_status()
     except requests.RequestException as e:
         if hasattr(e, "response"):
@@ -159,7 +163,8 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
                 c_workflow_ingestion_url,
                 headers={"Host": urlparse(current_app.config["CHORD_URL"] or "").netloc or ""},
                 json=run_results,
-                timeout=current_app.config["INGEST_POST_TIMEOUT"]
+                timeout=current_app.config["INGEST_POST_TIMEOUT"],
+                verify=not current_app.config["DEBUG"],
             )
             return states.STATE_COMPLETE if r.status_code < 400 else states.STATE_SYSTEM_ERROR
 
@@ -183,6 +188,8 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         chord_mode=chord_mode,
         chord_callback=chord_callback,
         chord_url=(current_app.config["CHORD_URL"] or None),
+
+        debug=current_app.config["DEBUG"],
     )
 
     try:

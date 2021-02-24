@@ -91,11 +91,12 @@ class WorkflowDownloadError(Exception):
 
 class WorkflowManager:
     def __init__(self, tmp_dir: str, chord_url: Optional[str] = None, logger: Optional = None,
-                 workflow_host_allow_list: Optional[set] = None):
+                 workflow_host_allow_list: Optional[set] = None, debug: bool = False):
         self.tmp_dir = tmp_dir
         self.chord_url = chord_url
         self.logger = logger
         self.workflow_host_allow_list = workflow_host_allow_list
+        self._debug = debug
 
     def _info(self, message: str):
         if self.logger:
@@ -165,6 +166,7 @@ class WorkflowManager:
                         "Host": urlparse(self.chord_url or "").netloc or "",
                         **(auth_headers if use_auth_headers else {}),
                     },
+                    verify=not self._debug,
                 )
 
                 if wr.status_code == 200 and len(wr.content) < MAX_WORKFLOW_FILE_BYTES:

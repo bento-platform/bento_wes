@@ -97,6 +97,7 @@ class WESBackend(ABC):
         chord_mode: bool = False,
         chord_callback: Optional[Callable[["WESBackend"], str]] = None,
         chord_url: Optional[str] = None,
+        debug: bool = False,
     ):
         self.db = get_db()
 
@@ -115,7 +116,9 @@ class WESBackend(ABC):
             self.tmp_dir,
             self.chord_url,
             self.logger,
-            self.workflow_host_allow_list)
+            self.workflow_host_allow_list,
+            debug,
+        )
 
         self._runs = {}
 

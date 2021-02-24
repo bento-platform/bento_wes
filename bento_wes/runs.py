@@ -100,7 +100,9 @@ def _create_run(db, c):
             current_app.config["SERVICE_TEMP"],
             current_app.config["CHORD_URL"],
             logger=current_app.logger,
-            workflow_host_allow_list=workflow_host_allow_list)
+            workflow_host_allow_list=workflow_host_allow_list,
+            debug=current_app.config["DEBUG"],
+        )
 
         # Optional Authorization HTTP header to forward to nested requests
         # TODO: Move X-Auth... constant to bento_lib
@@ -131,7 +133,7 @@ def _create_run(db, c):
                 #  An error should be thrown if there's a mismatch and we're still trying to do OTT stuff, probably
                 "scope": urlparse(drs_url).path + "/",
                 "number": count_bento_workflow_file_outputs(workflow_id, workflow_params, workflow_metadata),
-            })
+            }, verify=not current_app.config["DEBUG"])
             one_time_tokens = tr.json()
 
         # Begin creating the job after validating the request
