@@ -175,8 +175,10 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
                 # An error occurred, do some logging
                 logger.error(
                     f"Encountered error while POSTing to ingestion URL\n"
-                    f"\tURL:     {c_workflow_ingestion_url}\n"
-                    f"\tHeaders: {headers}")
+                    f"           URL: {c_workflow_ingestion_url}\n"
+                    f"        Status: {r.status_code}\n"
+                    f"      Response: {r.content}\n"
+                    f"  Req. Headers: {headers}")
                 return states.STATE_SYSTEM_ERROR
 
             return states.STATE_COMPLETE
