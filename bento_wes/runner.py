@@ -157,6 +157,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         headers = {"Host": urlparse(current_app.config["CHORD_URL"] or "").netloc or ""}
         if c_otts:
             # If we have OTTs
+            # TODO: Should validate scope instead of relying on order
             headers["X-OTT"] = c_otts.pop()
 
         try:

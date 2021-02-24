@@ -96,9 +96,11 @@ def _create_run(db, c):
 
         # TODO: Move this back to runner, since we'll need to handle the callback anyway with local URLs...
 
+        chord_url = current_app.config["CHORD_URL"]
+
         wm = WorkflowManager(
             current_app.config["SERVICE_TEMP"],
-            current_app.config["CHORD_URL"],
+            chord_url,
             logger=current_app.logger,
             workflow_host_allow_list=workflow_host_allow_list,
             debug=current_app.config["DEBUG"],
@@ -107,12 +109,13 @@ def _create_run(db, c):
         # Optional Authorization HTTP header to forward to nested requests
         # TODO: Move X-Auth... constant to bento_lib
         auth_header = request.headers.get("X-Authorization", request.headers.get("Authorization"))
+        auth_header_dict = {"Authorization": auth_header} if auth_header else {}
 
         try:
             wm.download_or_copy_workflow(
                 workflow_url,
                 WorkflowType(workflow_type),
-                auth_headers={"Authorization": auth_header} if auth_header else {})
+                auth_headers=auth_header_dict)
         except UnsupportedWorkflowType:
             return flask_bad_request_error(f"Unsupported workflow type: {workflow_type}")
         except (WorkflowDownloadError, requests.exceptions.ConnectionError) as e:
@@ -128,26 +131,40 @@ def _create_run(db, c):
             # to allow for the callback to ingest files
             # Skip doing this if the DRS URL is an internal UNIX socket
             # TODO: Remove this ^ bit and pull the plug on socket requests
-            tr = requests.post(
-                urljoin(ott_endpoint_namespace.rstrip("/") + "/", "generate"),
-                headers={"Authorization": auth_header} if auth_header else {},  # TODO: Host?
-                json={
-                    # TODO: This assumes DRS is on the same domain as WES, which isn't necessarily correct
-                    #  An error should be thrown if there's a mismatch and we're still trying to do OTT stuff, probably
-                    "scope": urlparse(drs_url).path + "/",
-                    # Number of one-time-use tokens =
-                    #   Number of files to ingest into DRS
-                    #   + 1 for the service ingest request
-                    "number": count_bento_workflow_file_outputs(workflow_id, workflow_params, workflow_metadata) + 1,
-                },
-                verify=not current_app.config["DEBUG"]
-            )
+
+            headers = {**auth_header_dict}  # TODO: Host?
+            ott_generate_url = urljoin(ott_endpoint_namespace.rstrip("/") + "/", "generate")
+
+            tr = requests.post( ott_generate_url, headers=headers, json={
+                # TODO: This sort of assumes DRS is on the same domain as WES, which isn't necessarily correct
+                #  An error should be thrown if there's a mismatch and we're still trying to do OTT stuff, probably
+                "scope": ("/" if chord_url in drs_url else "") + drs_url.replace(chord_url, "").rstrip("/") + "/",
+                "number": count_bento_workflow_file_outputs(workflow_id, workflow_params, workflow_metadata),
+            }, verify=not current_app.config["DEBUG"])
 
             if not tr.ok:
                 # An error occurred while requesting OTTs, so we cannot complete the run request
-                return flask_internal_server_error(f"Got error while requesting one-time-use tokens: {tr.content}")
+                return flask_internal_server_error(
+                    f"Got error while requesting one-time-use tokens for DRS: {tr.content} "
+                    f"(OTT URL: {ott_generate_url}, headers included: {list(headers.keys())})")
 
-            one_time_tokens = tr.json()
+            one_time_tokens.extend(tr.json())
+
+            # Request an additional OTT for the service ingest request
+            tr = requests.post(ott_generate_url, headers=headers, json={
+                # TODO: This sort of assumes the ingest URL is on the same domain as WES, which isn't necessarily
+                #  correct. An error should be thrown if there's a mismatch and we're still trying to do OTT stuff
+                "scope": ("/" if chord_url in workflow_ingestion_url else "") + workflow_ingestion_url.replace(
+                    chord_url, "").rstrip("/") + "/",
+            }, verify=not current_app.config["DEBUG"])
+
+            if not tr.ok:
+                # An error occurred while requesting OTTs, so we cannot complete the run request
+                return flask_internal_server_error(
+                    f"Got error while requesting one-time-use tokens for ingestion URL: {tr.content} "
+                    f"(OTT URL: {ott_generate_url}, headers included: {list(headers.keys())})")
+
+            one_time_tokens.extend(tr.json())
 
         # Begin creating the job after validating the request
 
