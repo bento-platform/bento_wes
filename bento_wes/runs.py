@@ -156,7 +156,7 @@ def _create_run(db, c):
 
             # Request an additional OTT for the service ingest request
             scope = ("/" if chord_url in workflow_ingestion_url else "") + workflow_ingestion_url.replace(
-                chord_url, "").rstrip("/") + "/"
+                chord_url, "").rsplit("/", 1)[0] + "/"
             tr = requests.post(ott_generate_url, headers=headers, json={
                 # TODO: This sort of assumes the ingest URL is on the same domain as WES, which isn't necessarily
                 #  correct. An error should be thrown if there's a mismatch and we're still trying to do OTT stuff
