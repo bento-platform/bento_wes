@@ -1,10 +1,9 @@
-import bento_lib
+import bento_lib.workflows as w
 import os
 import shutil
 import requests
 
 from base64 import urlsafe_b64encode
-from bento_lib.ingestion import WORKFLOW_TYPE_FILE, WORKFLOW_TYPE_FILE_ARRAY
 from typing import Dict, NewType, Optional, Set
 from urllib.parse import urlparse
 
@@ -53,16 +52,15 @@ def count_bento_workflow_file_outputs(workflow_id, workflow_params: dict, workfl
     :return: TODO
     """
 
-    output_params = bento_lib.ingestion.make_output_params(
-        workflow_id, workflow_params, workflow_metadata["inputs"])
+    output_params = w.make_output_params(workflow_id, workflow_params, workflow_metadata["inputs"])
 
     n_file_outputs = 0  # Counter for file outputs
     for output in workflow_metadata["outputs"]:
-        fo = bento_lib.ingestion.formatted_output(output, output_params)
+        fo = w.formatted_output(output, output_params)
         # TODO: py3.10: match
-        if output["type"] == WORKFLOW_TYPE_FILE:
+        if output["type"] == w.WORKFLOW_TYPE_FILE:
             n_file_outputs += 1  # TODO: Null check?
-        elif output["type"] == WORKFLOW_TYPE_FILE_ARRAY:
+        elif output["type"] == w.WORKFLOW_TYPE_FILE_ARRAY:
             n_file_outputs += len(fo)
 
     return n_file_outputs

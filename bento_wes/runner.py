@@ -1,4 +1,4 @@
-import bento_lib.ingestion
+import bento_lib.workflows as w
 import os
 import sys
 import requests
@@ -7,7 +7,6 @@ import uuid
 
 from celery.utils.log import get_task_logger
 from bento_lib.events.types import EVENT_WES_RUN_FINISHED
-from bento_lib.ingestion import WORKFLOW_TYPE_FILE, WORKFLOW_TYPE_FILE_ARRAY
 from flask import current_app, json
 from typing import List, Optional
 from urllib.parse import urlparse
@@ -70,12 +69,11 @@ def return_drs_url_or_full_path(full_path: str, otts: List[str]) -> str:
 
 
 def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workflow_metadata: dict, c_otts: List[str]):
-    output_params = bento_lib.ingestion.make_output_params(workflow_id, workflow_params,
-                                                           c_workflow_metadata["inputs"])
+    output_params = w.make_output_params(workflow_id, workflow_params, c_workflow_metadata["inputs"])
 
     workflow_outputs = {}
     for output in c_workflow_metadata["outputs"]:
-        fo = bento_lib.ingestion.formatted_output(output, output_params)
+        fo = w.formatted_output(output, output_params)
 
         # Skip optional outputs resulting from optional inputs
         if fo is None:
@@ -84,11 +82,11 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
         # Rewrite file outputs to include full path to temporary location, or ingested DRS object URI
         # TODO: Ideally we shouldn't need one DRS request per file -- bundles would maybe be better.
 
-        if output["type"] == WORKFLOW_TYPE_FILE:
+        if output["type"] == w.WORKFLOW_TYPE_FILE:
             workflow_outputs[output["id"]] = return_drs_url_or_full_path(
                 os.path.abspath(os.path.join(run_dir, fo)), c_otts)
 
-        elif output["type"] == WORKFLOW_TYPE_FILE_ARRAY:
+        elif output["type"] == w.WORKFLOW_TYPE_FILE_ARRAY:
             workflow_outputs[output["id"]] = [
                 return_drs_url_or_full_path(os.path.abspath(os.path.join(run_dir, wo)), c_otts)
                 for wo in fo

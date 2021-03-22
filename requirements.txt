@@ -3,7 +3,7 @@ amqp==2.6.1
 antlr4-python3-runtime==4.8
 appdirs==1.4.4
 attrs==20.3.0
-bento-lib==1.0.0
+bento-lib==2.0.0
 billiard==3.6.3.0
 blessed==1.18.0
 celery==4.4.7

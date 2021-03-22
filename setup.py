@@ -17,7 +17,7 @@ setuptools.setup(
     python_requires=">=3.6",
     install_requires=[
         "celery[redis]>=4.4.7,<4.5",
-        "bento_lib[flask]==1.0.0",
+        "bento_lib[flask]==2.0.0",
         "Flask>=1.1.2,<2.0",
         "requests>=2.25.1,<3.0",
         "requests-unixsocket>=0.2.0,<0.3.0",
