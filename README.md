@@ -1,7 +1,10 @@
 # Bento Workflow Execution Service (WES)
 
-![Build Status](https://api.travis-ci.com/bento-platform/bento_wes.svg?branch=master)
+![Test Status](https://github.com/bento-platform/bento_wes/workflows/Test/badge.svg)
+![Lint Status](https://github.com/bento-platform/bento_wes/workflows/Lint/badge.svg)
 [![codecov](https://codecov.io/gh/bento-platform/bento_wes/branch/master/graph/badge.svg)](https://codecov.io/gh/bento-platform/bento_wes)
+
+
 
 ## Overview
 
@@ -10,11 +13,13 @@ Workflow execution service for the Bento platform. This service implements the
 with additional Bento-specific features.
 
 
+
 ## `/service-info` Type
 
 ```
 ca.c3g.bento:wes:VERSION
 ```
+
 
 
 ## Environment Variables
@@ -72,6 +77,7 @@ DRS_SKIP_TYPES=
 ```
 
 
+
 ## Events
 
 `wes_run_updated`: TODO
@@ -79,8 +85,62 @@ DRS_SKIP_TYPES=
 `wes_run_completed`: TODO
 
 
-## Running Tests
+
+## Development
+
+### Setting up a Virtual Environment
+
+After cloning the repository, set up a virtual environment with Python 3 and
+install the development dependencies:
+
+```bash
+virtualenv -p python3 ./env
+source env/bin/activate
+pip install -r requirements.txt
+```
+
+
+### Running Tests
+
+To run all tests and linting, use the following command:
 
 ```bash
 python3 -m tox
 ```
+
+
+### Releases
+
+#### Release Checklist
+
+  * [ ] All tests pass
+
+  * [ ] Package version has been updated (following semver) in 
+    `bento_lib/package.cfg`
+    
+  * [ ] A release can then be created, tagged in the format of `v#.#.#` and named
+    in the format of `Version #.#.#`, listing any changes made, in the GitHub 
+    releases page **tagged from the master branch!**
+    
+
+#### Note on Versioning
+
+The `bento_wes` project uses [semantic versioning](https://semver.org/) for
+releasing. If the API is broken in any way, including minor differences in the
+way a function behaves given an identical set of parameters (excluding bugfixes
+for unintentional behaviour), the MAJOR version must be incremented. In this 
+way, we guarantee that projects relying on this API do not accidentally break
+upon upgrading.
+
+
+
+## Deploying
+
+The `bento_wes` service can be deployed with a WSGI server like Gunicorn or
+UWSGI, specifying `bento_wes.app:application` as the WSGI application.
+
+It is best to then put an HTTP server software such as NGINX in front of 
+Gunicorn. 
+
+**Flask applications should NEVER be deployed in production via the Flask 
+development server, i.e. `flask run`!**
