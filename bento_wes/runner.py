@@ -1,6 +1,5 @@
 import bento_lib.workflows as w
 import os
-import sys
 import requests
 import requests_unixsocket
 import uuid
@@ -16,13 +15,15 @@ from . import states
 from .backends import finish_run, WESBackend
 from .backends.toil_wdl import ToilWDLBackend
 from .celery import celery
-from .constants import SERVICE_ARTIFACT, SERVICE_NAME
+from .constants import SERVICE_ARTIFACT
 from .db import get_db, get_run_details
 from .events import get_new_event_bus
 from .workflows import parse_workflow_host_allow_list
 
 
 requests_unixsocket.monkeypatch()
+
+logger = get_task_logger(__name__)
 
 
 def ingest_in_drs(path: str, otts: List[str]):
@@ -46,13 +47,11 @@ def ingest_in_drs(path: str, otts: List[str]):
     except requests.RequestException as e:
         if hasattr(e, "response"):
             # noinspection PyUnresolvedReferences
-            print(f"[{SERVICE_NAME}] Encountered DRS request exception: {e.response.json()}", flush=True,
-                  file=sys.stderr)
+            logger.error(f"Encountered DRS request exception: {e.response.json()}")
         return None
 
     data = r.json()
-
-    print(f"[{SERVICE_NAME}] Ingested {path} as {data['self_uri']}", flush=True)
+    logger.info(f"Ingested {path} as {data['self_uri']}")
 
     return data["self_uri"]
 
@@ -69,6 +68,8 @@ def return_drs_url_or_full_path(full_path: str, otts: List[str]) -> str:
 
 
 def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workflow_metadata: dict, c_otts: List[str]):
+    logger.info(f"Building workflow outputs for workflow ID {workflow_id} "
+                f"(WRITE_OUTPUT_TO_DRS={current_app.config['WRITE_OUTPUT_TO_DRS']})")
     output_params = w.make_output_params(workflow_id, workflow_params, c_workflow_metadata["inputs"])
 
     workflow_outputs = {}
@@ -85,20 +86,20 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
         if output["type"] == w.WORKFLOW_TYPE_FILE:
             workflow_outputs[output["id"]] = return_drs_url_or_full_path(
                 os.path.abspath(os.path.join(run_dir, fo)), c_otts)
+            logger.info(f"Setting workflow output {output['id']} to {workflow_outputs[output['id']]}")
 
         elif output["type"] == w.WORKFLOW_TYPE_FILE_ARRAY:
             workflow_outputs[output["id"]] = [
                 return_drs_url_or_full_path(os.path.abspath(os.path.join(run_dir, wo)), c_otts)
                 for wo in fo
             ]
+            logger.info(f"Setting workflow output {output['id']} to [{', '.join(workflow_outputs[output['id']])}]")
 
         else:
             workflow_outputs[output["id"]] = fo
+            logger.info(f"Setting workflow output {output['id']} to {workflow_outputs[output['id']]}")
 
     return workflow_outputs
-
-
-logger = get_task_logger(__name__)
 
 
 @celery.task(bind=True)
@@ -160,15 +161,24 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
             headers["X-OTT"] = c_otts.pop()
 
         try:
+            cert_verify = not current_app.config["DEBUG"]
+
+            logger.info(
+                f"Calling ingestion callback\n"
+                f"      cert verify: {cert_verify}"
+                f"    ingestion URL: {c_workflow_ingestion_url}\n"
+                f"    JSON contents: {json.dumps(run_results)}\n")
+
             # TODO: Just post run ID, fetch rest from the WES service results?
             # TODO: In the future, allow localhost requests to chord_metadata_service so we don't need to manually
             #  set the Host header?
+
             r = requests.post(
                 c_workflow_ingestion_url,
                 headers=headers,
                 json=run_results,
                 timeout=current_app.config["INGEST_POST_TIMEOUT"],
-                verify=not current_app.config["DEBUG"],
+                verify=cert_verify,
             )
 
             if not r.ok:
