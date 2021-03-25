@@ -36,14 +36,21 @@ def ingest_in_drs(path: str, otts: List[str]):
     next_token = otts.pop() if otts else None
 
     try:
+        cert_verify = not current_app.config["DEBUG"]
+
+        logger.info(f"Attempting DRS ingestion request to {url}:\n"
+                    f"cert verify: {cert_verify}\n"
+                    f"       body: {json.dumps(params)}")
+
         r = requests.post(
             url,
             headers={"X-OTT": next_token} if next_token else {},
             json=params,
             timeout=current_app.config["INGEST_POST_TIMEOUT"],
-            verify=not current_app.config["DEBUG"],
+            verify=cert_verify,
         )
         r.raise_for_status()
+
     except requests.RequestException as e:
         if hasattr(e, "response"):
             # noinspection PyUnresolvedReferences
