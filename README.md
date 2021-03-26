@@ -46,7 +46,8 @@ DATABASE=bento_wes.db
 # Service configuration
 # - unique ID service within for Bento instance
 SERVICE_ID=
-# - temporary data directory
+# - temporary data directory - the service currently does not make this by 
+#   itself, so this must be created prior to startup
 SERVICE_TEMP=tmp
 # - base path for service endpoints
 SERVICE_URL_BASE_PATH=/
@@ -144,3 +145,10 @@ Gunicorn.
 
 **Flask applications should NEVER be deployed in production via the Flask 
 development server, i.e. `flask run`!**
+
+To run the Celery worker (required to actually run jobs), the following command
+(or similar) can be used:
+
+```bash
+nohup celery -A bento_wes.app worker --loglevel=INFO &> celery.log &
+```
