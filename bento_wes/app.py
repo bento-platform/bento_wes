@@ -45,7 +45,7 @@ configure_celery(application)
 application.teardown_appcontext(close_db)
 application.teardown_appcontext(close_flask_event_bus)
 
-with application.app_context():
+with application.app_context():  # pragma: no cover
     if not os.path.exists(os.path.join(os.getcwd(), application.config["DATABASE"])):
         init_db()
     else:
