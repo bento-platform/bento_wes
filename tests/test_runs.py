@@ -1,4 +1,5 @@
 import json
+
 from bento_wes.states import STATE_QUEUED
 
 
@@ -49,7 +50,9 @@ EXAMPLE_RUN_BODY = {
 }
 
 
-def test_runs_endpoint(client):
+def test_runs_endpoint(client, mocked_responses):
+    assert mocked_responses
+
     rv = client.get("/runs")
     assert rv.status_code == 200
     data = rv.get_json()
@@ -93,7 +96,20 @@ def test_runs_endpoint(client):
     assert tuple(sorted(run.keys())) == ("details", "run_id", "state")
 
 
-def test_run_detail_endpoint(client):
+def test_run_create_errors(client):
+    bad_body_1 = EXAMPLE_RUN_BODY.copy()
+    del bad_body_1["workflow_params"]
+
+    rv = client.post("/runs", data=bad_body_1)
+    assert rv.status_code == 400
+    error = rv.get_json()
+    assert len(error["errors"]) == 1
+    assert error["errors"][0]["message"].startswith("Assertion error")
+
+
+def test_run_detail_endpoint(client, mocked_responses):
+    assert mocked_responses
+
     rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
     cr_data = rv.get_json()
 
@@ -120,9 +136,36 @@ def test_run_detail_endpoint(client):
     assert tuple(sorted(run.keys())) == ("outputs", "request", "run_id", "run_log", "state", "task_logs")
 
 
-def test_run_status_endpoint(client):
+def test_run_status_endpoint(client, mocked_responses):
+    assert mocked_responses
+
     rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
     cr_data = rv.get_json()
 
     rv = client.get(f"/runs/{cr_data['run_id']}/status")
     assert json.dumps(rv.get_json(), sort_keys=True) == json.dumps({**cr_data, "state": STATE_QUEUED}, sort_keys=True)
+
+
+def test_run_cancel_endpoint(client, mocked_responses):
+    assert mocked_responses
+
+    rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
+    cr_data = rv.get_json()
+
+    rv = client.post(f"/runs/{cr_data['run_id']}/cancel")
+    assert rv.status_code == 500
+    error = rv.get_json()
+    assert len(error["errors"]) == 1
+    assert error["errors"][0]["message"].startswith("No Celery ID present")
+
+    # TODO: Get celery running for tests
+
+    # rv = client.post(f"/runs/{cr_data['run_id']}/cancel")
+    # print(rv.get_json(), flush=True)
+    # assert rv.status_code == 204
+    #
+    # rv = client.post(f"/runs/{cr_data['run_id']}/cancel")
+    # assert rv.status_code == 400
+    # error = rv.get_json()
+    # assert len(error["errors"]) == 1
+    # assert error["errors"][0]["message"] == "Run already canceled"

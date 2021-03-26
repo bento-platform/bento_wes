@@ -144,7 +144,8 @@ class WorkflowManager:
                     if (parsed_workflow_uri.scheme != "file" and
                             parsed_workflow_uri.netloc not in self.workflow_host_allow_list):
                         # Dis-allowed workflow URL
-                        self._error(f"Dis-allowed workflow host: {parsed_workflow_uri.netloc}")
+                        self._error(f"Dis-allowed workflow host: {parsed_workflow_uri.netloc} "
+                                    f"(allow list: {self.workflow_host_allow_list})")
                         return states.STATE_EXECUTOR_ERROR
 
                 self._info(f"Fetching workflow file from {workflow_uri}")

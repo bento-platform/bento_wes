@@ -93,7 +93,7 @@ def _create_run(db, c):
         # Get list of allowed workflow hosts from configuration for any checks inside the runner
         # If it's blank, assume that means "any host is allowed" and pass None to the runner
         workflow_host_allow_list = {a.strip() for a in (current_app.config["WORKFLOW_HOST_ALLOW_LIST"] or "").split(",")
-                                    if a.strip()}
+                                    if a.strip()} or None
 
         # Download workflow file (potentially using passed auth headers, if
         # present and we're querying ourself)
@@ -223,9 +223,9 @@ def _create_run(db, c):
     except ValueError:
         return flask_bad_request_error("Value error")
 
-    except AssertionError:
+    except AssertionError:  # TODO: Better error messages
         logger.error(f"Encountered assertion error: {traceback.format_exc()}")
-        return flask_bad_request_error("Assertion error")
+        return flask_bad_request_error("Assertion error: bad run request format")
 
 
 @bp_runs.route("/runs", methods=["GET", "POST"])

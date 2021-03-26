@@ -1,4 +1,6 @@
+import os
 import pytest
+import responses
 
 
 @pytest.fixture
@@ -21,3 +23,17 @@ def app():
 @pytest.fixture
 def client(app):
     yield app.test_client()
+
+
+@pytest.fixture
+def mocked_responses():
+    with responses.RequestsMock() as r, \
+            open(os.path.join(os.path.dirname(__file__), "./phenopackets_json.wdl"), "r") as wf:
+        r.add(
+            responses.GET,
+            "http://metadata.local/workflows/ingest.wdl",
+            body=wf.read(),
+            status=200,
+            content_type="text/plain",
+        )
+        yield r
