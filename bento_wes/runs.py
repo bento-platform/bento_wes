@@ -92,8 +92,8 @@ def _create_run(db, c):
 
         # Get list of allowed workflow hosts from configuration for any checks inside the runner
         # If it's blank, assume that means "any host is allowed" and pass None to the runner
-        workflow_host_allow_list = {a.strip() for a in current_app.config["WORKFLOW_HOST_ALLOW_LIST"].split(",")
-                                    if a.strip()} or None
+        workflow_host_allow_list = {a.strip() for a in (current_app.config["WORKFLOW_HOST_ALLOW_LIST"] or "").split(",")
+                                    if a.strip()}
 
         # Download workflow file (potentially using passed auth headers, if
         # present and we're querying ourself)
