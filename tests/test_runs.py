@@ -5,59 +5,14 @@ import uuid
 
 from bento_wes.states import STATE_QUEUED
 
-
-EXAMPLE_TABLE_ID = "ef9da1da-ef7f-43d6-ace3-456bf8e58431"
-
-EXAMPLE_RUN = {
-    "workflow_params": {
-        "json_document": "http://my-server.local/test.json",
-    },
-    "workflow_type": "WDL",
-    "workflow_type_version": "1.0",
-    "workflow_engine_parameters": {},
-    "workflow_url": "http://metadata.local/workflows/ingest.wdl",
-    "tags": {
-        "workflow_id": "ingest",
-        "workflow_metadata": {
-            "name": "Bento Phenopackets-Compatible JSON",
-            "description": "This ingestion workflow will validate and import a Phenopackets schema-compatible "
-                           "JSON document.",
-            "data_type": "phenopacket",
-            "file": "phenopackets_json.wdl",
-            "inputs": [
-                {
-                    "id": "json_document",
-                    "type": "file",
-                    "required": True,
-                    "extensions": [".json"]
-                }
-            ],
-            "outputs": [
-                {
-                    "id": "json_document",
-                    "type": "file",
-                    "value": "{json_document}"
-                }
-            ],
-        },
-        "ingestion_url": "http://metadata.local/private/ingest",
-        "table_id": EXAMPLE_TABLE_ID,
-    },
-}
-
-EXAMPLE_RUN_BODY = {
-    **EXAMPLE_RUN,
-    "workflow_params": json.dumps(EXAMPLE_RUN["workflow_params"]),
-    "workflow_engine_parameters": json.dumps(EXAMPLE_RUN["workflow_engine_parameters"]),
-    "tags": json.dumps(EXAMPLE_RUN["tags"]),
-}
+from .constants import EXAMPLE_RUN, EXAMPLE_RUN_BODY
 
 
 def _add_workflow_response(r):
     with open(os.path.join(os.path.dirname(__file__), "phenopackets_json.wdl"), "r") as wf:
         r.add(
             responses.GET,
-            "http://metadata.local/workflows/ingest.wdl",
+            "http://metadata.local/workflows/phenopackets_json.wdl",
             body=wf.read(),
             status=200,
             content_type="text/plain")
@@ -107,7 +62,7 @@ def test_runs_endpoint(client, mocked_responses):
     assert json.dumps(run["details"]["request"], sort_keys=True) == json.dumps(EXAMPLE_RUN, sort_keys=True)
 
     assert "id" in run["details"]["run_log"]
-    assert run["details"]["run_log"]["name"] == "ingest"
+    assert run["details"]["run_log"]["name"] == "phenopackets_json"
     assert run["details"]["run_log"]["cmd"] == ""
     assert run["details"]["run_log"]["start_time"] == ""
     assert run["details"]["run_log"]["end_time"] == ""
@@ -149,7 +104,7 @@ def test_run_detail_endpoint(client, mocked_responses):
     assert json.dumps(run["task_logs"], sort_keys=True) == json.dumps([], sort_keys=True)  # TODO: Tasks impl
 
     assert "id" in run["run_log"]
-    assert run["run_log"]["name"] == "ingest"
+    assert run["run_log"]["name"] == "phenopackets_json"
     assert run["run_log"]["cmd"] == ""
     assert run["run_log"]["start_time"] == ""
     assert run["run_log"]["end_time"] == ""

@@ -25,7 +25,8 @@ from .workflows import (
     UnsupportedWorkflowType,
     WorkflowDownloadError,
     WorkflowManager,
-    count_bento_workflow_file_outputs
+    parse_workflow_host_allow_list,
+    count_bento_workflow_file_outputs,
 )
 
 from .db import get_db, run_request_dict, run_log_dict, get_task_logs, get_run_details, update_run_state_and_commit
@@ -92,8 +93,7 @@ def _create_run(db, c):
 
         # Get list of allowed workflow hosts from configuration for any checks inside the runner
         # If it's blank, assume that means "any host is allowed" and pass None to the runner
-        workflow_host_allow_list = {a.strip() for a in (current_app.config["WORKFLOW_HOST_ALLOW_LIST"] or "").split(",")
-                                    if a.strip()} or None
+        workflow_host_allow_list = parse_workflow_host_allow_list(current_app.config["WORKFLOW_HOST_ALLOW_LIST"])
 
         # Download workflow file (potentially using passed auth headers, if
         # present and we're querying ourself)

@@ -66,16 +66,16 @@ def count_bento_workflow_file_outputs(workflow_id, workflow_params: dict, workfl
     return n_file_outputs
 
 
-def parse_workflow_host_allow_list(allow_list: str) -> Optional[Set[str]]:
+def parse_workflow_host_allow_list(allow_list: Optional[str]) -> Optional[Set[str]]:
     """
     Get set of allowed workflow hosts from a configuration string for any
     checks while downloading workflows. If it's blank, assume that means
     "any host is allowed" and set to None (as opposed to empty, i.e. no hosts
     allowed to provide workflows.)
-    :param allow_list:
+    :param allow_list: Comma-separated list of allowed workflow hosts, or None.
     :return:
     """
-    return {a.strip() for a in allow_list.split(",") if a.strip()} or None
+    return {a.strip() for a in (allow_list or "").split(",") if a.strip()} or None
 
 
 class UnsupportedWorkflowType(Exception):
