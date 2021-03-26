@@ -56,7 +56,6 @@ def test_runs_endpoint(client):
     assert json.dumps(data) == json.dumps([])
 
     rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
-    print(rv.get_json(), flush=True)
     assert rv.status_code == 200  # 200 is WES spec, even though 201 would be better (?)
     cr_data = rv.get_json()
     assert "run_id" in cr_data
@@ -92,7 +91,3 @@ def test_runs_endpoint(client):
     assert run["details"]["run_log"]["exit_code"] is None
 
     assert tuple(sorted(run.keys())) == ("details", "run_id", "state")
-
-
-def test_run_finish():
-    pass
