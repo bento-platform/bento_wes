@@ -121,7 +121,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
     # Check that workflow ingestion URL is set if CHORD mode is on
     if chord_mode and c_workflow_ingestion_url is None:
-        logger.error("An ingestion URL must be set.")
+        logger.error("An ingestion URL must be set when chord_mode is enabled.")
         return
 
     # TODO: Check c_workflow_ingestion_url is valid?
