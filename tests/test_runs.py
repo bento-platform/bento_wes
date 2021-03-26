@@ -91,3 +91,38 @@ def test_runs_endpoint(client):
     assert run["details"]["run_log"]["exit_code"] is None
 
     assert tuple(sorted(run.keys())) == ("details", "run_id", "state")
+
+
+def test_run_detail_endpoint(client):
+    rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
+    cr_data = rv.get_json()
+
+    rv = client.get(f"/runs/{cr_data['run_id']}")
+    run = rv.get_json()
+
+    assert run["run_id"] == cr_data["run_id"]
+    assert run["state"] == STATE_QUEUED
+
+    assert json.dumps(run["request"], sort_keys=True) == json.dumps(EXAMPLE_RUN, sort_keys=True)
+    assert json.dumps(run["task_logs"], sort_keys=True) == json.dumps([], sort_keys=True)  # TODO: Tasks impl
+
+    assert "id" in run["run_log"]
+    assert run["run_log"]["name"] == "ingest"
+    assert run["run_log"]["cmd"] == ""
+    assert run["run_log"]["start_time"] == ""
+    assert run["run_log"]["end_time"] == ""
+    assert run["run_log"]["stdout"] == f"http://127.0.0.1:5000/runs/{cr_data['run_id']}/stdout"
+    assert run["run_log"]["stderr"] == f"http://127.0.0.1:5000/runs/{cr_data['run_id']}/stderr"
+    assert run["run_log"]["exit_code"] is None
+
+    assert json.dumps(run["outputs"]) == json.dumps({})
+
+    assert tuple(sorted(run.keys())) == ("outputs", "request", "run_id", "run_log", "state", "task_logs")
+
+
+def test_run_status_endpoint(client):
+    rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
+    cr_data = rv.get_json()
+
+    rv = client.get(f"/runs/{cr_data['run_id']}/status")
+    assert json.dumps(rv.get_json(), sort_keys=True) == json.dumps({**cr_data, "state": STATE_QUEUED}, sort_keys=True)
