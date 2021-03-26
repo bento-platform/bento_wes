@@ -1,7 +1,9 @@
 import json
+import logging
 import os
 import requests
 import shutil
+import traceback
 import uuid
 
 from bento_lib.auth.flask_decorators import flask_permissions_owner
@@ -30,6 +32,8 @@ from .db import get_db, run_request_dict, run_log_dict, get_task_logs, get_run_d
 
 
 bp_runs = Blueprint("runs", __name__)
+
+logger = logging.getLogger(__name__)
 
 
 def _create_run(db, c):
@@ -220,6 +224,7 @@ def _create_run(db, c):
         return flask_bad_request_error("Value error")
 
     except AssertionError:
+        logger.error(f"Encountered assertion error: {traceback.format_exc()}")
         return flask_bad_request_error("Assertion error")
 
 
