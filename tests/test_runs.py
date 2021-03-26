@@ -1,4 +1,5 @@
 import json
+import uuid
 
 from bento_wes.states import STATE_QUEUED
 
@@ -142,7 +143,11 @@ def test_run_status_endpoint(client, mocked_responses):
     rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
     cr_data = rv.get_json()
 
+    rv = client.get(f"/runs/{uuid.uuid4()}/status")
+    assert rv.status_code == 404
+
     rv = client.get(f"/runs/{cr_data['run_id']}/status")
+    assert rv.status_code == 200
     assert json.dumps(rv.get_json(), sort_keys=True) == json.dumps({**cr_data, "state": STATE_QUEUED}, sort_keys=True)
 
 
