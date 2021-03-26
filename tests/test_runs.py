@@ -1,4 +1,6 @@
 import json
+import os
+import responses
 import uuid
 
 from bento_wes.states import STATE_QUEUED
@@ -51,8 +53,27 @@ EXAMPLE_RUN_BODY = {
 }
 
 
+def _add_workflow_response(r):
+    with open(os.path.join(os.path.dirname(__file__), "phenopackets_json.wdl"), "r") as wf:
+        r.add(
+            responses.GET,
+            "http://metadata.local/workflows/ingest.wdl",
+            body=wf.read(),
+            status=200,
+            content_type="text/plain")
+
+
+def _add_ott_response(r):
+    r.add(
+        responses.POST,
+        "http://auth.local/ott/generate",
+        json=["t1"],
+        status=200)
+
+
 def test_runs_endpoint(client, mocked_responses):
-    assert mocked_responses
+    _add_workflow_response(mocked_responses)
+    _add_ott_response(mocked_responses)
 
     rv = client.get("/runs")
     assert rv.status_code == 200
@@ -109,10 +130,14 @@ def test_run_create_errors(client):
 
 
 def test_run_detail_endpoint(client, mocked_responses):
-    assert mocked_responses
+    _add_workflow_response(mocked_responses)
+    _add_ott_response(mocked_responses)
 
     rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
     cr_data = rv.get_json()
+
+    rv = client.get(f"/runs/{uuid.uuid4()}")
+    assert rv.status_code == 404
 
     rv = client.get(f"/runs/{cr_data['run_id']}")
     run = rv.get_json()
@@ -138,7 +163,8 @@ def test_run_detail_endpoint(client, mocked_responses):
 
 
 def test_run_status_endpoint(client, mocked_responses):
-    assert mocked_responses
+    _add_workflow_response(mocked_responses)
+    _add_ott_response(mocked_responses)
 
     rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
     cr_data = rv.get_json()
@@ -151,11 +177,37 @@ def test_run_status_endpoint(client, mocked_responses):
     assert json.dumps(rv.get_json(), sort_keys=True) == json.dumps({**cr_data, "state": STATE_QUEUED}, sort_keys=True)
 
 
-def test_run_cancel_endpoint(client, mocked_responses):
-    assert mocked_responses
+def test_run_streams(client, mocked_responses):
+    _add_workflow_response(mocked_responses)
+    _add_ott_response(mocked_responses)
 
     rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
     cr_data = rv.get_json()
+
+    rv = client.get(f"/runs/{uuid.uuid4()}/stdout")
+    assert rv.status_code == 404
+
+    rv = client.get(f"/runs/{uuid.uuid4()}/stderr")
+    assert rv.status_code == 404
+
+    rv = client.get(f"/runs/{cr_data['run_id']}/stdout")
+    assert rv.status_code == 200
+    assert rv.data == b""
+
+    rv = client.get(f"/runs/{cr_data['run_id']}/stderr")
+    assert rv.status_code == 200
+    assert rv.data == b""
+
+
+def test_run_cancel_endpoint(client, mocked_responses):
+    _add_workflow_response(mocked_responses)
+    _add_ott_response(mocked_responses)
+
+    rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
+    cr_data = rv.get_json()
+
+    rv = client.post(f"/runs/{uuid.uuid4()}/cancel")
+    assert rv.status_code == 404
 
     rv = client.post(f"/runs/{cr_data['run_id']}/cancel")
     assert rv.status_code == 500
