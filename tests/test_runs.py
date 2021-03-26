@@ -13,7 +13,7 @@ EXAMPLE_RUN = {
     "workflow_engine_parameters": {},
     "workflow_url": "http://metadata.local/workflows/ingest.wdl",
     "tags": {
-        "workflow_id": "ingest",  # TODO
+        "workflow_id": "ingest",
         "workflow_metadata": {
             "name": "Bento Phenopackets-Compatible JSON",
             "description": "This ingestion workflow will validate and import a Phenopackets schema-compatible "
@@ -64,9 +64,34 @@ def test_runs_endpoint(client):
     rv = client.get("/runs")
     assert rv.status_code == 200
     data = rv.get_json()
-    assert json.dumps(data) == json.dumps([{**cr_data, "state": STATE_QUEUED}])
+    assert json.dumps(data, sort_keys=True) == json.dumps([{
+        **cr_data,
+        "state": STATE_QUEUED
+    }], sort_keys=True)
 
-    # TODO: Test with_details
+    rv = client.get("/runs?with_details=true")
+    assert rv.status_code == 200
+    data = rv.get_json()
+
+    run = data[0]
+
+    assert run["run_id"] == cr_data["run_id"]
+    assert run["state"] == STATE_QUEUED
+    assert isinstance(run["details"], dict)
+    assert run["details"]["run_id"] == cr_data["run_id"]
+    assert run["details"]["state"] == STATE_QUEUED
+    assert json.dumps(run["details"]["request"], sort_keys=True) == json.dumps(EXAMPLE_RUN, sort_keys=True)
+
+    assert "id" in run["details"]["run_log"]
+    assert run["details"]["run_log"]["name"] == "ingest"
+    assert run["details"]["run_log"]["cmd"] == ""
+    assert run["details"]["run_log"]["start_time"] == ""
+    assert run["details"]["run_log"]["end_time"] == ""
+    assert run["details"]["run_log"]["stdout"] == f"http://127.0.0.1:5000/runs/{cr_data['run_id']}/stdout"
+    assert run["details"]["run_log"]["stderr"] == f"http://127.0.0.1:5000/runs/{cr_data['run_id']}/stderr"
+    assert run["details"]["run_log"]["exit_code"] is None
+
+    assert tuple(sorted(run.keys())) == ("details", "run_id", "state")
 
 
 def test_run_finish():
