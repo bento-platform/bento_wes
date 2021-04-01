@@ -5,7 +5,7 @@ import uuid
 from bento_lib.events import EventBus
 from bento_lib.events.types import EVENT_WES_RUN_UPDATED
 from flask import current_app, g
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 from urllib.parse import urljoin
 
 from . import states
@@ -120,23 +120,23 @@ def get_task_logs(c: sqlite3.Cursor, run_id: Union[uuid.UUID, str]) -> list:
     return [task_log_dict(task_log) for task_log in c.fetchall()]
 
 
-def get_run_details(c: sqlite3.Cursor, run_id: Union[uuid.UUID, str]) -> Optional[dict]:
+def get_run_details(c: sqlite3.Cursor, run_id: Union[uuid.UUID, str]) -> Tuple[Optional[dict], Optional[str]]:
     # Runs, run requests, and run logs are created at the same time, so if any of them is missing return None.
 
     c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
     run = c.fetchone()
     if run is None:
-        return None
+        return None, "Missing entry in table 'runs'"
 
     c.execute("SELECT * from run_requests WHERE id = ?", (run["request"],))
     run_request = c.fetchone()
     if run_request is None:
-        return None
+        return None, "Missing entry in table 'run_requests'"
 
     c.execute("SELECT * from run_logs WHERE id = ?", (run["run_log"],))
     run_log = c.fetchone()
     if run_log is None:
-        return None
+        return None, "Missing entry in table 'run_logs'"
 
     c.execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
 
@@ -147,11 +147,11 @@ def get_run_details(c: sqlite3.Cursor, run_id: Union[uuid.UUID, str]) -> Optiona
         "run_log": run_log_dict(run["id"], run_log),
         "task_logs": get_task_logs(c, run["id"]),
         "outputs": json.loads(run["outputs"])
-    }
+    }, None
 
 
 def update_run_state_and_commit(db: sqlite3.Connection, c: sqlite3.Cursor, event_bus: EventBus,
                                 run_id: Union[uuid.UUID, str], state: str):
     c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
     db.commit()
-    event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_UPDATED, get_run_details(c, run_id))
+    event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_UPDATED, get_run_details(c, run_id)[0])

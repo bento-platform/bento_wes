@@ -1,0 +1,47 @@
+name: Test
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [ 3.6, 3.9 ]
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions/setup-python@v2
+        name: Set up Python
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Test
+        run: mkdir -p tmp && pytest -svv --cov=bento_wes --cov-branch
+      - name: Codecov
+        run: codecov
+  install:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [ 3.6, 3.9 ]
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions/setup-python@v2
+        name: Set up Python
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install bento_wes
+        run: python -m pip install .

@@ -6,8 +6,9 @@ from flask import current_app, json
 from typing import Optional, Tuple
 
 from bento_wes.backends import WESBackend
-from bento_wes.backends.backend_types import Command, WorkflowType, WES_WORKFLOW_TYPE_WDL
+from bento_wes.backends.backend_types import Command
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
+from bento_wes.workflows import WorkflowType, WES_WORKFLOW_TYPE_WDL
 
 
 __all__ = [
@@ -49,7 +50,19 @@ class ToilWDLBackend(WESBackend):
         :return: None if the workflow is valid; a tuple of an error message and an error state otherwise
         """
 
-        # Check for Java (needed to run the WOM tool)
+        womtool_path = current_app.config["WOM_TOOL_LOCATION"]
+
+        # If WOMtool isn't specified, exit early (either as an error or just skipping validation)
+
+        if not womtool_path:
+            # WOMtool not specified; assume the WDL is valid if WORKFLOW_HOST_ALLOW_LIST has been adequately specified
+            return None if self.workflow_host_allow_list else (
+                f"Failed with {STATE_EXECUTOR_ERROR} due to missing or invalid WOMtool (Bad WOM_TOOL_LOCATION)\n"
+                f"\tWOM_TOOL_LOCATION: {womtool_path}",
+                STATE_EXECUTOR_ERROR
+            )
+
+        # Check for Java (needed to run WOMtool)
         try:
             subprocess.run(("java", "-version"))
         except FileNotFoundError:
@@ -57,8 +70,7 @@ class ToilWDLBackend(WESBackend):
 
         # Validate WDL, listing dependencies
 
-        vr = subprocess.Popen(("java", "-jar", current_app.config["WOM_TOOL_LOCATION"], "validate", "-l",
-                               self.workflow_path(run)),
+        vr = subprocess.Popen(("java", "-jar", womtool_path, "validate", "-l", self.workflow_path(run)),
                               stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE,
                               encoding="utf-8")
@@ -69,8 +81,8 @@ class ToilWDLBackend(WESBackend):
             # Validation error with WDL file
             # TODO: Add some stdout or stderr to logs?
             return (
-                "Failed with {} due to non-0 validation return code:\n\tstdout: {}\n\tstderr: {}".format(
-                    STATE_EXECUTOR_ERROR, v_out, v_err),
+                f"Failed with {STATE_EXECUTOR_ERROR} due to non-0 validation return code:\n"
+                f"\tstdout: {v_out}\n\tstderr: {v_err}",
                 STATE_EXECUTOR_ERROR
             )
 
@@ -79,8 +91,8 @@ class ToilWDLBackend(WESBackend):
             # Toil can't process WDL dependencies right now  TODO
             # TODO: Add some stdout or stderr to logs?
             return (
-                "Failed with {} due to dependencies in WDL:\n\tstdout: {}\n\tstderr: {}".format(
-                    STATE_EXECUTOR_ERROR, v_out, v_err),
+                f"Failed with {STATE_EXECUTOR_ERROR} due to dependencies in WDL:\n"
+                f"\tstdout: {v_out}\n\tstderr: {v_err}",
                 STATE_EXECUTOR_ERROR
             )
 
@@ -107,11 +119,14 @@ class ToilWDLBackend(WESBackend):
         :param run_dir: The directory to run the workflow in
         :return: The command, in the form of a tuple of strings, to be passed to subprocess.run
         """
+        # TODO: Separate cleaning process from run?
         return Command((
             "toil-wdl-runner",
+            # Output more logging if in debug mode and avoid cleaning up helpful logs
             workflow_path,
             params_path,
             "-o", run_dir,
+            *(("--logLevel=DEBUG", "--clean=never", "--cleanWorkDir", "never") if self.debug else ()),
             "--workDir", self.tmp_dir,
             "--jobStore", "file:" + os.path.abspath(os.path.join(self.tmp_dir, "toil_job_store"))
         ))

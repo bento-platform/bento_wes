@@ -1,8 +1,5 @@
-import os
 import pytest
-
-
-os.environ["CHORD_SERVICES"] = os.path.join(os.path.dirname(__file__), "chord_services.json")
+import responses
 
 
 @pytest.fixture
@@ -12,6 +9,7 @@ def app():
 
     application.config["TESTING"] = True
     application.config["DATABASE"] = ":memory:"
+    application.config["OTT_ENDPOINT_NAMESPACE"] = "http://auth.local/ott"
 
     with application.app_context():
         init_db()
@@ -24,3 +22,9 @@ def app():
 @pytest.fixture
 def client(app):
     yield app.test_client()
+
+
+@pytest.fixture
+def mocked_responses():
+    with responses.RequestsMock() as r:
+        yield r
