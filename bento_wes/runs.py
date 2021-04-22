@@ -107,7 +107,7 @@ def _create_run(db, c):
             chord_url,
             logger=current_app.logger,
             workflow_host_allow_list=workflow_host_allow_list,
-            debug=current_app.config["DEBUG"],
+            debug=current_app.config["BENTO_DEBUG"],
         )
 
         # Optional Authorization HTTP header to forward to nested requests
@@ -148,7 +148,7 @@ def _create_run(db, c):
                     #  An error should be thrown if there's a mismatch and we're still trying to do OTT stuff, probably
                     "scope": scope,
                     "number": count_bento_workflow_file_outputs(workflow_id, workflow_params, workflow_metadata),
-                }, verify=not current_app.config["DEBUG"])
+                }, verify=not current_app.config["BENTO_DEBUG"])
 
                 if not tr.ok:
                     # An error occurred while requesting OTTs, so we cannot complete the run request
@@ -166,7 +166,7 @@ def _create_run(db, c):
                 #  correct. An error should be thrown if there's a mismatch and we're still trying to do OTT stuff
                 "scope": scope,
                 "number": 1,
-            }, verify=not current_app.config["DEBUG"])
+            }, verify=not current_app.config["BENTO_DEBUG"])
 
             if not tr.ok:
                 # An error occurred while requesting OTTs, so we cannot complete the run request

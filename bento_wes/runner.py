@@ -36,7 +36,7 @@ def ingest_in_drs(path: str, otts: List[str]):
     next_token = otts.pop() if otts else None
 
     try:
-        cert_verify = not current_app.config["DEBUG"]
+        cert_verify = not current_app.config["BENTO_DEBUG"]
 
         logger.info(f"Attempting DRS ingestion request to {url}:\n"
                     f"cert verify: {cert_verify}\n"
@@ -168,7 +168,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
             headers["X-OTT"] = c_otts.pop()
 
         try:
-            cert_verify = not current_app.config["DEBUG"]
+            cert_verify = not current_app.config["BENTO_DEBUG"]
 
             logger.info(
                 f"Calling ingestion callback\n"
@@ -222,7 +222,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         chord_callback=chord_callback,
         chord_url=(current_app.config["CHORD_URL"] or None),
 
-        debug=current_app.config["DEBUG"],
+        debug=current_app.config["BENTO_DEBUG"],
     )
 
     try:

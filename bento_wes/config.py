@@ -15,7 +15,7 @@ NGINX_INTERNAL_SOCKET = quote(os.environ.get("NGINX_INTERNAL_SOCKET", "/chord/tm
 
 class Config:
     CHORD_URL = os.environ.get("CHORD_URL", "http://127.0.0.1:5000/")
-    DEBUG = os.environ.get("CHORD_DEBUG", os.environ.get("FLASK_ENV", "production")).strip().lower() in (
+    BENTO_DEBUG = os.environ.get("CHORD_DEBUG", os.environ.get("FLASK_ENV", "production")).strip().lower() in (
         "true", "1", "development")
 
     DATABASE = os.environ.get("DATABASE", "bento_wes.db")
