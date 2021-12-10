@@ -127,13 +127,14 @@ def _create_run(db, c):
         except (WorkflowDownloadError, requests.exceptions.ConnectionError) as e:
             return flask_bad_request_error(f"Could not access workflow file: {workflow_url} (Python error: {e})")
 
-        if bool(workflow_skip_drs) == False :
             # Generate one-time tokens for ingestion purposes if in Bento mode
 
-            one_time_tokens = []
-            drs_url: str = current_app.config["DRS_URL"]
-            use_otts_for_drs: bool = chord_url in drs_url and urlparse(drs_url).scheme != "http+unix"
-            ott_endpoint_namespace: str = current_app.config["OTT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
+        one_time_tokens = []
+        drs_url: str = current_app.config["DRS_URL"]
+        use_otts_for_drs: bool = chord_url in drs_url and urlparse(drs_url).scheme != "http+unix"
+        ott_endpoint_namespace: str = current_app.config["OTT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
+        
+        if bool(workflow_skip_drs) == False :
             if chord_mode and ott_endpoint_namespace:
                 # Generate the correct number of one-time tokens for the DRS and ingest scopes
                 # to allow for the callback to ingest files
