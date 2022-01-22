@@ -88,6 +88,13 @@ def _create_run(db, c):
         assert isinstance(workflow_engine_parameters, dict)
         assert isinstance(tags, dict)
 
+        # TODO: Refactor (Gohan)
+        # Extract filenames from workflow_params and inject them into workflow_params
+        #  as an array-of-strings alongside the original array-of-files
+        if "gohan" in workflow_ingestion_url:
+            workflow_params["vcf_gz.original_vcf_gz_file_paths"] = workflow_params["vcf_gz.vcf_gz_file_names"]
+
+
         if chord_mode:
             table_id = str(uuid.UUID(table_id))  # Check and standardize table ID
 
@@ -339,7 +346,8 @@ def run_cancel(run_id):
 
     # TODO: Generalize clean-up code / fetch from back-end
     run_dir = os.path.join(current_app.config["SERVICE_TEMP"], run["run_id"])
-    shutil.rmtree(run_dir, ignore_errors=True)
+    if not current_app.config["BENTO_DEBUG"]:
+        shutil.rmtree(run_dir, ignore_errors=True)
 
     update_run_state_and_commit(db, c, event_bus, run["id"], states.STATE_CANCELED)
 
