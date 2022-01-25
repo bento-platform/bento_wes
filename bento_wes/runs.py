@@ -78,8 +78,6 @@ def _create_run(db, c):
              if workflow_ingestion_path else None))
         table_id = tags.get("table_id", None)
 
-        workflow_skip_drs = tags.get("workflow_skip_drs", "False")
-
         # Don't accept anything (ex. CWL) other than WDL TODO: CWL support
         assert workflow_type == "WDL"
         assert workflow_type_version == "1.0"
@@ -89,10 +87,13 @@ def _create_run(db, c):
         assert isinstance(tags, dict)
 
         # TODO: Refactor (Gohan)
-        # Extract filenames from workflow_params and inject them into workflow_params
+        # - Extract filenames from workflow_params and inject them back into workflow_params
         #  as an array-of-strings alongside the original array-of-files
+        # - Pass workflow ingestion URL in as a parameter to the workflow (used in the .wdl file directly)
         if "gohan" in workflow_ingestion_url:
             workflow_params["vcf_gz.original_vcf_gz_file_paths"] = workflow_params["vcf_gz.vcf_gz_file_names"]
+            gohan_url = urlparse(workflow_ingestion_url)
+            workflow_params["vcf_gz.gohan_url"] = f"{gohan_url.scheme}://{gohan_url.netloc}{gohan_url.path.replace('/private/ingest', '')}"
 
 
         if chord_mode:
@@ -140,52 +141,82 @@ def _create_run(db, c):
         drs_url: str = current_app.config["DRS_URL"]
         use_otts_for_drs: bool = chord_url in drs_url and urlparse(drs_url).scheme != "http+unix"
         ott_endpoint_namespace: str = current_app.config["OTT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
+        tt_endpoint_namespace: str = current_app.config["TT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
         
-        if bool(workflow_skip_drs) == False :
-            if chord_mode and ott_endpoint_namespace:
-                # Generate the correct number of one-time tokens for the DRS and ingest scopes
-                # to allow for the callback to ingest files
-                # Skip doing this for DRS if the DRS URL is an internal UNIX socket / internal Docker URL
-                # TODO: Remove this ^ bit and pull the plug on socket requests
-                # TODO: Refactor into class
+        if chord_mode and ott_endpoint_namespace:
+            # Generate the correct number of one-time tokens for the DRS and ingest scopes
+            # to allow for the callback to ingest files
+            # Skip doing this for DRS if the DRS URL is an internal UNIX socket / internal Docker URL
+            # TODO: Remove this ^ bit and pull the plug on socket requests
+            # TODO: Refactor into class
 
-                headers = {**auth_header_dict}  # TODO: Host?
-                ott_generate_url = urljoin(ott_endpoint_namespace.rstrip("/") + "/", "generate")
+            headers = {**auth_header_dict}  # TODO: Host?
+            ott_generate_url = urljoin(ott_endpoint_namespace.rstrip("/") + "/", "generate")
 
-                if use_otts_for_drs:
-                    scope = f"/{drs_url.replace(chord_url, '').rstrip('/')}/"
-                    tr = requests.post(ott_generate_url, headers=headers, json={
-                        # TODO: This sort of assumes DRS is on the same domain as WES, which isn't necessarily correct
-                        #  An error should be thrown if there's a mismatch and we're still trying to do OTT stuff, probably
-                        "scope": scope,
-                        "number": count_bento_workflow_file_outputs(workflow_id, workflow_params, workflow_metadata),
-                    }, verify=not current_app.config["BENTO_DEBUG"])
-
-                    if not tr.ok:
-                        # An error occurred while requesting OTTs, so we cannot complete the run request
-                        return flask_internal_server_error(
-                            f"Got error while requesting one-time-use tokens for DRS: {tr.content} "
-                            f"(Scope: {scope}, OTT URL: {ott_generate_url}, headers included: {list(headers.keys())})")
-
-                    one_time_tokens.extend(tr.json())
-
-                # Request an additional OTT for the service ingest request
-                scope = ("/" if chord_url in workflow_ingestion_url else "") + workflow_ingestion_url.replace(
-                    chord_url, "").rsplit("/", 1)[0] + "/"
+            if use_otts_for_drs:
+                scope = f"/{drs_url.replace(chord_url, '').rstrip('/')}/"
                 tr = requests.post(ott_generate_url, headers=headers, json={
-                    # TODO: This sort of assumes the ingest URL is on the same domain as WES, which isn't necessarily
-                    #  correct. An error should be thrown if there's a mismatch and we're still trying to do OTT stuff
+                    # TODO: This sort of assumes DRS is on the same domain as WES, which isn't necessarily correct
+                    #  An error should be thrown if there's a mismatch and we're still trying to do OTT stuff, probably
                     "scope": scope,
-                    "number": 1,
+                    "number": count_bento_workflow_file_outputs(workflow_id, workflow_params, workflow_metadata),
                 }, verify=not current_app.config["BENTO_DEBUG"])
 
                 if not tr.ok:
                     # An error occurred while requesting OTTs, so we cannot complete the run request
                     return flask_internal_server_error(
-                        f"Got error while requesting one-time-use tokens for ingestion URL: {tr.content} "
+                        f"Got error while requesting one-time-use tokens for DRS: {tr.content} "
                         f"(Scope: {scope}, OTT URL: {ott_generate_url}, headers included: {list(headers.keys())})")
 
                 one_time_tokens.extend(tr.json())
+
+            # Request an additional OTT for the service ingest request
+            scope = ("/" if chord_url in workflow_ingestion_url else "") + workflow_ingestion_url.replace(
+                chord_url, "").rsplit("/", 1)[0] + "/"
+            tr = requests.post(ott_generate_url, headers=headers, json={
+                # TODO: This sort of assumes the ingest URL is on the same domain as WES, which isn't necessarily
+                #  correct. An error should be thrown if there's a mismatch and we're still trying to do OTT stuff
+                "scope": scope,
+                "number": 1,
+            }, verify=not current_app.config["BENTO_DEBUG"])
+
+            if not tr.ok:
+                # An error occurred while requesting OTTs, so we cannot complete the run request
+                return flask_internal_server_error(
+                    f"Got error while requesting one-time-use tokens for ingestion URL: {tr.content} "
+                    f"(Scope: {scope}, OTT URL: {ott_generate_url}, headers included: {list(headers.keys())})")
+
+            one_time_tokens.extend(tr.json())
+        
+        # TODO: refactor --
+        if chord_mode and tt_endpoint_namespace and "gohan" in workflow_ingestion_url:
+            # TODO: Refactor into class
+            headers = {**auth_header_dict}  # TODO: Host?
+            tt_generate_url = urljoin(tt_endpoint_namespace.rstrip("/") + "/", "generate")
+
+            # Request an additional TT for the service ingest request
+            scope = ("/" if chord_url in workflow_ingestion_url else "") + workflow_ingestion_url.replace(
+                chord_url, "").rsplit("/", 1)[0] + "/"
+            tr = requests.post(tt_generate_url, headers=headers, json={
+                # TODO: This sort of assumes the ingest URL is on the same domain as WES, which isn't necessarily
+                #  correct. An error should be thrown if there's a mismatch and we're still trying to do TT stuff
+                "scope": scope,
+                "number": 1,
+            }, verify=not current_app.config["BENTO_DEBUG"])
+
+            if not tr.ok:
+                # An error occurred while requesting TTs, so we cannot complete the run request
+                return flask_internal_server_error(
+                    f"Got error while requesting one-time-use tokens for ingestion URL: {tr.content} "
+                    f"(Scope: {scope}, TT URL: {tt_generate_url}, headers included: {list(headers.keys())})")
+
+            # TODO: Refactor (Gohan)
+            # - Pass TT in as a parameter to the workflow (used in the .wdl file directly)
+            #    (current purpose for this is only to get automatic Gohan workflow requests through)
+            workflow_params["vcf_gz.temp_token"] = tr.json()[0]
+            workflow_params["vcf_gz.temp_token_host"] = urlparse(chord_url).netloc
+        # ---
+
 
         # Begin creating the job after validating the request
 
