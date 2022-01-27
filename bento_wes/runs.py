@@ -95,7 +95,6 @@ def _create_run(db, c):
             gohan_url = urlparse(workflow_ingestion_url)
             workflow_params["vcf_gz.gohan_url"] = f"{gohan_url.scheme}://{gohan_url.netloc}{gohan_url.path.replace('/private/ingest', '')}"
 
-
         if chord_mode:
             table_id = str(uuid.UUID(table_id))  # Check and standardize table ID
 
@@ -142,7 +141,7 @@ def _create_run(db, c):
         use_otts_for_drs: bool = chord_url in drs_url and urlparse(drs_url).scheme != "http+unix"
         ott_endpoint_namespace: str = current_app.config["OTT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
         tt_endpoint_namespace: str = current_app.config["TT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
-        
+
         if chord_mode and ott_endpoint_namespace:
             # Generate the correct number of one-time tokens for the DRS and ingest scopes
             # to allow for the callback to ingest files
@@ -187,7 +186,7 @@ def _create_run(db, c):
                     f"(Scope: {scope}, OTT URL: {ott_generate_url}, headers included: {list(headers.keys())})")
 
             one_time_tokens.extend(tr.json())
-        
+
         # TODO: refactor --
         if chord_mode and tt_endpoint_namespace and "gohan" in workflow_ingestion_url:
             # TODO: Refactor into class
@@ -217,9 +216,7 @@ def _create_run(db, c):
             workflow_params["vcf_gz.temp_token_host"] = urlparse(chord_url).netloc
         # ---
 
-
         # Begin creating the job after validating the request
-
         req_id = uuid.uuid4()
         run_id = uuid.uuid4()
         log_id = uuid.uuid4()
