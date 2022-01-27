@@ -94,7 +94,7 @@ def _create_run(db, c):
             workflow_params["vcf_gz.original_vcf_gz_file_paths"] = workflow_params["vcf_gz.vcf_gz_file_names"]
             gohan_url = urlparse(workflow_ingestion_url)
             workflow_params["vcf_gz.gohan_url"] = (f"{gohan_url.scheme}" +
-                "://{gohan_url.netloc}{gohan_url.path.replace('/private/ingest', '')}")
+                                                   "://{gohan_url.netloc}{gohan_url.path.replace('/private/ingest', '')}")
 
         if chord_mode:
             table_id = str(uuid.UUID(table_id))  # Check and standardize table ID
