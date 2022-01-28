@@ -180,23 +180,26 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
             # TODO: In the future, allow localhost requests to chord_metadata_service so we don't need to manually
             #  set the Host header?
 
-            r = requests.post(
-                c_workflow_ingestion_url,
-                headers=headers,
-                json=run_results,
-                timeout=current_app.config["INGEST_POST_TIMEOUT"],
-                verify=cert_verify,
-            )
+            # TODO: Refactor:
+            # TEMP: avoid calling ingestion callback when using Gohan
+            if "gohan" not in c_workflow_ingestion_url:
+                r = requests.post(
+                    c_workflow_ingestion_url,
+                    headers=headers,
+                    json=run_results,
+                    timeout=current_app.config["INGEST_POST_TIMEOUT"],
+                    verify=cert_verify,
+                )
 
-            if not r.ok:
-                # An error occurred, do some logging
-                logger.error(
-                    f"Encountered error while POSTing to ingestion URL\n"
-                    f"           URL: {c_workflow_ingestion_url}\n"
-                    f"        Status: {r.status_code}\n"
-                    f"      Response: {r.content}\n"
-                    f"  Req. Headers: {headers}")
-                return states.STATE_SYSTEM_ERROR
+                if not r.ok:
+                    # An error occurred, do some logging
+                    logger.error(
+                        f"Encountered error while POSTing to ingestion URL\n"
+                        f"           URL: {c_workflow_ingestion_url}\n"
+                        f"        Status: {r.status_code}\n"
+                        f"      Response: {r.content}\n"
+                        f"  Req. Headers: {headers}")
+                    return states.STATE_SYSTEM_ERROR
 
             return states.STATE_COMPLETE
 

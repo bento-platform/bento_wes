@@ -86,6 +86,17 @@ def _create_run(db, c):
         assert isinstance(workflow_engine_parameters, dict)
         assert isinstance(tags, dict)
 
+        # TODO: Refactor (Gohan)
+        # - Extract filenames from workflow_params and inject them back into workflow_params
+        #  as an array-of-strings alongside the original array-of-files
+        # - Pass workflow ingestion URL in as a parameter to the workflow (used in the .wdl file directly)
+        if "gohan" in workflow_ingestion_url:
+            workflow_params["vcf_gz.original_vcf_gz_file_paths"] = workflow_params["vcf_gz.vcf_gz_file_names"]
+            gohan_url = urlparse(workflow_ingestion_url)
+            workflow_params["vcf_gz.gohan_url"] = (f"{gohan_url.scheme}" +
+                                                   f"://{gohan_url.netloc}" +
+                                                   f"{gohan_url.path.replace('/private/ingest', '')}")
+
         if chord_mode:
             table_id = str(uuid.UUID(table_id))  # Check and standardize table ID
 
@@ -125,12 +136,14 @@ def _create_run(db, c):
         except (WorkflowDownloadError, requests.exceptions.ConnectionError) as e:
             return flask_bad_request_error(f"Could not access workflow file: {workflow_url} (Python error: {e})")
 
-        # Generate one-time tokens for ingestion purposes if in Bento mode
+            # Generate one-time tokens for ingestion purposes if in Bento mode
 
         one_time_tokens = []
         drs_url: str = current_app.config["DRS_URL"]
         use_otts_for_drs: bool = chord_url in drs_url and urlparse(drs_url).scheme != "http+unix"
         ott_endpoint_namespace: str = current_app.config["OTT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
+        tt_endpoint_namespace: str = current_app.config["TT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
+
         if chord_mode and ott_endpoint_namespace:
             # Generate the correct number of one-time tokens for the DRS and ingest scopes
             # to allow for the callback to ingest files
@@ -176,8 +189,36 @@ def _create_run(db, c):
 
             one_time_tokens.extend(tr.json())
 
-        # Begin creating the job after validating the request
+        # TODO: refactor --
+        if chord_mode and tt_endpoint_namespace and "gohan" in workflow_ingestion_url:
+            # TODO: Refactor into class
+            headers = {**auth_header_dict}  # TODO: Host?
+            tt_generate_url = urljoin(tt_endpoint_namespace.rstrip("/") + "/", "generate")
 
+            # Request an additional TT for the service ingest request
+            scope = ("/" if chord_url in workflow_ingestion_url else "") + workflow_ingestion_url.replace(
+                chord_url, "").rsplit("/", 1)[0] + "/"
+            tr = requests.post(tt_generate_url, headers=headers, json={
+                # TODO: This sort of assumes the ingest URL is on the same domain as WES, which isn't necessarily
+                #  correct. An error should be thrown if there's a mismatch and we're still trying to do TT stuff
+                "scope": scope,
+                "number": 1,
+            }, verify=not current_app.config["BENTO_DEBUG"])
+
+            if not tr.ok:
+                # An error occurred while requesting TTs, so we cannot complete the run request
+                return flask_internal_server_error(
+                    f"Got error while requesting one-time-use tokens for ingestion URL: {tr.content} "
+                    f"(Scope: {scope}, TT URL: {tt_generate_url}, headers included: {list(headers.keys())})")
+
+            # TODO: Refactor (Gohan)
+            # - Pass TT in as a parameter to the workflow (used in the .wdl file directly)
+            #    (current purpose for this is only to get automatic Gohan workflow requests through)
+            workflow_params["vcf_gz.temp_token"] = tr.json()[0]
+            workflow_params["vcf_gz.temp_token_host"] = urlparse(chord_url).netloc
+        # ---
+
+        # Begin creating the job after validating the request
         req_id = uuid.uuid4()
         run_id = uuid.uuid4()
         log_id = uuid.uuid4()
@@ -335,7 +376,8 @@ def run_cancel(run_id):
 
     # TODO: Generalize clean-up code / fetch from back-end
     run_dir = os.path.join(current_app.config["SERVICE_TEMP"], run["run_id"])
-    shutil.rmtree(run_dir, ignore_errors=True)
+    if not current_app.config["BENTO_DEBUG"]:
+        shutil.rmtree(run_dir, ignore_errors=True)
 
     update_run_state_and_commit(db, c, event_bus, run["id"], states.STATE_CANCELED)
 

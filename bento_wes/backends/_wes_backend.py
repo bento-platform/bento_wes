@@ -207,7 +207,8 @@ class WESBackend(ABC):
         # TODO: SECURITY: Check run_dir
         # TODO: May want to keep them around for a retry depending on how the retry operation will work.
 
-        shutil.rmtree(self.run_dir(run), ignore_errors=True)
+        if not self.debug:
+            shutil.rmtree(self.run_dir(run), ignore_errors=True)
 
     def _initialize_run_and_get_command(self, run: dict, celery_id) -> Optional[Command]:
         """
