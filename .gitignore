@@ -12,6 +12,7 @@ toilwdl_compiled.py
 htmlcov/
 celery.log
 chord_services.json
+bento_wes/*.json
 
 # IDE stuff
 .idea/workspace.xml
