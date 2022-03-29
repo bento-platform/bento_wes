@@ -15,7 +15,7 @@ with additional Bento-specific features.
 ### Workflow definition
 A workflow is based on a `.wdl` file which defines the different tasks with
 their related I/O dependencies (i.e. which variables or files are required as
-input, and what is the output of the workflow). See the [Workflow Definition Language Specs](https://github.com/openwdl/wdl/blob/main/versions/1.0/SPEC.md) for more information.
+input, and what is the output of the workflow). See the [Workflow Definition Language Specs](https://github.com/openwdl/wdl/blob/main/versions/draft-2/SPEC.md) for more information.
 A mandatory JSON file containing the
 required metadata (variables values, file names, etc... to be used by the workflow) is also provided.
 
@@ -51,7 +51,7 @@ ingestion workflow, a file must be passed to the relevant data service
 for ingestion in its internal database. This file transfer is based on
 mounted volumes shared between the containers.
 
-Of note, the `wes/tmp` directory is mounted in each data service container.
+Of note, the `wes/tmp` directory is mounted in some data service container (with the exception of Gohan which mounts the dropbox data directory instead).
 When a workflow is executed, this is where the necessary input files are stagged.
 This side effect is used to pass files for ingestion to the relevant containers.
 Some workflows (ingestions workflows in Katsu) contain an "identity" task which
@@ -247,6 +247,37 @@ There are no checks on the workflows validity in that case
 see above `WORKFLOW_HOST_ALLOW_LIST` env variable).
 For now the [WOMtool](https://cromwell.readthedocs.io/en/stable/WOMtool/) utility used for checking `.wdl` files
 validity is disabled in Bento (see the corresponding Dockerfile).
+
+### WDL files syntax tips
+Toil support for WDL files is considered in alpha stage. Currently the Toil library version
+used in bento-wes is 3.2 which only supports draft-2 version of the WDL specs.
+This makes it error-prone to rely on WOMtools for syntax checks.
+Here is a list of the limitations found:
+- Chaning tasks in scatter blocks is unsupported (i.e. tasks which inputs depend on previous tasks outputs)
+- Input block is unsupported (WDL-draft2 limitation)
+- Interpolation of internal variables with `~{}` syntax is unsupported, even in `<<<>>>` delimited command blocks. Use `${}` instead.
+- If the shell script command block makes use of local variables defined in
+  the shell script (as opposed to WDL variables declared externally), the
+  `${VARNAME}` conflicts with WDL variables. A trick is to define a `dollar`
+  WDL variable `String dollar = "$"` and use it to "escape" shell variables
+  (e.g. `${dollar}{VARNAME}`).
+  ```wdl
+  String dollar = "$"
+
+  command <<<
+    PI=3.14
+    echo ${dollar}{PI}
+  >>>
+  ```
+- File names based on WDL variables used in the `output` block must be enclosed
+  in quotes and use string interpolation
+  ```wdl
+  String output_file = "myfilename.txt"
+
+  output {
+    File out = "${output_file}"
+  }
+  ```
 
 ### runs.py
 This script contains the routes definitions as [Flask's Blueprints](https://flask.palletsprojects.com/en/2.0.x/blueprints/)
