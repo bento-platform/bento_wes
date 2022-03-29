@@ -96,6 +96,7 @@ def _create_run(db, c):
             workflow_params["vcf_gz.gohan_url"] = (f"{gohan_url.scheme}" +
                                                    f"://{gohan_url.netloc}" +
                                                    f"{gohan_url.path.replace('/private/ingest', '')}")
+            workflow_params["vcf_gz.vep_cache_dir"] = current_app.config['VEP_CACHE_DIR']
 
         if chord_mode:
             table_id = str(uuid.UUID(table_id))  # Check and standardize table ID
