@@ -210,6 +210,9 @@ def _create_run(db, c):
                 return flask_internal_server_error(
                     f"Got error while requesting one-time-use tokens for ingestion URL: {tr.content} "
                     f"(Scope: {scope}, TT URL: {tt_generate_url}, headers included: {list(headers.keys())})")
+            # TODO: Refactor (Gohan)
+            # - Include table_id as part of the input parameters so Gohan can affiliate variants with a table
+            workflow_params["vcf_gz.table_id"] = table_id
 
             # TODO: Refactor (Gohan)
             # - Pass TT in as a parameter to the workflow (used in the .wdl file directly)
