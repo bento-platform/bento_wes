@@ -143,7 +143,9 @@ def _create_run(db, c):
         one_time_tokens = []
         drs_url: str = current_app.config["DRS_URL"]
         use_otts_for_drs: bool = chord_url in drs_url and urlparse(drs_url).scheme != "http+unix"
+        use_tt_for_drs: bool = export_mode and use_otts_for_drs
         ott_endpoint_namespace: str = current_app.config["OTT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
+        token_host = urlparse(chord_url).netloc
 
         if (chord_mode or export_mode) and ott_endpoint_namespace:
             # Generate the correct number of one-time tokens for the DRS and ingest scopes
@@ -161,7 +163,10 @@ def _create_run(db, c):
                 #  An error should be thrown if there's a mismatch and we're still trying to do OTT stuff, probably
                 scope = f"/{drs_url.replace(chord_url, '').rstrip('/')}/"
                 nb_tokens = count_bento_workflow_file_outputs(workflow_id, workflow_params, workflow_metadata)
-                one_time_tokens.extend(ott.get(scope, nb_tokens))
+                try:
+                    one_time_tokens.extend(ott.get(scope, nb_tokens))
+                except Exception as err:
+                    return flask_internal_server_error(err)
 
             # Request an additional OTT for the service ingest request
             scope = ("/" if chord_url in workflow_ingestion_url else "") + workflow_ingestion_url.replace(
@@ -170,9 +175,12 @@ def _create_run(db, c):
 
             # Request one for export purposes
             if export_mode:
-                token = ott.get(scope, 1)
+                try:
+                    token = ott.get(scope, 1)
+                except Exception as err:
+                    return flask_internal_server_error(err)
                 workflow_params[f"{workflow_id}.one_time_token"] = token[0]
-                workflow_params[f"{workflow_id}.one_time_token_host"] = urlparse(chord_url).netloc
+                workflow_params[f"{workflow_id}.one_time_token_host"] = token_host
 
         # Generate temporary tokens for polling purposes during ingestion
         # (Gohan specific)
@@ -185,16 +193,34 @@ def _create_run(db, c):
 
             scope = ("/" if chord_url in workflow_ingestion_url else "") + workflow_ingestion_url.replace(
                 chord_url, "").rsplit("/", 1)[0] + "/"
-            token = tt.get(scope, 1)
+            try:
+                token = tt.get(scope, 1)
+            except Exception as err:
+                return flask_internal_server_error(err)
+
             # TODO: Refactor (Gohan)
             # - Pass TT in as a parameter to the workflow (used in the .wdl file directly)
             #    (current purpose for this is only to get automatic Gohan workflow requests through)
             workflow_params[f"{workflow_id}.temp_token"] = token[0]
-            workflow_params[f"{workflow_id}.temp_token_host"] = urlparse(chord_url).netloc
+            workflow_params[f"{workflow_id}.temp_token_host"] = token_host
 
             # TODO: Refactor (Gohan)
             # - Include table_id as part of the input parameters so Gohan can affiliate variants with a table
             workflow_params["vcf_gz.table_id"] = table_id
+
+        if use_tt_for_drs:
+            tt = AuthorizationToken(
+                {**auth_header_dict},
+                tt_endpoint_namespace
+            )
+            scope = f"/{drs_url.replace(chord_url, '').rstrip('/')}/"
+            try:
+                token = tt.get(scope, 1)
+            except Exception as err:
+                return flask_internal_server_error(str(err))
+
+            workflow_params[f"{workflow_id}.temp_token"] = token[0]
+            workflow_params[f"{workflow_id}.temp_token_host"] = token_host
 
         # ---
 
@@ -405,7 +431,7 @@ class AuthorizationToken():
 
         if not tr.ok:
             # An error occurred while requesting authorization token, so we cannot complete the run request
-            return flask_internal_server_error(
+            raise Exception(
                 f"Got error while requesting authorization tokens: {tr.content} "
                 f"(Scope: {scope}, URL: {self.generate_url}, headers included: {list(self.headers.keys())})")
 
