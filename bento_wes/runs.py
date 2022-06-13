@@ -185,15 +185,6 @@ def _create_run(db, c):
                 chord_url, "").rsplit("/", 1)[0] + "/"
             one_time_tokens.extend(ott.get(scope, 1))
 
-            # Request one for export purposes
-            if export_mode:
-                try:
-                    token = ott.get(scope, 1)
-                except Exception as err:
-                    return flask_internal_server_error(err)
-                workflow_params[f"{workflow_id}.one_time_token"] = token[0]
-                workflow_params[f"{workflow_id}.one_time_token_host"] = token_host
-
         # Generate temporary tokens for polling purposes during ingestion
         # (Gohan specific)
         if chord_mode and tt_endpoint_namespace and "gohan" in workflow_ingestion_url:
