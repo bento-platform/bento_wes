@@ -77,6 +77,8 @@ def _create_run(db, c):
             (f"http+unix://{current_app.config['NGINX_INTERNAL_SOCKET']}{workflow_ingestion_path}"
              if workflow_ingestion_path else None))
         table_id = tags.get("table_id", None)
+        if chord_mode:
+            table_id = str(uuid.UUID(table_id))  # Check and standardize table ID
 
         export_mode = workflow_metadata.get("action", None) == "export"
 
@@ -100,8 +102,12 @@ def _create_run(db, c):
                                                    f"{gohan_url.path.replace('/private/ingest', '')}")
             workflow_params["vcf_gz.vep_cache_dir"] = current_app.config['VEP_CACHE_DIR']
 
-        if chord_mode:
-            table_id = str(uuid.UUID(table_id))  # Check and standardize table ID
+        # Some workflow parameters are only available at the WES level and need
+        # to be added from there. For the moment, this can only be done on a
+        # case by case basis.
+        params = [key.split(".")[-1] for key in [*workflow_params]]
+        if "vep_cache_dir" in params:
+            workflow_params[f"{workflow_id}.vep_cache_dir"] = current_app.config['VEP_CACHE_DIR']
 
         # TODO: Use JSON schemas for workflow params / engine parameters / tags
 
@@ -143,20 +149,26 @@ def _create_run(db, c):
         one_time_tokens = []
         drs_url: str = current_app.config["DRS_URL"]
         use_otts_for_drs: bool = chord_url in drs_url and urlparse(drs_url).scheme != "http+unix"
-        use_tt_for_drs: bool = export_mode and use_otts_for_drs
         ott_endpoint_namespace: str = current_app.config["OTT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
+        tt_endpoint_namespace: str = current_app.config["TT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
+
         token_host = urlparse(chord_url).netloc
 
-        if (chord_mode or export_mode) and ott_endpoint_namespace:
+        ott = AuthorizationToken(
+            {**auth_header_dict},  # TODO: Host?
+            ott_endpoint_namespace
+        )
+
+        tt = AuthorizationToken(
+            {**auth_header_dict},
+            tt_endpoint_namespace
+        )
+
+        if chord_mode and ott_endpoint_namespace:
             # Generate the correct number of one-time tokens for the DRS and ingest scopes
             # to allow for the callback to ingest files
             # Skip doing this for DRS if the DRS URL is an internal UNIX socket / internal Docker URL
             # TODO: Remove this ^ bit and pull the plug on socket requests
-
-            ott = AuthorizationToken(
-                {**auth_header_dict},  # TODO: Host?
-                ott_endpoint_namespace
-            )
 
             if use_otts_for_drs:
                 # TODO: This sort of assumes DRS is on the same domain as WES, which isn't necessarily correct
@@ -184,12 +196,7 @@ def _create_run(db, c):
 
         # Generate temporary tokens for polling purposes during ingestion
         # (Gohan specific)
-        tt_endpoint_namespace: str = current_app.config["TT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
         if chord_mode and tt_endpoint_namespace and "gohan" in workflow_ingestion_url:
-            tt = AuthorizationToken(
-                {**auth_header_dict},
-                tt_endpoint_namespace
-            )
 
             scope = ("/" if chord_url in workflow_ingestion_url else "") + workflow_ingestion_url.replace(
                 chord_url, "").rsplit("/", 1)[0] + "/"
@@ -208,20 +215,17 @@ def _create_run(db, c):
             # - Include table_id as part of the input parameters so Gohan can affiliate variants with a table
             workflow_params["vcf_gz.table_id"] = table_id
 
-        if use_tt_for_drs:
-            tt = AuthorizationToken(
-                {**auth_header_dict},
-                tt_endpoint_namespace
-            )
-            scope = f"/{drs_url.replace(chord_url, '').rstrip('/')}/"
-            try:
-                token = tt.get(scope, 1)
-            except Exception as err:
-                return flask_internal_server_error(str(err))
+        if "auth" in workflow_metadata:
+            for tok in workflow_metadata["auth"]:
+                tokenFactory = tt if tok.get("type", "tt") == "tt" else ott
+                scope = tok.get("scope", "//")
+                try:
+                    token = tokenFactory.get(scope, 1)
+                except Exception as err:
+                    return flask_internal_server_error(str(err))
 
-            workflow_params[f"{workflow_id}.temp_token"] = token[0]
-            workflow_params[f"{workflow_id}.temp_token_host"] = token_host
-
+                workflow_params[f"{workflow_id}.{tok['id']}"] = token[0]
+                workflow_params[f"{workflow_id}.auth_host"] = token_host
         # ---
 
         # Begin creating the job after validating the request
