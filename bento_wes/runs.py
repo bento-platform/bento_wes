@@ -80,7 +80,7 @@ def _create_run(db, c):
         if chord_mode:
             table_id = str(uuid.UUID(table_id))  # Check and standardize table ID
 
-        export_mode = workflow_metadata.get("action", None) == "export"
+        not_ingestion_mode = workflow_metadata.get("action", None) in ["export", "analysis"]
 
         # Don't accept anything (ex. CWL) other than WDL TODO: CWL support
         assert workflow_type == "WDL"
@@ -100,14 +100,16 @@ def _create_run(db, c):
             workflow_params["vcf_gz.gohan_url"] = (f"{gohan_url.scheme}" +
                                                    f"://{gohan_url.netloc}" +
                                                    f"{gohan_url.path.replace('/private/ingest', '')}")
-            workflow_params["vcf_gz.vep_cache_dir"] = current_app.config['VEP_CACHE_DIR']
 
-        # Some workflow parameters are only available at the WES level and need
-        # to be added from there. For the moment, this can only be done on a
-        # case by case basis.
-        params = [key.split(".")[-1] for key in [*workflow_params]]
-        if "vep_cache_dir" in params:
-            workflow_params[f"{workflow_id}.vep_cache_dir"] = current_app.config['VEP_CACHE_DIR']
+        # Some workflow parameters depend on the WES application configuration
+        # and need to be added from there.
+        # The reserved keyword `FROM_CONFIG` is used to detect those inputs.
+        # All parameters in config are upper case. e.g. drs_url --> DRS_URL
+        for i in workflow_metadata["inputs"]:
+            if i.get("value", None) != "FROM_CONFIG":
+                continue
+            param_name = i['id']
+            workflow_params[f"{workflow_id}.{param_name}"] = current_app.config.get(param_name.upper(), '')
 
         # TODO: Use JSON schemas for workflow params / engine parameters / tags
 
@@ -234,13 +236,18 @@ def _create_run(db, c):
         os.makedirs(run_dir, exist_ok=True)
         # TODO: Delete run dir if something goes wrong...
 
-        # In export mode, as we rely on services located in different containers
+        # In export/analysis mode, as we rely on services located in different containers
         # there is a need to have designated folders on shared volumes between
         # WES and the other services, to write files to.
         # This is possible because /wes/tmp is a volume mounted with the same
         # path in each data service (except Gohan which mounts the dropbox
-        # data-x directory directly instead, to avoid massive duplicates)
-        if export_mode:
+        # data-x directory directly instead, to avoid massive duplicates).
+        # Also, the Toil library creates directories in the generic /tmp/
+        # directory instead of the one that is configured for the job execution,
+        # to create the current working directories where tasks are executed.
+        # These files are inaccessible to other containers in the context of a
+        # task unless they are written arbitrarily to run_dir
+        if not_ingestion_mode:
             workflow_params[f"{workflow_id}.run_dir"] = run_dir
 
         # Move workflow attachments to run directory
