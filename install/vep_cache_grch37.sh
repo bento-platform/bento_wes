@@ -16,7 +16,7 @@ CACHE_PATH=${VEP_CACHE_DIR}/${SPECIES}/${VEP_ENSEMBL_VERSION}_${ASSEMBLY}
 # note: rsync not available in this container. If ever changing the following
 # to rsync, comply to ensembl.org recommended URL for rsync: https://useast.ensembl.org/info/data/ftp/rsync.html
 echo "Downloading toplevel assembly"
-wget -q ftp://ftp.ensembl.org/pub/release-75/fasta/homo_sapiens/dna/${FASTA_TOPLEVEL}.gz -P ${CACHE_PATH} -O ${FASTA_TOPLEVEL}.gz
+wget -q ftp://ftp.ensembl.org/pub/release-75/fasta/homo_sapiens/dna/${FASTA_TOPLEVEL}.gz -O ${CACHE_PATH}/${FASTA_TOPLEVEL}.gz
 echo "Unzip fasta file"
 gzip -d ${CACHE_PATH}/${FASTA_TOPLEVEL}.gz
 echo "Re-compress as blocked gzip"
