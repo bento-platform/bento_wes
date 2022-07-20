@@ -67,3 +67,11 @@ def service_info():
         "contactUrl": "mailto:david.lougheed@mail.mcgill.ca",
         "version": bento_wes.__version__
     })
+
+# # debugger section
+if application.config["BENTO_DEBUG"]:
+    import debugpy
+    DEBUGGER_PORT = 5679  #int(os.environ.get('DEBUGGER_PORT', 5678))
+    debugpy.listen(("0.0.0.0", DEBUGGER_PORT))
+    print('Attached')
+# # end debugger section
