@@ -70,8 +70,11 @@ def service_info():
 
 # # debugger section
 if application.config["BENTO_DEBUG"]:
-    import debugpy
-    DEBUGGER_PORT = int(os.environ.get('DEBUGGER_PORT', 5680))
-    debugpy.listen(("0.0.0.0", DEBUGGER_PORT))
-    print('Attached')
+    try:
+        import debugpy
+        DEBUGGER_PORT = int(os.environ.get("DEBUGGER_PORT", 5680))
+        debugpy.listen(("0.0.0.0", DEBUGGER_PORT))
+        print("Debugger Attached")
+    except ImportError:
+        print("Module debugpy not found. Install to enable debugging with VS-Code")
 # # end debugger section
