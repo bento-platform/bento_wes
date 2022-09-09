@@ -68,6 +68,7 @@ def service_info():
         "version": bento_wes.__version__
     })
 
+
 # # debugger section
 if application.config["BENTO_DEBUG"]:
     try:
