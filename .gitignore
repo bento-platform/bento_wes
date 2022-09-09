@@ -10,6 +10,8 @@ womtool*
 toilwdl_compiled.py
 .coverage
 htmlcov/
+celery.log
+chord_services.json
 
 # IDE stuff
 .idea/workspace.xml
@@ -17,3 +19,7 @@ htmlcov/
 .idea/rSettings.xml
 *.swp
 *.swo
+.vscode/*
+
+# Keep vscode debugger configuration
+!.vscode/launch.json

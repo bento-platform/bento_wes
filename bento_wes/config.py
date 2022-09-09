@@ -40,4 +40,4 @@ class Config:
     DRS_SKIP_TYPES = tuple(t.strip() for t in os.environ.get("DRS_SKIP_TYPES", "").split(",") if t.strip())
 
     NGINX_INTERNAL_SOCKET = NGINX_INTERNAL_SOCKET
-    INGEST_POST_TIMEOUT = 60 * 10  # 10 minutes
+    INGEST_POST_TIMEOUT = 60 * 60  # 1 hour
