@@ -1,5 +1,6 @@
 import bento_wes
 import os
+import subprocess
 
 from bento_lib.responses import flask_errors
 from flask import Flask, jsonify
@@ -55,20 +56,38 @@ with application.app_context():  # pragma: no cover
 # TODO: Not compatible with GA4GH WES due to conflict with GA4GH service-info (preferred)
 @application.route("/service-info", methods=["GET"])
 def service_info():
-    return jsonify({
-        "id": application.config["SERVICE_ID"],
-        "name": SERVICE_NAME,  # TODO: Should be globally unique?
-        "type": SERVICE_TYPE,
-        "description": "Workflow execution service for a CHORD application.",
-        "organization": {
-            "name": "C3G",
-            "url": "http://www.computationalgenomics.ca"
-        },
-        "contactUrl": "mailto:david.lougheed@mail.mcgill.ca",
-        "version": bento_wes.__version__
-    })
+    service_info = {
+            "id": application.config["SERVICE_ID"],
+            "name": SERVICE_NAME,  # TODO: Should be globally unique?
+            "type": SERVICE_TYPE,
+            "description": "Workflow execution service for a CHORD application.",
+            "organization": {
+                "name": "C3G",
+                "url": "http://www.computationalgenomics.ca"
+            },
+            "contactUrl": "mailto:david.lougheed@mail.mcgill.ca",
+            "version": bento_wes.__version__,
+            "environment": "prod"
+    }
+    if not application.config["BENTO_DEBUG"]:
+        return jsonify(service_info)
 
+    else:
+        service_info["environment"] = "dev"
+        try:
+            subprocess.run(["git", "config", "--global", "--add", "safe.directory", "./bento_wes"])
+            res_tag = subprocess.check_output(["git", "describe", "--tags", "--abbrev=0"])
+            if res_tag:
+                service_info["git_tag"] = res_tag.decode().rstrip()
+            res_branch= subprocess.check_output(["git", "branch", "--show-current"])
+            if res_branch:
+                service_info["git_branch"] = res_branch.decode().rstrip()
+            return jsonify(service_info)
 
+        except:
+            return flask_errors.flask_not_found_error("Error in dev-mode retrieving git information")
+    
+        
 # # debugger section
 if application.config["BENTO_DEBUG"]:
     try:
