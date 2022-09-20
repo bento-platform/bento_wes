@@ -19,6 +19,8 @@ application.config.from_object(Config)
 
 application.register_blueprint(bp_runs)
 
+path_for_git = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
 # Generic catch-all
 application.register_error_handler(
     Exception,
@@ -75,19 +77,20 @@ def service_info():
     else:
         service_info["environment"] = "dev"
         try:
-            subprocess.run(["git", "config", "--global", "--add", "safe.directory", "./bento_wes"])
+            subprocess.run(["git", "config", "--global", "--add", "safe.directory", str(path_for_git)])
             res_tag = subprocess.check_output(["git", "describe", "--tags", "--abbrev=0"])
             if res_tag:
                 service_info["git_tag"] = res_tag.decode().rstrip()
-            res_branch= subprocess.check_output(["git", "branch", "--show-current"])
+            res_branch = subprocess.check_output(["git", "branch", "--show-current"])
             if res_branch:
                 service_info["git_branch"] = res_branch.decode().rstrip()
             return jsonify(service_info)
 
-        except:
-            return flask_errors.flask_not_found_error("Error in dev-mode retrieving git information")
-    
-        
+        except Exception as e:
+            except_name = type(e).__name__
+            return flask_errors.flask_not_found_error("Error in dev-mode retrieving git information", except_name)
+
+
 # # debugger section
 if application.config["BENTO_DEBUG"]:
     try:
