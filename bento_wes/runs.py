@@ -61,6 +61,7 @@ def _create_run(db, c):
         chord_mode = all((
             "workflow_id" in tags,
             "workflow_metadata" in tags,
+            tags["workflow_metadata"].get("action", "ingestion") == "ingestion",
 
             # Allow either a path to be specified for ingestion (for the 'classic'
             # Bento singularity architecture) or
