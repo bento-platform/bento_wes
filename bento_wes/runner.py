@@ -212,6 +212,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
     # TODO: Change based on workflow type / what's supported - get first runner
     #  'enabled' (somehow) which supports the type
+    logger.info("Initializing backend")
     backend: WESBackend = ToilWDLBackend(
         tmp_dir=current_app.config["SERVICE_TEMP"],
         logger=logger,
@@ -229,6 +230,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     )
 
     try:
+        logger.info("Starting Workflow execution...")
         backend.perform_run(run, self.request.id)
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
