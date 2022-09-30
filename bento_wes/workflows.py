@@ -180,7 +180,7 @@ class WorkflowManager:
                     with open(workflow_path, "wb") as nwf:
                         nwf.write(wr.content)
 
-                    self._info(f"Workflow file downloaded")
+                    self._info("Workflow file downloaded")
 
                 elif not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
                     # Request issues
