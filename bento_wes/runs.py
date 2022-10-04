@@ -81,7 +81,7 @@ def _create_run(db, c):
         if chord_mode:
             table_id = str(uuid.UUID(table_id))  # Check and standardize table ID
 
-        not_ingestion_mode = workflow_metadata.get("action", None) in ["export", "analysis"]
+        not_ingestion_mode = workflow_metadata.get("action") in ["export", "analysis"]
 
         # Don't accept anything (ex. CWL) other than WDL TODO: CWL support
         assert workflow_type == "WDL"
@@ -107,10 +107,10 @@ def _create_run(db, c):
         # The reserved keyword `FROM_CONFIG` is used to detect those inputs.
         # All parameters in config are upper case. e.g. drs_url --> DRS_URL
         for i in workflow_metadata["inputs"]:
-            if i.get("value", None) != "FROM_CONFIG":
+            if i.get("value") != "FROM_CONFIG":
                 continue
-            param_name = i['id']
-            workflow_params[f"{workflow_id}.{param_name}"] = current_app.config.get(param_name.upper(), '')
+            param_name = i["id"]
+            workflow_params[f"{workflow_id}.{param_name}"] = current_app.config.get(param_name.upper(), "")
 
         # TODO: Use JSON schemas for workflow params / engine parameters / tags
 
@@ -211,7 +211,7 @@ def _create_run(db, c):
 
         if "auth" in workflow_metadata:
             for tok in workflow_metadata["auth"]:
-                tokenFactory = tt if tok.get("type", "tt") == "tt" else ott
+                tokenFactory: AuthorizationToken = tt if tok.get("type", "tt") == "tt" else ott
                 scope = tok.get("scope", "//")
                 try:
                     token = tokenFactory.get(scope, 1)
