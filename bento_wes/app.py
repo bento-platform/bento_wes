@@ -53,8 +53,8 @@ with application.app_context():  # pragma: no cover
         update_db()
 
     if application.config["BENTO_DEBUG"]:
-        path_for_git = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        subprocess.run(["git", "config", "--global", "--add", "safe.directory", str(path_for_git)])
+        app_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        subprocess.run(["git", "config", "--global", "--add", "safe.directory", str(app_dir)])
 
 # TODO: Not compatible with GA4GH WES due to conflict with GA4GH service-info (preferred)
 @application.route("/service-info", methods=["GET"])
@@ -83,11 +83,12 @@ def service_info():
         res_branch = subprocess.check_output(["git", "branch", "--show-current"])
         if res_branch:
             service_info["git_branch"] = res_branch.decode().rstrip()
-        return jsonify(service_info)
 
     except Exception as e:
         except_name = type(e).__name__
-        return flask_errors.flask_not_found_error("Error in dev-mode retrieving git information", except_name)
+        print("Error in dev-mode retrieving git information", except_name, e)
+
+    return jsonify(service_info)
 
 
 # # debugger section
