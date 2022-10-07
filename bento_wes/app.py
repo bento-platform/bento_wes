@@ -19,8 +19,6 @@ application.config.from_object(Config)
 
 application.register_blueprint(bp_runs)
 
-path_for_git = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-
 # Generic catch-all
 application.register_error_handler(
     Exception,
@@ -54,6 +52,9 @@ with application.app_context():  # pragma: no cover
     else:
         update_db()
 
+    if application.config["BENTO_DEBUG"]:
+        path_for_git = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        subprocess.run(["git", "config", "--global", "--add", "safe.directory", str(path_for_git)])
 
 # TODO: Not compatible with GA4GH WES due to conflict with GA4GH service-info (preferred)
 @application.route("/service-info", methods=["GET"])
@@ -76,7 +77,6 @@ def service_info():
 
     service_info["environment"] = "dev"
     try:
-        subprocess.run(["git", "config", "--global", "--add", "safe.directory", str(path_for_git)])
         res_tag = subprocess.check_output(["git", "describe", "--tags", "--abbrev=0"])
         if res_tag:
             service_info["git_tag"] = res_tag.decode().rstrip()
