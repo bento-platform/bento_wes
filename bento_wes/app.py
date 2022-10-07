@@ -52,7 +52,7 @@ with application.app_context():  # pragma: no cover
     else:
         update_db()
 
-    if application.config["BENTO_DEBUG"]:
+    if application.config["IS_RUNNING_DEV"]:
         app_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         subprocess.run(["git", "config", "--global", "--add", "safe.directory", str(app_dir)])
 
@@ -73,7 +73,7 @@ def service_info():
             "version": bento_wes.__version__,
             "environment": "prod"
     }
-    if not application.config["BENTO_DEBUG"]:
+    if not application.config["IS_RUNNING_DEV"]:
         return jsonify(service_info)
 
     service_info["environment"] = "dev"
@@ -93,7 +93,7 @@ def service_info():
 
 
 # # debugger section
-if application.config["BENTO_DEBUG"]:
+if application.config["IS_RUNNING_DEV"]:
     try:
         import debugpy
         DEBUGGER_PORT = int(os.environ.get("DEBUGGER_PORT", 5680))
