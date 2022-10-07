@@ -74,21 +74,20 @@ def service_info():
     if not application.config["BENTO_DEBUG"]:
         return jsonify(service_info)
 
-    else:
-        service_info["environment"] = "dev"
-        try:
-            subprocess.run(["git", "config", "--global", "--add", "safe.directory", str(path_for_git)])
-            res_tag = subprocess.check_output(["git", "describe", "--tags", "--abbrev=0"])
-            if res_tag:
-                service_info["git_tag"] = res_tag.decode().rstrip()
-            res_branch = subprocess.check_output(["git", "branch", "--show-current"])
-            if res_branch:
-                service_info["git_branch"] = res_branch.decode().rstrip()
-            return jsonify(service_info)
+    service_info["environment"] = "dev"
+    try:
+        subprocess.run(["git", "config", "--global", "--add", "safe.directory", str(path_for_git)])
+        res_tag = subprocess.check_output(["git", "describe", "--tags", "--abbrev=0"])
+        if res_tag:
+            service_info["git_tag"] = res_tag.decode().rstrip()
+        res_branch = subprocess.check_output(["git", "branch", "--show-current"])
+        if res_branch:
+            service_info["git_branch"] = res_branch.decode().rstrip()
+        return jsonify(service_info)
 
-        except Exception as e:
-            except_name = type(e).__name__
-            return flask_errors.flask_not_found_error("Error in dev-mode retrieving git information", except_name)
+    except Exception as e:
+        except_name = type(e).__name__
+        return flask_errors.flask_not_found_error("Error in dev-mode retrieving git information", except_name)
 
 
 # # debugger section
