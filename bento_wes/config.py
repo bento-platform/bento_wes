@@ -6,11 +6,16 @@ from .constants import SERVICE_ID
 
 __all__ = [
     "NGINX_INTERNAL_SOCKET",
+    "BENTO_EVENT_REDIS_HOST",
+    "BENTO_EVENT_REDIS_PORT",
     "Config",
 ]
 
 
 NGINX_INTERNAL_SOCKET = quote(os.environ.get("NGINX_INTERNAL_SOCKET", "/chord/tmp/nginx_internal.sock"), safe="")
+
+BENTO_EVENT_REDIS_HOST = os.environ.get("BENTO_EVENT_REDIS_HOST", "localhost")
+BENTO_EVENT_REDIS_PORT = int(os.environ.get("BENTO_EVENT_REDIS_PORT", "6379"))
 
 
 class Config:
