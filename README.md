@@ -130,6 +130,10 @@ CHORD_DEBUG=False
 CELERY_RESULT_BACKEND=redis://
 CELERY_BROKER_URL=redis://
 
+# Event Redis connection
+BENTO_EVENT_REDIS_HOST=localhost
+BENTO_EVENT_REDIS_PORT=6379
+
 # Run/task database location
 DATABASE=bento_wes.db
 
@@ -153,11 +157,8 @@ WOM_TOOL_LOCATION=/path/to/womtool.jar
 WORKFLOW_HOST_ALLOW_LIST=
 
 # DRS configuration options:
-# - Where the DRS instance to use is located. Technically, if not set this
-#   defaults to using a different environment variable, NGINX_INTERNAL_SOCKET,
-#   as a path to a Bento instance's internal NGINX UNIX socket and adding a
-#   path to the actual DRS instance
-DRS_URL=http+unix:///chord/tmp/nginx_internal.sock/api/drs
+# - Where the DRS instance to use is located. 
+DRS_URL=https://portal.bentov2.local/api/drs
 # - Whether to redirect file outputs to the DRS instance specified above
 WRITE_OUTPUT_TO_DRS=False
 # - Whether to de-duplicate / consolidate identical files within DRS

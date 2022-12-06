@@ -1,7 +1,6 @@
 import bento_lib.workflows as w
 import os
 import requests
-import requests_unixsocket
 import uuid
 
 from celery.utils.log import get_task_logger
@@ -20,8 +19,6 @@ from .db import get_db, get_run_details
 from .events import get_new_event_bus
 from .workflows import parse_workflow_host_allow_list
 
-
-requests_unixsocket.monkeypatch()
 
 logger = get_task_logger(__name__)
 

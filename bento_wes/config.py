@@ -5,14 +5,11 @@ from .constants import SERVICE_ID
 
 
 __all__ = [
-    "NGINX_INTERNAL_SOCKET",
     "BENTO_EVENT_REDIS_HOST",
     "BENTO_EVENT_REDIS_PORT",
     "Config",
 ]
 
-
-NGINX_INTERNAL_SOCKET = quote(os.environ.get("NGINX_INTERNAL_SOCKET", "/chord/tmp/nginx_internal.sock"), safe="")
 
 BENTO_EVENT_REDIS_HOST = os.environ.get("BENTO_EVENT_REDIS_HOST", "localhost")
 BENTO_EVENT_REDIS_PORT = int(os.environ.get("BENTO_EVENT_REDIS_PORT", "6379"))
@@ -40,18 +37,15 @@ class Config:
     TT_ENDPOINT_NAMESPACE = os.environ.get("TT_ENDPOINT_NAMESPACE", f"{CHORD_URL}api/auth/tt/")
 
     # DRS-related configuration
-    DRS_URL = os.environ.get("DRS_URL", f"http+unix://{NGINX_INTERNAL_SOCKET}/api/drs").strip().rstrip("/")
+    DRS_URL = os.environ.get("DRS_URL", f"{CHORD_URL}api/drs").strip().rstrip("/")
     WRITE_OUTPUT_TO_DRS = os.environ.get("WRITE_OUTPUT_TO_DRS", "false").lower().strip() == "true"
     DRS_DEDUPLICATE = os.environ.get("DRS_DEDUPLICATE", "true").lower().strip() == "true"
     DRS_SKIP_TYPES = tuple(t.strip() for t in os.environ.get("DRS_SKIP_TYPES", "").split(",") if t.strip())
 
     # Other services, used for interpolating workflow variables
-    METADATA_URL = os.environ.get(
-        "METADATA_URL", f"http+unix://{NGINX_INTERNAL_SOCKET}/api/metadata"
-    ).strip().rstrip("/")
+    METADATA_URL = os.environ.get("METADATA_URL", f"{CHORD_URL}api/metadata").strip().rstrip("/")
 
     # VEP-related configuration
     VEP_CACHE_DIR = os.environ.get("VEP_CACHE_DIR")
 
-    NGINX_INTERNAL_SOCKET = NGINX_INTERNAL_SOCKET
     INGEST_POST_TIMEOUT = 60 * 60  # 1 hour

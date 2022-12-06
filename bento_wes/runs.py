@@ -75,7 +75,7 @@ def _create_run(db, c):
         workflow_ingestion_path = tags.get("ingestion_path", None)
         workflow_ingestion_url = tags.get(
             "ingestion_url",
-            (f"http+unix://{current_app.config['NGINX_INTERNAL_SOCKET']}{workflow_ingestion_path}"
+            (f"{current_app.config['CHORD_URL'].rstrip('/')}/{workflow_ingestion_path.lstrip('/')}"
              if workflow_ingestion_path else None))
         table_id = tags.get("table_id", None)
         if chord_mode:
@@ -170,8 +170,8 @@ def _create_run(db, c):
         if chord_mode and ott_endpoint_namespace:
             # Generate the correct number of one-time tokens for the DRS and ingest scopes
             # to allow for the callback to ingest files
-            # Skip doing this for DRS if the DRS URL is an internal UNIX socket / internal Docker URL
-            # TODO: Remove this ^ bit and pull the plug on socket requests
+            # Skip doing this for DRS if the DRS URL is an internal (container) URL
+            # TODO: Remove this ^ bit
 
             if use_otts_for_drs:
                 # TODO: This sort of assumes DRS is on the same domain as WES, which isn't necessarily correct
