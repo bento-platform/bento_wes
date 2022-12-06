@@ -240,7 +240,7 @@ To run the Celery worker (required to actually run jobs), the following command
 (or similar) can be used:
 
 ```bash
-nohup celery -A bento_wes.app worker --loglevel=INFO &> celery.log &
+nohup celery --loglevel=INFO --app bento_wes.app worker &> celery.log &
 ```
 
 ## About the implementation
@@ -326,14 +326,14 @@ maps the `value` property to use the input file name for string interpolation.
 }
 ```
 
-An other extension to the workflow metadata inputs is used to get values from the WES
+Another extension to the workflow metadata inputs is used to get values from the WES
 configuration variables. The special value `FROM_CONFIG` causes the interpolation
 to the Flask app.config property matching the `id` in uppercase.
 In the following example, the value for this variable will come from the config
 property `METADATA_URL`.
-```json
+```python
 {
-  ...,
+  # ...,
   "inputs": [
     {
       "id": "metadata_url",
@@ -341,8 +341,8 @@ property `METADATA_URL`.
       "required": True,
       "value": FROM_CONFIG,
       "hidden": True,
-    },...
+    }, # ...
   ],
-  ...
+  # ...
 }
 ```

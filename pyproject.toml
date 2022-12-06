@@ -1,0 +1,38 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "bento_wes"
+version = "0.7.0"
+description = "Workflow execution service for the Bento platform."
+authors = [
+    "David Lougheed <david.lougheed@mail.mcgill.ca>",
+    "Simon Chénard <simon.chenard2@mcgill.ca>",
+    "Paul Pillot <paul.pillot@computationalgenomics.ca>",
+]
+readme = "README.md"
+packages = [{include = "bento_wes"}]
+include = ["bento_wes/schema.sql"]
+repository = "https://github.com/bento-platform/bento_wes"
+license = "LGPL-3.0-only"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Operating System :: OS Independent"
+]
+
+[tool.poetry.dependencies]
+python = "^3.8.1"
+bento-lib = {extras = ["flask"], version = "^4.2.0"}
+celery = {extras = ["redis"], version = "^5.2.7"}
+
+[tool.poetry.group.dev.dependencies]
+codecov = "^2.1.12"
+coverage = "^6.5.0"
+flake8 = "^6.0.0"
+pytest = "^7.2.0"
+pytest-cov = "^4.0.0"
+tox = "^3.27.1"
+debugpy = "^1.6.4"
+responses = "^0.22.0"
