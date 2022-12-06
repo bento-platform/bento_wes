@@ -40,5 +40,13 @@ class Config:
     DRS_DEDUPLICATE = os.environ.get("DRS_DEDUPLICATE", "true").lower().strip() == "true"
     DRS_SKIP_TYPES = tuple(t.strip() for t in os.environ.get("DRS_SKIP_TYPES", "").split(",") if t.strip())
 
+    # Other services, used for interpolating workflow variables
+    METADATA_URL = os.environ.get(
+        "METADATA_URL", f"http+unix://{NGINX_INTERNAL_SOCKET}/api/metadata"
+    ).strip().rstrip("/")
+
+    # VEP-related configuration
+    VEP_CACHE_DIR = os.environ.get("VEP_CACHE_DIR")
+
     NGINX_INTERNAL_SOCKET = NGINX_INTERNAL_SOCKET
     INGEST_POST_TIMEOUT = 60 * 60  # 1 hour

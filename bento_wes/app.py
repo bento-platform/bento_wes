@@ -60,7 +60,7 @@ with application.app_context():  # pragma: no cover
 # TODO: Not compatible with GA4GH WES due to conflict with GA4GH service-info (preferred)
 @application.route("/service-info", methods=["GET"])
 def service_info():
-    service_info = {
+    info = {
             "id": application.config["SERVICE_ID"],
             "name": SERVICE_NAME,  # TODO: Should be globally unique?
             "type": SERVICE_TYPE,
@@ -74,19 +74,19 @@ def service_info():
             "environment": "prod"
     }
     if not application.config["IS_RUNNING_DEV"]:
-        return jsonify(service_info)
+        return jsonify(info)
 
-    service_info["environment"] = "dev"
+    info["environment"] = "dev"
     try:
         res_tag = subprocess.check_output(["git", "describe", "--tags", "--abbrev=0"])
         if res_tag:
-            service_info["git_tag"] = res_tag.decode().rstrip()
+            info["git_tag"] = res_tag.decode().rstrip()
         res_branch = subprocess.check_output(["git", "branch", "--show-current"])
         if res_branch:
-            service_info["git_branch"] = res_branch.decode().rstrip()
+            info["git_branch"] = res_branch.decode().rstrip()
 
     except Exception as e:
         except_name = type(e).__name__
         print("Error in dev-mode retrieving git information", except_name, e)
 
-    return jsonify(service_info)
+    return jsonify(info)
