@@ -1,5 +1,6 @@
 import bento_wes
 import os
+import subprocess
 
 from bento_lib.responses import flask_errors
 from flask import Flask, jsonify
@@ -51,19 +52,41 @@ with application.app_context():  # pragma: no cover
     else:
         update_db()
 
+    if application.config["IS_RUNNING_DEV"]:
+        app_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        subprocess.run(["git", "config", "--global", "--add", "safe.directory", str(app_dir)])
+
 
 # TODO: Not compatible with GA4GH WES due to conflict with GA4GH service-info (preferred)
 @application.route("/service-info", methods=["GET"])
 def service_info():
-    return jsonify({
-        "id": application.config["SERVICE_ID"],
-        "name": SERVICE_NAME,  # TODO: Should be globally unique?
-        "type": SERVICE_TYPE,
-        "description": "Workflow execution service for a CHORD application.",
-        "organization": {
-            "name": "C3G",
-            "url": "http://www.computationalgenomics.ca"
-        },
-        "contactUrl": "mailto:david.lougheed@mail.mcgill.ca",
-        "version": bento_wes.__version__
-    })
+    info = {
+            "id": application.config["SERVICE_ID"],
+            "name": SERVICE_NAME,  # TODO: Should be globally unique?
+            "type": SERVICE_TYPE,
+            "description": "Workflow execution service for a CHORD application.",
+            "organization": {
+                "name": "C3G",
+                "url": "http://www.computationalgenomics.ca"
+            },
+            "contactUrl": "mailto:david.lougheed@mail.mcgill.ca",
+            "version": bento_wes.__version__,
+            "environment": "prod"
+    }
+    if not application.config["IS_RUNNING_DEV"]:
+        return jsonify(info)
+
+    info["environment"] = "dev"
+    try:
+        res_tag = subprocess.check_output(["git", "describe", "--tags", "--abbrev=0"])
+        if res_tag:
+            info["git_tag"] = res_tag.decode().rstrip()
+        res_branch = subprocess.check_output(["git", "branch", "--show-current"])
+        if res_branch:
+            info["git_branch"] = res_branch.decode().rstrip()
+
+    except Exception as e:
+        except_name = type(e).__name__
+        print("Error in dev-mode retrieving git information", except_name, e)
+
+    return jsonify(info)
