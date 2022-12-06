@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [ 3.6, 3.9 ]
+        python-version: [ "3.8", "3.10" ]
     services:
       redis:
         image: redis
@@ -32,16 +32,3 @@ jobs:
         run: mkdir -p tmp && pytest -svv --cov=bento_wes --cov-branch
       - name: Codecov
         run: codecov
-  install:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [ 3.6, 3.9 ]
-    steps:
-      - uses: actions/checkout@v1
-      - uses: actions/setup-python@v2
-        name: Set up Python
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install bento_wes
-        run: python -m pip install .
