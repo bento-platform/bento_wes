@@ -5,14 +5,12 @@ from .constants import SERVICE_ID
 
 
 __all__ = [
-    "BENTO_EVENT_REDIS_HOST",
-    "BENTO_EVENT_REDIS_PORT",
+    "BENTO_EVENT_REDIS_URL",
     "Config",
 ]
 
 
-BENTO_EVENT_REDIS_HOST = os.environ.get("BENTO_EVENT_REDIS_HOST", "localhost")
-BENTO_EVENT_REDIS_PORT = int(os.environ.get("BENTO_EVENT_REDIS_PORT", "6379"))
+BENTO_EVENT_REDIS_URL = os.environ.get("BENTO_EVENT_REDIS_URL", "redis://localhost:6379")
 
 
 class Config:

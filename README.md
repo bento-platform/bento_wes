@@ -131,8 +131,7 @@ CELERY_RESULT_BACKEND=redis://
 CELERY_BROKER_URL=redis://
 
 # Event Redis connection
-BENTO_EVENT_REDIS_HOST=localhost
-BENTO_EVENT_REDIS_PORT=6379
+BENTO_EVENT_REDIS_URL=redis://localhost:6379
 
 # Run/task database location
 DATABASE=bento_wes.db

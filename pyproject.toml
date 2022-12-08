@@ -24,7 +24,7 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = "^3.8.1"
-bento-lib = {extras = ["flask"], version = "^4.2.0"}
+bento-lib = {extras = ["flask"], version = "^5.0.2"}
 celery = {extras = ["redis"], version = "^5.2.7"}
 
 [tool.poetry.group.dev.dependencies]
