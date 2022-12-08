@@ -1,5 +1,4 @@
 import os
-from urllib.parse import quote
 
 from .constants import SERVICE_ID
 
