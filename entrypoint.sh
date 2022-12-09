@@ -1,7 +1,13 @@
 #!/bin/bash
 
+export FLASK_DEBUG=false
+if [ -z "${INTERNAL_PORT}" ]; then
+  # Set default internal port to 5000
+  export INTERNAL_PORT=5000
+fi
+
 echo "[ENTRYPOINT] Starting celery worker"
-celery --loglevel=INFO --app bento_wes.app worker &
+celery --app bento_wes.app worker --loglevel=INFO &
 
 echo "[ENTRYPOINT] Starting gunicorn"
 # using 1 worker, multiple threads

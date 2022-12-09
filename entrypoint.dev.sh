@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export FLASK_ENV=development
+export FLASK_DEBUG=false
 export FLASK_APP=bento_wes.app:application
 
 if [ -z "${INTERNAL_PORT}" ]; then
@@ -11,7 +11,7 @@ fi
 python -m poetry install
 
 echo "[ENTRYPOINT] Starting celery worker"
-celery --loglevel=INFO --app bento_wes.app worker &
+celery --app bento_wes.app worker --loglevel=INFO &
 
 echo "[ENTRYPOINT] Starting Flask server"
 python -m debugpy --listen 0.0.0.0:5678 -m flask run \
