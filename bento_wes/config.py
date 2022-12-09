@@ -14,8 +14,7 @@ BENTO_EVENT_REDIS_URL = os.environ.get("BENTO_EVENT_REDIS_URL", "redis://localho
 
 class Config:
     CHORD_URL = os.environ.get("CHORD_URL", "http://127.0.0.1:5000/")
-    BENTO_DEBUG = os.environ.get("CHORD_DEBUG", os.environ.get("FLASK_ENV", "production")).strip().lower() in (
-        "true", "1", "development")
+    BENTO_DEBUG = os.environ.get("CHORD_DEBUG", os.environ.get("FLASK_DEBUG", "false")).strip().lower() in ("true", "1")
     IS_RUNNING_DEV = os.environ.get("FLASK_DEBUG", "false").strip().lower() in ("true", "1")
 
     DATABASE = os.environ.get("DATABASE", "bento_wes.db")
