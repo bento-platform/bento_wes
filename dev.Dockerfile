@@ -1,7 +1,7 @@
 FROM ghcr.io/bento-platform/bento_base_image:python-debian-latest
 
 # Install system packages for HTSLib + SAMtools
-RUN apt-get install -y htslib samtools
+RUN apt-get update -y && apt-get install -y htslib samtools
 
 # Boostrap dependencies for setting up and running the Python application
 RUN pip install --no-cache-dir poetry==1.2.2 gunicorn==20.1.0
