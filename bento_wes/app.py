@@ -3,6 +3,7 @@ import os
 import subprocess
 
 from bento_lib.responses import flask_errors
+from bento_lib.types import GA4GHServiceInfo
 from flask import Flask, jsonify
 from werkzeug.exceptions import BadRequest, NotFound
 
@@ -60,18 +61,18 @@ with application.app_context():  # pragma: no cover
 # TODO: Not compatible with GA4GH WES due to conflict with GA4GH service-info (preferred)
 @application.route("/service-info", methods=["GET"])
 def service_info():
-    info = {
-            "id": application.config["SERVICE_ID"],
-            "name": SERVICE_NAME,  # TODO: Should be globally unique?
-            "type": SERVICE_TYPE,
-            "description": "Workflow execution service for a CHORD application.",
-            "organization": {
-                "name": "C3G",
-                "url": "http://www.computationalgenomics.ca"
-            },
-            "contactUrl": "mailto:david.lougheed@mail.mcgill.ca",
-            "version": bento_wes.__version__,
-            "environment": "prod"
+    info: GA4GHServiceInfo = {
+        "id": application.config["SERVICE_ID"],
+        "name": SERVICE_NAME,  # TODO: Should be globally unique?
+        "type": SERVICE_TYPE,
+        "description": "Workflow execution service for a CHORD application.",
+        "organization": {
+            "name": "C3G",
+            "url": "http://www.computationalgenomics.ca"
+        },
+        "contactUrl": "mailto:david.lougheed@mail.mcgill.ca",
+        "version": bento_wes.__version__,
+        "environment": "prod"
     }
     if not application.config["IS_RUNNING_DEV"]:
         return jsonify(info)

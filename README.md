@@ -130,6 +130,9 @@ CHORD_DEBUG=False
 CELERY_RESULT_BACKEND=redis://
 CELERY_BROKER_URL=redis://
 
+# Event Redis connection
+BENTO_EVENT_REDIS_URL=redis://localhost:6379
+
 # Run/task database location
 DATABASE=bento_wes.db
 
@@ -153,11 +156,8 @@ WOM_TOOL_LOCATION=/path/to/womtool.jar
 WORKFLOW_HOST_ALLOW_LIST=
 
 # DRS configuration options:
-# - Where the DRS instance to use is located. Technically, if not set this
-#   defaults to using a different environment variable, NGINX_INTERNAL_SOCKET,
-#   as a path to a Bento instance's internal NGINX UNIX socket and adding a
-#   path to the actual DRS instance
-DRS_URL=http+unix:///chord/tmp/nginx_internal.sock/api/drs
+# - Where the DRS instance to use is located. 
+DRS_URL=https://portal.bentov2.local/api/drs
 # - Whether to redirect file outputs to the DRS instance specified above
 WRITE_OUTPUT_TO_DRS=False
 # - Whether to de-duplicate / consolidate identical files within DRS
@@ -240,7 +240,7 @@ To run the Celery worker (required to actually run jobs), the following command
 (or similar) can be used:
 
 ```bash
-nohup celery -A bento_wes.app worker --loglevel=INFO &> celery.log &
+nohup celery --loglevel=INFO --app bento_wes.app worker &> celery.log &
 ```
 
 ## About the implementation
@@ -326,14 +326,14 @@ maps the `value` property to use the input file name for string interpolation.
 }
 ```
 
-An other extension to the workflow metadata inputs is used to get values from the WES
+Another extension to the workflow metadata inputs is used to get values from the WES
 configuration variables. The special value `FROM_CONFIG` causes the interpolation
 to the Flask app.config property matching the `id` in uppercase.
 In the following example, the value for this variable will come from the config
 property `METADATA_URL`.
-```json
+```python
 {
-  ...,
+  # ...,
   "inputs": [
     {
       "id": "metadata_url",
@@ -341,8 +341,8 @@ property `METADATA_URL`.
       "required": True,
       "value": FROM_CONFIG,
       "hidden": True,
-    },...
+    }, # ...
   ],
-  ...
+  # ...
 }
 ```

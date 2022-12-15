@@ -1,6 +1,8 @@
 from bento_lib.events import EventBus, types as et
 from flask import g
 
+from .config import BENTO_EVENT_REDIS_URL
+
 
 __all__ = [
     "get_new_event_bus",
@@ -10,7 +12,7 @@ __all__ = [
 
 
 def get_new_event_bus() -> EventBus:
-    event_bus = EventBus(allow_fake=True)
+    event_bus = EventBus(url=BENTO_EVENT_REDIS_URL, allow_fake=True)
     event_bus.register_service_event_type(et.EVENT_WES_RUN_UPDATED, et.EVENT_WES_RUN_UPDATED_SCHEMA)
     event_bus.register_service_event_type(et.EVENT_WES_RUN_FINISHED, et.EVENT_WES_RUN_FINISHED_SCHEMA)
     event_bus.register_service_event_type(et.EVENT_CREATE_NOTIFICATION, et.EVENT_CREATE_NOTIFICATION_SCHEMA)
