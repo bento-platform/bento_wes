@@ -431,7 +431,7 @@ class AuthorizationToken():
         tr = requests.post(self.generate_url, headers=self.headers, json={
             "scope": scope,
             "number": number,
-        }, verify=not current_app.config["BENTO_DEBUG"])
+        }, verify=current_app.config["BENTO_VALIDATE_SSL"])
 
         if not tr.ok:
             # An error occurred while requesting authorization token, so we cannot complete the run request
