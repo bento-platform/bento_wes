@@ -16,7 +16,11 @@ BENTO_EVENT_REDIS_URL = os.environ.get("BENTO_EVENT_REDIS_URL", "redis://localho
 class Config:
     CHORD_URL = os.environ.get("CHORD_URL", "http://127.0.0.1:5000/")
 
-    BENTO_DEBUG = os.environ.get("CHORD_DEBUG", os.environ.get("FLASK_DEBUG", "false")).strip().lower() in TRUTH_VALUES
+    BENTO_DEBUG = os.environ.get(
+        "BENTO_DEBUG",
+        os.environ.get(
+            "CHORD_DEBUG",
+            os.environ.get("FLASK_DEBUG", "false"))).strip().lower() in TRUTH_VALUES
     BENTO_VALIDATE_SSL = os.environ.get("BENTO_VALIDATE_SSL", str(not BENTO_DEBUG)).strip().lower() in TRUTH_VALUES
 
     IS_RUNNING_DEV = os.environ.get("FLASK_DEBUG", "false").strip().lower() in ("true", "1")

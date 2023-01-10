@@ -14,7 +14,14 @@ fi
 
 echo "[ENTRYPOINT] Starting celery worker"
 celery_log_level="INFO"
-if [[ "${BENTO_DEBUG}" == "true" || "${BENTO_DEBUG}" == "True" || "${BENTO_DEBUG}" == "1" ]]; then
+if [[
+  "${BENTO_DEBUG}" == "true" ||
+  "${BENTO_DEBUG}" == "True" ||
+  "${BENTO_DEBUG}" == "1" ||
+  "${CHORD_DEBUG}" == "true" ||
+  "${CHORD_DEBUG}" == "True" ||
+  "${CHORD_DEBUG}" == "1"
+]]; then
   celery_log_level="DEBUG"
 fi
 celery --app bento_wes.app worker --loglevel="${celery_log_level}" &
