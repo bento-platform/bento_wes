@@ -30,6 +30,7 @@ class WESBackend(ABC):
         chord_mode: bool = False,
         chord_callback: Optional[Callable[["WESBackend"], str]] = None,
         chord_url: Optional[str] = None,
+        validate_ssl: bool = True,
         debug: bool = False,
     ):
         self.db = get_db()
@@ -45,6 +46,7 @@ class WESBackend(ABC):
         self.chord_callback = chord_callback
         self.chord_url = chord_url
 
+        self.validate_ssl = validate_ssl
         self.debug = debug
 
         self._workflow_manager: WorkflowManager = WorkflowManager(
@@ -52,7 +54,8 @@ class WESBackend(ABC):
             self.chord_url,
             self.logger,
             self.workflow_host_allow_list,
-            self.debug,
+            validate_ssl=validate_ssl,
+            debug=self.debug,
         )
 
         self._runs = {}

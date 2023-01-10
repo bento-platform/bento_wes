@@ -223,6 +223,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         chord_callback=chord_callback,
         chord_url=(current_app.config["CHORD_URL"] or None),
 
+        validate_ssl=current_app.config["BENTO_VALIDATE_SSL"],
         debug=current_app.config["BENTO_DEBUG"],
     )
 
