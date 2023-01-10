@@ -11,7 +11,11 @@ fi
 python -m poetry install
 
 echo "[ENTRYPOINT] Starting celery worker"
-celery --app bento_wes.app worker --loglevel=INFO &
+celery_log_level="INFO"
+if [[ "${BENTO_DEBUG}" == "true" || "${BENTO_DEBUG}" == "True" || "${BENTO_DEBUG}" == "1" ]]; then
+  celery_log_level="DEBUG"
+fi
+celery --app bento_wes.app worker --loglevel="${celery_log_level}" &
 
 echo "[ENTRYPOINT] Starting Flask server"
 python -m debugpy --listen 0.0.0.0:5678 -m flask run \
