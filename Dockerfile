@@ -1,10 +1,14 @@
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-latest
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-latest AS base-deps
 
 # Install system packages for HTSLib + SAMtools
-RUN apt-get update -y && apt-get install -y samtools tabix bcftools
+RUN apt-get update -y && \
+    apt-get install -y samtools tabix bcftools && \
+    rm -rf /var/lib/apt/lists/*
 
 # Boostrap dependencies for setting up and running the Python application
 RUN pip install --no-cache-dir poetry==1.3.2 gunicorn==20.1.0 "pysam>=0.20.0,<0.21.0"
+
+FROM base-deps AS build-install
 
 # Backwards-compatible with old BentoV2 container layout
 RUN mkdir -p /wes/tmp && mkdir -p /data
