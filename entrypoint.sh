@@ -6,8 +6,18 @@ if [ -z "${INTERNAL_PORT}" ]; then
   export INTERNAL_PORT=5000
 fi
 
+job_store_path="${SERVICE_TEMP:-tmp}/toil_job_store"
+if [ -d "${job_store_path}" ]; then
+  echo "[ENTRYPOINT] Cleaning Toil job store"
+  toil clean "file:${SERVICE_TEMP:-tmp}/toil_job_store"
+fi
+
 echo "[ENTRYPOINT] Starting celery worker"
-celery --app bento_wes.app worker --loglevel=INFO &
+celery_log_level="INFO"
+if [[ "${BENTO_DEBUG}" == "true" || "${BENTO_DEBUG}" == "True" || "${BENTO_DEBUG}" == "1" ]]; then
+  celery_log_level="DEBUG"
+fi
+celery --app bento_wes.app worker --loglevel="${celery_log_level}" &
 
 echo "[ENTRYPOINT] Starting gunicorn"
 # using 1 worker, multiple threads

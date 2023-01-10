@@ -227,7 +227,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     )
 
     try:
-        logger.info("Starting Workflow execution...")
+        logger.info("Starting workflow execution...")
         backend.perform_run(run, self.request.id)
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
