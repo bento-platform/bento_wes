@@ -118,8 +118,8 @@ def _create_run(db, c):
         # If it's blank, assume that means "any host is allowed" and pass None to the runner
         workflow_host_allow_list = parse_workflow_host_allow_list(current_app.config["WORKFLOW_HOST_ALLOW_LIST"])
 
-        # Download workflow file (potentially using passed auth headers, if
-        # present and we're querying ourself)
+        # Download workflow file, potentially using passed auth headers if they're present
+        # and we're querying our own node.
 
         # TODO: Move this back to runner, since we'll need to handle the callback anyway with local URLs...
 
@@ -130,6 +130,7 @@ def _create_run(db, c):
             chord_url,
             logger=current_app.logger,
             workflow_host_allow_list=workflow_host_allow_list,
+            validate_ssl=current_app.config["BENTO_VALIDATE_SSL"],
             debug=current_app.config["BENTO_DEBUG"],
         )
 

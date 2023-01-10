@@ -88,11 +88,12 @@ class WorkflowDownloadError(Exception):
 
 class WorkflowManager:
     def __init__(self, tmp_dir: str, chord_url: Optional[str] = None, logger: Optional = None,
-                 workflow_host_allow_list: Optional[set] = None, debug: bool = False):
+                 workflow_host_allow_list: Optional[set] = None, validate_ssl: bool = True, debug: bool = False):
         self.tmp_dir = tmp_dir
         self.chord_url = chord_url
         self.logger = logger
         self.workflow_host_allow_list = workflow_host_allow_list
+        self._validate_ssl = validate_ssl
         self._debug_mode = debug
 
         self._debug(f"Instantiating WorkflowManager with debug_mode={self._debug_mode}")
@@ -170,7 +171,7 @@ class WorkflowManager:
                         "Host": urlparse(self.chord_url or "").netloc or "",
                         **(auth_headers if use_auth_headers else {}),
                     },
-                    verify=not self._debug_mode,
+                    verify=self._validate_ssl,
                 )
 
                 if wr.status_code == 200 and len(wr.content) < MAX_WORKFLOW_FILE_BYTES:
