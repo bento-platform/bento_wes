@@ -70,7 +70,7 @@ def service_info():
             "name": "C3G",
             "url": "http://www.computationalgenomics.ca"
         },
-        "contactUrl": "mailto:david.lougheed@mail.mcgill.ca",
+        "contactUrl": "mailto:info@c3g.ca",
         "version": bento_wes.__version__,
         "environment": "prod"
     }
