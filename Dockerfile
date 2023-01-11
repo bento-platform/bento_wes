@@ -1,8 +1,8 @@
 FROM ghcr.io/bento-platform/bento_base_image:python-debian-latest AS base-deps
 
-# Install system packages for HTSLib + SAMtools
+# Install system packages for HTSLib + SAMtools + curl and jq for workflows
 RUN apt-get update -y && \
-    apt-get install -y samtools tabix bcftools curl && \
+    apt-get install -y samtools tabix bcftools curl jq && \
     rm -rf /var/lib/apt/lists/*
 
 # Boostrap dependencies for setting up and running the Python application
