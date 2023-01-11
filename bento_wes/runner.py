@@ -11,11 +11,11 @@ from urllib.parse import urlparse
 
 
 from . import states
-from .backends import finish_run, WESBackend
+from .backends import WESBackend
 from .backends.toil_wdl import ToilWDLBackend
 from .celery import celery
 from .constants import SERVICE_ARTIFACT
-from .db import get_db, get_run_details
+from .db import get_db, get_run_details, finish_run
 from .events import get_new_event_bus
 from .workflows import parse_workflow_host_allow_list
 

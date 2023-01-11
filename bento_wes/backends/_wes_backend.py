@@ -8,12 +8,11 @@ from bento_lib.events import EventBus
 from typing import Callable, Optional, Tuple, Union
 
 from bento_wes import states
-from bento_wes.db import get_db, update_run_state_and_commit
+from bento_wes.db import get_db, finish_run, update_run_state_and_commit
 from bento_wes.utils import iso_now
 from bento_wes.workflows import WorkflowType, WorkflowManager
 
 from .backend_types import Command, ProcessResult
-from ._finish_run import finish_run
 
 __all__ = ["WESBackend"]
 
