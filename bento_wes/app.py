@@ -4,7 +4,7 @@ import subprocess
 
 from bento_lib.responses import flask_errors
 from bento_lib.types import GA4GHServiceInfo
-from flask import Flask, jsonify
+from flask import current_app, Flask, jsonify
 from werkzeug.exceptions import BadRequest, NotFound
 
 from .celery import celery
@@ -88,6 +88,6 @@ def service_info():
 
     except Exception as e:
         except_name = type(e).__name__
-        print("Error in dev-mode retrieving git information", except_name, e)
+        current_app.logger.error(f"Error retrieving git information: {str(except_name)}: {e}")
 
     return jsonify(info)
