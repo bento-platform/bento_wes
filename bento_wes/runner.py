@@ -233,5 +233,5 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while performing run: {type(e).__name__} {e}")
-        finish_run(db, c, event_bus, run, states.STATE_SYSTEM_ERROR)
+        finish_run(db, c, event_bus, run, states.STATE_SYSTEM_ERROR, logger=logger)
         raise e

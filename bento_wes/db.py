@@ -60,7 +60,14 @@ NOTIFICATION_WES_RUN_FAILED = "wes_run_failed"
 NOTIFICATION_WES_RUN_COMPLETED = "wes_run_completed"
 
 
-def finish_run(db: sqlite3.Connection, c: sqlite3.Cursor, event_bus: EventBus, run: dict, state: str) -> None:
+def finish_run(
+    db: sqlite3.Connection,
+    c: sqlite3.Cursor,
+    event_bus: EventBus,
+    run: dict,
+    state: str,
+    logger: Optional[logging.Logger] = None,
+) -> None:
     """
     Updates a run's state, sets the run log's end time, and publishes an event corresponding with a run failure
     or a run success, depending on the state.
@@ -69,15 +76,20 @@ def finish_run(db: sqlite3.Connection, c: sqlite3.Cursor, event_bus: EventBus, r
     :param event_bus: A chord_lib-defined event bus implementation for sending events
     :param run: The run which just finished
     :param state: The terminal state for the finished run
+    :param logger: An optionally-provided logger object.
     :return:
     """
 
     run_id = run["run_id"]
     run_log_id = run["run_log"]["id"]
+    end_time = iso_now()
 
     # Explicitly don't commit here to sync with state update
-    c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (iso_now(), run_log_id))
-    update_run_state_and_commit(db, c, event_bus, run_id, state)
+    c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (end_time, run_log_id))
+    update_run_state_and_commit(db, c, event_bus, run_id, state, logger=logger)
+
+    if logger:
+        logger.info(f"Run {run_id} finished with state {state} at {end_time}")
 
     if state in states.FAILURE_STATES:
         event_bus.publish_service_event(
@@ -224,8 +236,16 @@ def get_run_details(c: sqlite3.Cursor, run_id: Union[uuid.UUID, str]) -> Tuple[O
     }, None
 
 
-def update_run_state_and_commit(db: sqlite3.Connection, c: sqlite3.Cursor, event_bus: EventBus,
-                                run_id: Union[uuid.UUID, str], state: str):
+def update_run_state_and_commit(
+    db: sqlite3.Connection,
+    c: sqlite3.Cursor,
+    event_bus: EventBus,
+    run_id: Union[uuid.UUID, str],
+    state: str,
+    logger: Optional[logging.Logger] = None,
+):
+    if logger:
+        logger.info(f"Updating run state of {run_id} to {state}")
     c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
     db.commit()
     event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_UPDATED, get_run_details(c, run_id)[0])
