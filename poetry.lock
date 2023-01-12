@@ -207,14 +207,14 @@ tests-no-zope = ["cloudpickle", "cloudpickle", "hypothesis", "hypothesis", "mypy
 
 [[package]]
 name = "bento-lib"
-version = "5.1.0"
+version = "5.1.1"
 description = "A set of common utilities and helpers for Bento platform services."
 category = "main"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "bento_lib-5.1.0-py3-none-any.whl", hash = "sha256:325ab02102eb6363958467dfe12ac6d86298c6d17cd36afdfe2bf49a9caeb180"},
-    {file = "bento_lib-5.1.0.tar.gz", hash = "sha256:d906cbd7d0c163129ed596588b0b75ce745f6594ba583b4ebdb140438bf6c6f0"},
+    {file = "bento_lib-5.1.1-py3-none-any.whl", hash = "sha256:e6872625759d601de1e89f7c253dc07bfe6e0ec60138083c4d988eb54a11ed67"},
+    {file = "bento_lib-5.1.1.tar.gz", hash = "sha256:3f20cb0aebd49286704b77ebcb0d5f1e087ce13d3f955e4a68e2bfbf05e1ef4f"},
 ]
 
 [package.dependencies]
@@ -1889,4 +1889,4 @@ testing = ["flake8 (<5)", "func-timeout", "jaraco.functools", "jaraco.itertools"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8.1"
-content-hash = "64fcb3b77be001b0f68d01ea68c9d10d073b90da3e34d9ff80fadac6fe4edff4"
+content-hash = "e5dc42a5b4a497cd0b9a28e2a98c53bff31567898e21719a5d6fe2be27a46be1"
