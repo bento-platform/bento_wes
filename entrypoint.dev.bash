@@ -1,6 +1,5 @@
 #!/bin/bash
 
-export FLASK_DEBUG=false
 export FLASK_APP=bento_wes.app:application
 
 if [ -z "${INTERNAL_PORT}" ]; then
