@@ -33,4 +33,4 @@ COPY README.md README.md
 # Install the module itself, locally (similar to `pip install -e .`)
 RUN poetry install --without dev
 
-CMD [ "bash", "./entrypoint.sh" ]
+CMD [ "bash", "./entrypoint.bash" ]
