@@ -26,7 +26,7 @@ RUN poetry install --without dev --no-root
 # Manually copy only what's relevant
 # (Don't use .dockerignore, which allows us to have development containers too)
 COPY bento_wes bento_wes
-COPY entrypoint.sh entrypoint.sh
+COPY entrypoint.bash entrypoint.bash
 COPY LICENSE LICENSE
 COPY README.md README.md
 
