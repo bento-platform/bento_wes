@@ -3,7 +3,7 @@ FROM ghcr.io/bento-platform/bento_base_image:python-debian-latest AS base-deps
 # Install system packages for HTSLib + SAMtools + curl and jq for workflows
 # OpenJDK is for running WOMtool/Cromwell
 RUN apt-get update -y && \
-    apt-get install -y samtools tabix bcftools curl jq openjdk-8-jdk && \
+    apt-get install -y samtools tabix bcftools curl jq openjdk-17-jre && \
     rm -rf /var/lib/apt/lists/*
 
 # Boostrap dependencies for setting up and running the Python application
