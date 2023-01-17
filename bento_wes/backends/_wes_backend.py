@@ -1,14 +1,21 @@
+import pathlib
 import os
+import re
 import shutil
+import sqlite3
 import subprocess
+import time
 import uuid
 
 from abc import ABC, abstractmethod
 from bento_lib.events import EventBus
+from datetime import datetime
+from flask import current_app
 from typing import Callable, Optional, Tuple, Union
 
 from bento_wes import states
 from bento_wes.db import get_db, finish_run, update_run_state_and_commit
+from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
 from bento_wes.utils import iso_now
 from bento_wes.workflows import WorkflowType, WorkflowManager
 
@@ -17,6 +24,9 @@ from .backend_types import Command, ProcessResult
 __all__ = ["WESBackend"]
 
 WORKFLOW_TIMEOUT = 60 * 60 * 24  # 24 hours
+
+# Spec: https://software.broadinstitute.org/wdl/documentation/spec#whitespace-strings-identifiers-constants
+WDL_WORKSPACE_NAME_REGEX = re.compile(r"workflow\s+([a-zA-Z][a-zA-Z0-9_]+)")
 
 
 class WESBackend(ABC):
@@ -32,21 +42,25 @@ class WESBackend(ABC):
         validate_ssl: bool = True,
         debug: bool = False,
     ):
-        self.db = get_db()
+        self.db: sqlite3.Connection = get_db()
 
-        self.tmp_dir = tmp_dir
+        self.tmp_dir: str = tmp_dir
+        self.log_dir: str = tmp_dir.rstrip("/") + "/logs"  # Not used for most logs, but Toil wanted a log dir...
+
+        pathlib.Path(self.log_dir).mkdir(parents=True, exist_ok=True)
+
         self.logger = logger
         self.event_bus = event_bus  # TODO: New event bus?
 
         self.workflow_host_allow_list = workflow_host_allow_list
 
         # Bento-specific parameters
-        self.chord_mode = chord_mode
-        self.chord_callback = chord_callback
-        self.chord_url = chord_url
+        self.chord_mode: bool = chord_mode
+        self.chord_callback: Optional[Callable[["WESBackend"], str]] = chord_callback
+        self.chord_url: str = chord_url
 
-        self.validate_ssl = validate_ssl
-        self.debug = debug
+        self.validate_ssl: bool = validate_ssl
+        self.debug: bool = debug
 
         self._workflow_manager: WorkflowManager = WorkflowManager(
             self.tmp_dir,
@@ -146,6 +160,59 @@ class WESBackend(ABC):
         """
         pass
 
+    def _check_workflow_wdl(self, run: dict) -> Optional[Tuple[str, str]]:
+        """
+        Checks that a particular WDL workflow is valid.
+        :param run: The run whose workflow is being checked
+        :return: None if the workflow is valid; a tuple of an error message and an error state otherwise
+        """
+
+        womtool_path = current_app.config["WOM_TOOL_LOCATION"]
+
+        # If WOMtool isn't specified, exit early (either as an error or just skipping validation)
+
+        if not womtool_path:
+            # WOMtool not specified; assume the WDL is valid if WORKFLOW_HOST_ALLOW_LIST has been adequately specified
+            return None if self.workflow_host_allow_list else (
+                f"Failed with {STATE_EXECUTOR_ERROR} due to missing or invalid WOMtool (Bad WOM_TOOL_LOCATION)\n"
+                f"\tWOM_TOOL_LOCATION: {womtool_path}",
+                STATE_EXECUTOR_ERROR
+            )
+
+        # Check for Java (needed to run WOMtool)
+        try:
+            subprocess.run(("java", "-version"))
+        except FileNotFoundError:
+            return "Java is missing (required to validate WDL files)", STATE_SYSTEM_ERROR
+
+        # Validate WDL, listing dependencies
+
+        vr = subprocess.Popen(("java", "-jar", womtool_path, "validate", "-l", self.workflow_path(run)),
+                              stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE,
+                              encoding="utf-8")
+
+        v_out, v_err = vr.communicate()
+
+        if vr.returncode != 0:
+            # Validation error with WDL file
+            # TODO: Add some stdout or stderr to logs?
+            return (
+                f"Failed with {STATE_EXECUTOR_ERROR} due to non-0 validation return code:\n"
+                f"\tstdout: {v_out}\n\tstderr: {v_err}",
+                STATE_EXECUTOR_ERROR
+            )
+
+        #  - Since Toil doesn't support WDL imports right now, any dependencies will result in an error
+        if "None" not in v_out:  # No dependencies
+            # Toil can't process WDL dependencies right now  TODO
+            # TODO: Add some stdout or stderr to logs?
+            return (
+                f"Failed with {STATE_EXECUTOR_ERROR} due to dependencies in WDL:\n"
+                f"\tstdout: {v_out}\n\tstderr: {v_err}",
+                STATE_EXECUTOR_ERROR
+            )
+
     def _check_workflow_and_type(self, run: dict) -> Optional[Tuple[str, str]]:
         """
         Checks a workflow file's validity.
@@ -162,11 +229,26 @@ class WESBackend(ABC):
     @abstractmethod
     def get_workflow_name(self, workflow_path: str) -> Optional[str]:
         """
-        Extracts a workflow's name from it's file.
+        Extracts a workflow's name from its file.
         :param workflow_path: The path to the workflow definition file
         :return: None if the file could not be parsed for some reason; the name string otherwise
         """
         pass
+
+    @staticmethod
+    def get_workflow_name_wdl(workflow_path: str) -> Optional[str]:
+        """
+        Standard extractor for workflow names for WDL.
+        :param workflow_path: The path to the workflow definition file
+        :return: None if the file could not be parsed for some reason; the name string otherwise
+        """
+
+        with open(workflow_path, "r") as wdf:
+            wdl_contents = wdf.read()
+            workflow_id_match = WDL_WORKSPACE_NAME_REGEX.search(wdl_contents)
+
+            # Invalid/non-workflow-specifying WDL file if false-y
+            return workflow_id_match.group(1) if workflow_id_match else None
 
     @abstractmethod
     def _get_command(self, workflow_path: str, params_path: str, run_dir: str) -> Command:
@@ -276,35 +358,65 @@ class WESBackend(ABC):
         :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
         """
 
+        exit_code = None
+        stdout_data = ""
+        stderr_data = ""
+
+        c = self.db.cursor()
+
+        def _update_streams():
+            c.execute("UPDATE run_logs SET stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
+                      (stdout_data, stderr_data, exit_code, run["run_log"]["id"]))
+
         # Perform run =========================================================
 
         # -- Start process running the generated command ----------------------
         runner_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
-        c = self.db.cursor()
         c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]["id"]))
         self._update_run_state_and_commit(run["run_id"], states.STATE_RUNNING)
-
-        # -- Wait for output --------------------------------------------------
-
         timed_out = False
+        start_dt = datetime.now()
 
-        try:
-            stdout, stderr = runner_process.communicate(timeout=WORKFLOW_TIMEOUT)
+        # -- Capture output ---------------------------------------------------
 
-        except subprocess.TimeoutExpired:
-            runner_process.kill()
-            stdout, stderr = runner_process.communicate()
-            timed_out = True
+        while runner_process.poll() is None:
+            stdout_chunk = runner_process.stdout.read(8)
+            if stdout_chunk != "":
+                stdout_data += stdout_chunk
+            stderr_chunk = runner_process.stderr.read(8)
+            if stderr_chunk != "":
+                stderr_data += stderr_chunk
 
-        finally:
-            exit_code = runner_process.returncode
+            if (datetime.now() - start_dt).total_seconds() > WORKFLOW_TIMEOUT:
+                runner_process.kill()
+                stdout_data, stderr_data = runner_process.communicate()
+                timed_out = True
+                break
+
+            time.sleep(10)
+
+        stdout_data += runner_process.stdout.read()
+        stderr_data += runner_process.stderr.read()
+        exit_code = runner_process.returncode
+
+        # timed_out = False
+        #
+        # try:
+        #     stdout, stderr = runner_process.communicate(timeout=WORKFLOW_TIMEOUT)
+        #
+        # except subprocess.TimeoutExpired:
+        #     runner_process.kill()
+        #     stdout, stderr = runner_process.communicate()
+        #     timed_out = True
+        #
+        # finally:
+        #     exit_code = runner_process.returncode
 
         # Complete run ========================================================
 
         # -- Update run log with stdout/stderr, exit code ---------------------
         #     - Explicitly don't commit here; sync with state update
-        c.execute("UPDATE run_logs SET stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
-                  (stdout, stderr, exit_code, run["run_log"]["id"]))
+        _update_streams()
 
         if timed_out:
             # TODO: Report error somehow
@@ -328,7 +440,7 @@ class WESBackend(ABC):
         # If in CHORD mode, run the callback and finish the run with whatever state is returned.
         self._finish_run_and_clean_up(run, self.chord_callback(self))
 
-        return ProcessResult((stdout, stderr, exit_code, timed_out))
+        return ProcessResult((stdout_data, stderr_data, exit_code, timed_out))
 
     def perform_run(self, run: dict, celery_id) -> Optional[ProcessResult]:
         """

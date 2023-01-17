@@ -1,7 +1,6 @@
-import json
-import os
 import re
 
+from flask import current_app, json
 from typing import Optional, Tuple
 
 from bento_wes.backends import WESBackend
@@ -10,7 +9,7 @@ from bento_wes.workflows import WorkflowType, WES_WORKFLOW_TYPE_WDL
 
 
 __all__ = [
-    "ToilWDLBackend"
+    "CromwellLocal"
 ]
 
 
@@ -18,7 +17,7 @@ __all__ = [
 WDL_WORKSPACE_NAME_REGEX = re.compile(r"workflow\s+([a-zA-Z][a-zA-Z0-9_]+)")
 
 
-class ToilWDLBackend(WESBackend):
+class CromwellLocal(WESBackend):
     def _get_supported_types(self) -> Tuple[WorkflowType]:
         """
         Returns a tuple of the workflow types this backend supports. In this case, only WDL is supported.
@@ -49,24 +48,20 @@ class ToilWDLBackend(WESBackend):
 
     def _get_command(self, workflow_path: str, params_path: str, run_dir: str) -> Command:
         """
-        Creates the command which will run toil-wdl-runner on the specified WDL workflow, with the specified
+        Creates the command which will run Cromwell in CLI mode on the specified WDL workflow, with the specified
         serialized parameters in JSON format, and in the specified run directory.
         :param workflow_path: The path to the WDL file to execute
         :param params_path: The path to the file containing specified parameters for the workflow
         :param run_dir: The directory to run the workflow in
         :return: The command, in the form of a tuple of strings, to be passed to subprocess.run
         """
+        cromwell = current_app.config["CROMWELL_LOCATION"]
         # TODO: Separate cleaning process from run?
         return Command((
-            "toil-wdl-runner",
+            "java", "-jar", cromwell, "run",
             # Output more logging if in debug mode and avoid cleaning up helpful logs
             workflow_path,
-            params_path,
-            "-o", run_dir,
-            *(("--logLevel=DEBUG", "--clean=never", "--cleanWorkDir", "never") if self.debug else ()),
-            "--workDir", self.tmp_dir,
-            "--writeLogs", self.log_dir,
-            "--writeLogsFromAllJobs",
-            "--noStdOutErr",
-            "--jobStore", "file:" + os.path.abspath(os.path.join(self.tmp_dir, "toil_job_store"))
+            "--inputs", params_path,
+            "--workflow-root", run_dir,
+            "--metadata-output", run_dir + "/_job_metadata_output.json",
         ))

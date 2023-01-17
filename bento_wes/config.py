@@ -34,6 +34,9 @@ class Config:
     WOM_TOOL_LOCATION = os.environ.get("WOM_TOOL_LOCATION")
     WORKFLOW_HOST_ALLOW_LIST = os.environ.get("WORKFLOW_HOST_ALLOW_LIST")
 
+    # Backend configuration
+    CROMWELL_LOCATION = os.environ.get("CROMWELL_LOCATION", "/cromwell.jar")
+
     # OTT-related configuration
     OTT_ENDPOINT_NAMESPACE = os.environ.get("OTT_ENDPOINT_NAMESPACE", f"{CHORD_URL}api/auth/ott/")
 
