@@ -9,7 +9,7 @@ from bento_wes.workflows import WorkflowType, WES_WORKFLOW_TYPE_WDL
 
 
 __all__ = [
-    "CromwellLocal"
+    "CromwellLocalBackend"
 ]
 
 
@@ -17,7 +17,7 @@ __all__ = [
 WDL_WORKSPACE_NAME_REGEX = re.compile(r"workflow\s+([a-zA-Z][a-zA-Z0-9_]+)")
 
 
-class CromwellLocal(WESBackend):
+class CromwellLocalBackend(WESBackend):
     def _get_supported_types(self) -> Tuple[WorkflowType]:
         """
         Returns a tuple of the workflow types this backend supports. In this case, only WDL is supported.

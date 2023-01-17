@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 from . import states
 from .backends import WESBackend
 from .backends.toil_wdl import ToilWDLBackend
+from .backends.cromwell_local import CromwellLocalBackend
 from .celery import celery
 from .constants import SERVICE_ARTIFACT
 from .db import get_db, get_run_details, finish_run
@@ -210,7 +211,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     # TODO: Change based on workflow type / what's supported - get first runner
     #  'enabled' (somehow) which supports the type
     logger.info("Initializing backend")
-    backend: WESBackend = ToilWDLBackend(
+    backend: WESBackend = CromwellLocalBackend(
         tmp_dir=current_app.config["SERVICE_TEMP"],
         logger=logger,
         event_bus=event_bus,
