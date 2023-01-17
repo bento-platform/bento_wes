@@ -381,10 +381,11 @@ class WESBackend(ABC):
 
         while runner_process.poll() is None:
             # Stream data from runner process
-            stdout_chunk = runner_process.stdout.read(8)
+
+            stdout_chunk = runner_process.stdout.read(4)
             if stdout_chunk != "":
                 stdout_data += stdout_chunk
-            stderr_chunk = runner_process.stderr.read(8)
+            stderr_chunk = runner_process.stderr.read(4)
             if stderr_chunk != "":
                 stderr_data += stderr_chunk
 
@@ -398,8 +399,6 @@ class WESBackend(ABC):
                 stdout_data, stderr_data = runner_process.communicate()
                 timed_out = True
                 break
-
-            time.sleep(10)
 
         stdout_data += runner_process.stdout.read()
         stderr_data += runner_process.stderr.read()
