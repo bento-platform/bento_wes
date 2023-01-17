@@ -7,8 +7,17 @@ if [ -z "${INTERNAL_PORT}" ]; then
   export INTERNAL_PORT=5000
 fi
 
+# Install any dependency changes if needed
 python -m poetry install
 
+# Clean up after any crashed previous container runs
+job_store_path="${SERVICE_TEMP:-tmp}/toil_job_store"
+if [ -d "${job_store_path}" ]; then
+  echo "[ENTRYPOINT] Cleaning Toil job store"
+  toil clean "file:${SERVICE_TEMP:-tmp}/toil_job_store"
+fi
+
+# Start Celery worker with log level dependent on BENTO_DEBUG
 echo "[ENTRYPOINT] Starting celery worker"
 celery_log_level="INFO"
 if [[
@@ -23,6 +32,7 @@ if [[
 fi
 celery --app bento_wes.app worker --loglevel="${celery_log_level}" &
 
+# Start API server
 echo "[ENTRYPOINT] Starting Flask server"
 python -m debugpy --listen 0.0.0.0:5678 -m flask run \
   --host 0.0.0.0 \
