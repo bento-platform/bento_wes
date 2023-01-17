@@ -29,6 +29,10 @@ celery = {extras = ["redis"], version = "^5.2.7"}
 toil = {version = "^5.8.0", extras = ["wdl"]}
 requests = "^2.28.1"
 Flask = "^2.2.2"
+# Don't actually need boto3/boto, but Toil errors without it... >:(
+# Related: https://github.com/DataBiosphere/toil/issues/4314
+boto3 = "^1.26.50"
+boto = "^2.49.0"
 
 [tool.poetry.group.dev.dependencies]
 codecov = "^2.1.12"
