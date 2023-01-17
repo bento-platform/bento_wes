@@ -380,6 +380,7 @@ class WESBackend(ABC):
         # -- Capture output ---------------------------------------------------
 
         while runner_process.poll() is None:
+            # Stream data from runner process
             stdout_chunk = runner_process.stdout.read(8)
             if stdout_chunk != "":
                 stdout_data += stdout_chunk
@@ -387,6 +388,11 @@ class WESBackend(ABC):
             if stderr_chunk != "":
                 stderr_data += stderr_chunk
 
+            # Update stdout/stderr in
+            _update_streams()
+            self.db.commit()
+
+            # Check for timeout
             if (datetime.now() - start_dt).total_seconds() > WORKFLOW_TIMEOUT:
                 runner_process.kill()
                 stdout_data, stderr_data = runner_process.communicate()
