@@ -1,4 +1,4 @@
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-latest AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.01.17 AS base-deps
 
 # Install system packages for HTSLib + SAMtools + curl and jq for workflows
 # OpenJDK is for running WOMtool/Cromwell
