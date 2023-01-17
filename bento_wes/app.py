@@ -82,14 +82,14 @@ def service_info():
 
     info["environment"] = "dev"
     try:
-        if (res_tag := subprocess.check_output(["git", "describe", "--tags", "--abbrev=0"])):
-            res_tag = res_tag.decode().rstrip()
-            info["git_tag"] = res_tag.decode().rstrip()
-            info["bento"]["gitTag"] = res_tag.decode().rstrip()
-        if (res_branch := subprocess.check_output(["git", "branch", "--show-current"])):
-            res_branch = res_branch.decode().rstrip()
-            info["git_branch"] = res_branch
-            info["bento"]["gitBranch"] = res_branch
+        if res_tag := subprocess.check_output(["git", "describe", "--tags", "--abbrev=0"]):
+            res_tag_str = res_tag.decode().rstrip()
+            info["git_tag"] = res_tag_str
+            info["bento"]["gitTag"] = res_tag_str
+        if res_branch := subprocess.check_output(["git", "branch", "--show-current"]):
+            res_branch_str = res_branch.decode().rstrip()
+            info["git_branch"] = res_branch_str
+            info["bento"]["gitBranch"] = res_branch_str
 
     except Exception as e:
         except_name = type(e).__name__
