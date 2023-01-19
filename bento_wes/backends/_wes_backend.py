@@ -4,7 +4,6 @@ import re
 import shutil
 import sqlite3
 import subprocess
-import time
 import uuid
 
 from abc import ABC, abstractmethod
@@ -371,7 +370,8 @@ class WESBackend(ABC):
         # Perform run =========================================================
 
         # -- Start process running the generated command ----------------------
-        runner_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
+        runner_process = subprocess.Popen(
+            cmd, cwd=self.tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
         c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]["id"]))
         self._update_run_state_and_commit(run["run_id"], states.STATE_RUNNING)
         timed_out = False

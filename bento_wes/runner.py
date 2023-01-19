@@ -90,7 +90,7 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
 
         if output["type"] == w.WORKFLOW_TYPE_FILE:
             workflow_outputs[output["id"]] = return_drs_url_or_full_path(
-                os.path.abspath(os.path.join(run_dir, fo)), c_otts)
+                os.path.abspath(os.path.join(run_dir, "output", fo)), c_otts)
             logger.info(f"Setting workflow output {output['id']} to {workflow_outputs[output['id']]}")
 
         elif output["type"] == w.WORKFLOW_TYPE_FILE_ARRAY:

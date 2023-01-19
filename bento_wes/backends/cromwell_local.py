@@ -55,13 +55,25 @@ class CromwellLocalBackend(WESBackend):
         :param run_dir: The directory to run the workflow in
         :return: The command, in the form of a tuple of strings, to be passed to subprocess.run
         """
+
         cromwell = current_app.config["CROMWELL_LOCATION"]
+
+        # Create workflow options file
+        options_file = run_dir + "/_workflow_options.json"
+        with open(options_file, "w") as of:
+            json.dump({
+                "final_workflow_outputs_dir": run_dir + "/output",
+                "use_relative_output_paths": True,
+                "final_workflow_log_dir": run_dir + "/wf_logs",
+                "final_call_logs_dir": run_dir + "/call_logs",
+            }, of)
+
         # TODO: Separate cleaning process from run?
         return Command((
             "java", "-jar", cromwell, "run",
-            # Output more logging if in debug mode and avoid cleaning up helpful logs
-            workflow_path,
             "--inputs", params_path,
+            "--options", options_file,
             "--workflow-root", run_dir,
             "--metadata-output", run_dir + "/_job_metadata_output.json",
+            workflow_path,
         ))
