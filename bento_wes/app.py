@@ -75,12 +75,14 @@ def service_info():
         "environment": "prod",
         "bento": {
             "serviceKind": BENTO_SERVICE_KIND,
+            "gitRepository": "https://github.com/bento-platform/bento_wes",
         },
     }
     if not application.config["IS_RUNNING_DEV"]:
         return jsonify(info)
 
     info["environment"] = "dev"
+
     try:
         if res_tag := subprocess.check_output(["git", "describe", "--tags", "--abbrev=0"]):
             res_tag_str = res_tag.decode().rstrip()
@@ -90,7 +92,9 @@ def service_info():
             res_branch_str = res_branch.decode().rstrip()
             info["git_branch"] = res_branch_str
             info["bento"]["gitBranch"] = res_branch_str
-
+        if res_commit := subprocess.check_output(["git", "rev-parse", "HEAD"]):
+            res_commit_str = res_commit.decode().rstrip()
+            info["bento"]["gitCommit"] = res_commit_str
     except Exception as e:
         except_name = type(e).__name__
         current_app.logger.error(f"Error retrieving git information: {str(except_name)}: {e}")
