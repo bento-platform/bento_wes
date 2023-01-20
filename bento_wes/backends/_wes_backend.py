@@ -365,9 +365,10 @@ class WESBackend(ABC):
             cmd, cwd=self.tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
         c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]["id"]))
         self._update_run_state_and_commit(run["run_id"], states.STATE_RUNNING)
-        timed_out = False
 
-        # -- Capture output ---------------------------------------------------
+        # -- Wait for and capture output --------------------------------------
+
+        timed_out = False
 
         try:
             stdout, stderr = runner_process.communicate(timeout=WORKFLOW_TIMEOUT)
