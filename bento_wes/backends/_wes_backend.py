@@ -8,7 +8,6 @@ import uuid
 
 from abc import ABC, abstractmethod
 from bento_lib.events import EventBus
-from datetime import datetime
 from flask import current_app
 from typing import Callable, Optional, Tuple, Union
 
@@ -357,15 +356,7 @@ class WESBackend(ABC):
         :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
         """
 
-        exit_code = None
-        stdout_data = ""
-        stderr_data = ""
-
         c = self.db.cursor()
-
-        def _update_streams():
-            c.execute("UPDATE run_logs SET stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
-                      (stdout_data, stderr_data, exit_code, run["run_log"]["id"]))
 
         # Perform run =========================================================
 
@@ -375,53 +366,26 @@ class WESBackend(ABC):
         c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]["id"]))
         self._update_run_state_and_commit(run["run_id"], states.STATE_RUNNING)
         timed_out = False
-        start_dt = datetime.now()
 
         # -- Capture output ---------------------------------------------------
 
-        while runner_process.poll() is None:
-            # Stream data from runner process
+        try:
+            stdout, stderr = runner_process.communicate(timeout=WORKFLOW_TIMEOUT)
 
-            stdout_chunk = runner_process.stdout.read(4)
-            if stdout_chunk != "":
-                stdout_data += stdout_chunk
-            stderr_chunk = runner_process.stderr.read(4)
-            if stderr_chunk != "":
-                stderr_data += stderr_chunk
+        except subprocess.TimeoutExpired:
+            runner_process.kill()
+            stdout, stderr = runner_process.communicate()
+            timed_out = True
 
-            # Update stdout/stderr in
-            _update_streams()
-            self.db.commit()
-
-            # Check for timeout
-            if (datetime.now() - start_dt).total_seconds() > WORKFLOW_TIMEOUT:
-                runner_process.kill()
-                stdout_data, stderr_data = runner_process.communicate()
-                timed_out = True
-                break
-
-        stdout_data += runner_process.stdout.read()
-        stderr_data += runner_process.stderr.read()
-        exit_code = runner_process.returncode
-
-        # timed_out = False
-        #
-        # try:
-        #     stdout, stderr = runner_process.communicate(timeout=WORKFLOW_TIMEOUT)
-        #
-        # except subprocess.TimeoutExpired:
-        #     runner_process.kill()
-        #     stdout, stderr = runner_process.communicate()
-        #     timed_out = True
-        #
-        # finally:
-        #     exit_code = runner_process.returncode
+        finally:
+            exit_code = runner_process.returncode
 
         # Complete run ========================================================
 
         # -- Update run log with stdout/stderr, exit code ---------------------
         #     - Explicitly don't commit here; sync with state update
-        _update_streams()
+        c.execute("UPDATE run_logs SET stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
+                  (stdout, stderr, exit_code, run["run_log"]["id"]))
 
         if timed_out:
             # TODO: Report error somehow
@@ -445,7 +409,7 @@ class WESBackend(ABC):
         # If in CHORD mode, run the callback and finish the run with whatever state is returned.
         self._finish_run_and_clean_up(run, self.chord_callback(self))
 
-        return ProcessResult((stdout_data, stderr_data, exit_code, timed_out))
+        return ProcessResult((stdout, stderr, exit_code, timed_out))
 
     def perform_run(self, run: dict, celery_id) -> Optional[ProcessResult]:
         """
