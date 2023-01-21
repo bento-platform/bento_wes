@@ -1,21 +1,27 @@
+import logging
 import json
 import sqlite3
 import uuid
 
 from bento_lib.events import EventBus
-from bento_lib.events.types import EVENT_WES_RUN_UPDATED
+from bento_lib.events.notifications import format_notification
+from bento_lib.events.types import EVENT_CREATE_NOTIFICATION, EVENT_WES_RUN_UPDATED
 from flask import current_app, g
 from typing import Optional, Tuple, Union
 from urllib.parse import urljoin
 
 from . import states
 from .constants import SERVICE_ARTIFACT
+from .events import get_flask_event_bus
+from .utils import iso_now
 
 
 __all__ = [
     "get_db",
     "close_db",
     "init_db",
+    "finish_run",
+    "update_stuck_runs",
     "update_db",
     "run_request_dict",
     "run_log_dict",
@@ -50,6 +56,90 @@ def init_db():
     db.commit()
 
 
+NOTIFICATION_WES_RUN_FAILED = "wes_run_failed"
+NOTIFICATION_WES_RUN_COMPLETED = "wes_run_completed"
+
+
+def finish_run(
+    db: sqlite3.Connection,
+    c: sqlite3.Cursor,
+    event_bus: EventBus,
+    run: dict,
+    state: str,
+    logger: Optional[logging.Logger] = None,
+) -> None:
+    """
+    Updates a run's state, sets the run log's end time, and publishes an event corresponding with a run failure
+    or a run success, depending on the state.
+    :param db: A SQLite database connection
+    :param c: An SQLite connection cursor
+    :param event_bus: A chord_lib-defined event bus implementation for sending events
+    :param run: The run which just finished
+    :param state: The terminal state for the finished run
+    :param logger: An optionally-provided logger object.
+    :return:
+    """
+
+    run_id = run["run_id"]
+    run_log_id = run["run_log"]["id"]
+    end_time = iso_now()
+
+    # Explicitly don't commit here to sync with state update
+    c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (end_time, run_log_id))
+    update_run_state_and_commit(db, c, event_bus, run_id, state, logger=logger)
+
+    if logger:
+        logger.info(f"Run {run_id} finished with state {state} at {end_time}")
+
+    if state in states.FAILURE_STATES:
+        event_bus.publish_service_event(
+            SERVICE_ARTIFACT,
+            EVENT_CREATE_NOTIFICATION,
+            format_notification(
+                title="WES Run Failed",
+                description=f"WES run '{run_id}' failed with state {state}",
+                notification_type=NOTIFICATION_WES_RUN_FAILED,
+                action_target=run_id
+            )
+        )
+
+    elif state in states.SUCCESS_STATES:
+        event_bus.publish_service_event(
+            SERVICE_ARTIFACT,
+            EVENT_CREATE_NOTIFICATION,
+            format_notification(
+                title="WES Run Completed",
+                description=f"WES run '{run_id}' completed successfully",
+                notification_type=NOTIFICATION_WES_RUN_COMPLETED,
+                action_target=run_id
+            )
+        )
+
+
+def update_stuck_runs(db: sqlite3.Connection):
+    # Update all runs that have "stuck" states to have an error state instead on restart. This way, systems don't get
+    # stuck checking their status, and if they're in a weird state at boot they should receive an error status anyway.
+
+    event_bus = get_flask_event_bus()
+
+    c = db.cursor()
+    logger: logging.Logger = current_app.logger
+
+    c.execute("SELECT id FROM runs WHERE state = ? OR state = ?", (states.STATE_INITIALIZING, states.STATE_RUNNING))
+    stuck_run_ids: list[sqlite3.Row] = c.fetchall()
+
+    for run, err in (get_run_details(c, r["id"]) for r in stuck_run_ids):
+        if err:
+            logger.error(f"Encountered error while updating stuck runs: {err}")
+            continue
+
+        logger.info(
+            f"Found stuck run: {run['run_id']} at state {run['state']}. Setting state to {states.STATE_SYSTEM_ERROR}")
+        finish_run(db, c, event_bus, run, states.STATE_SYSTEM_ERROR)
+
+    db.commit()
+
+
 def update_db():
     db = get_db()
     c = db.cursor()
@@ -59,11 +149,7 @@ def update_db():
         init_db()
         return
 
-    # Update all runs that have "stuck" states to have an error state instead on restart. This way, systems don't get
-    # stuck checking their status, and if they're in a weird state at boot they should receive an error status anyway.
-    c.execute("UPDATE runs SET state = ? WHERE state = ? OR state = ?",
-              (states.STATE_SYSTEM_ERROR, states.STATE_INITIALIZING, states.STATE_RUNNING))
-    db.commit()
+    update_stuck_runs(db)
 
     # TODO: Migrations if needed
 
@@ -150,8 +236,16 @@ def get_run_details(c: sqlite3.Cursor, run_id: Union[uuid.UUID, str]) -> Tuple[O
     }, None
 
 
-def update_run_state_and_commit(db: sqlite3.Connection, c: sqlite3.Cursor, event_bus: EventBus,
-                                run_id: Union[uuid.UUID, str], state: str):
+def update_run_state_and_commit(
+    db: sqlite3.Connection,
+    c: sqlite3.Cursor,
+    event_bus: EventBus,
+    run_id: Union[uuid.UUID, str],
+    state: str,
+    logger: Optional[logging.Logger] = None,
+):
+    if logger:
+        logger.info(f"Updating run state of {run_id} to {state}")
     c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
     db.commit()
     event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_UPDATED, get_run_details(c, run_id)[0])

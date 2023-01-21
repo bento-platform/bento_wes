@@ -4,12 +4,12 @@ import subprocess
 
 from bento_lib.responses import flask_errors
 from bento_lib.types import GA4GHServiceInfo
-from flask import Flask, jsonify
+from flask import current_app, Flask, jsonify
 from werkzeug.exceptions import BadRequest, NotFound
 
 from .celery import celery
 from .config import Config
-from .constants import SERVICE_NAME, SERVICE_TYPE
+from .constants import BENTO_SERVICE_KIND, SERVICE_NAME, SERVICE_TYPE
 from .db import init_db, update_db, close_db
 from .events import close_flask_event_bus
 from .runs import bp_runs
@@ -70,24 +70,33 @@ def service_info():
             "name": "C3G",
             "url": "http://www.computationalgenomics.ca"
         },
-        "contactUrl": "mailto:david.lougheed@mail.mcgill.ca",
+        "contactUrl": "mailto:info@c3g.ca",
         "version": bento_wes.__version__,
-        "environment": "prod"
+        "environment": "prod",
+        "bento": {
+            "serviceKind": BENTO_SERVICE_KIND,
+            "gitRepository": "https://github.com/bento-platform/bento_wes",
+        },
     }
     if not application.config["IS_RUNNING_DEV"]:
         return jsonify(info)
 
     info["environment"] = "dev"
-    try:
-        res_tag = subprocess.check_output(["git", "describe", "--tags", "--abbrev=0"])
-        if res_tag:
-            info["git_tag"] = res_tag.decode().rstrip()
-        res_branch = subprocess.check_output(["git", "branch", "--show-current"])
-        if res_branch:
-            info["git_branch"] = res_branch.decode().rstrip()
 
+    try:
+        if res_tag := subprocess.check_output(["git", "describe", "--tags", "--abbrev=0"]):
+            res_tag_str = res_tag.decode().rstrip()
+            info["git_tag"] = res_tag_str
+            info["bento"]["gitTag"] = res_tag_str
+        if res_branch := subprocess.check_output(["git", "branch", "--show-current"]):
+            res_branch_str = res_branch.decode().rstrip()
+            info["git_branch"] = res_branch_str
+            info["bento"]["gitBranch"] = res_branch_str
+        if res_commit := subprocess.check_output(["git", "rev-parse", "HEAD"]):
+            res_commit_str = res_commit.decode().rstrip()
+            info["bento"]["gitCommit"] = res_commit_str
     except Exception as e:
         except_name = type(e).__name__
-        print("Error in dev-mode retrieving git information", except_name, e)
+        current_app.logger.error(f"Error retrieving git information: {str(except_name)}: {e}")
 
     return jsonify(info)

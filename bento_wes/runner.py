@@ -11,11 +11,12 @@ from urllib.parse import urlparse
 
 
 from . import states
-from .backends import finish_run, WESBackend
-from .backends.toil_wdl import ToilWDLBackend
+from .backends import WESBackend
+# from .backends.toil_wdl import ToilWDLBackend
+from .backends.cromwell_local import CromwellLocalBackend
 from .celery import celery
 from .constants import SERVICE_ARTIFACT
-from .db import get_db, get_run_details
+from .db import get_db, get_run_details, finish_run
 from .events import get_new_event_bus
 from .workflows import parse_workflow_host_allow_list
 
@@ -33,7 +34,7 @@ def ingest_in_drs(path: str, otts: List[str]):
     next_token = otts.pop() if otts else None
 
     try:
-        cert_verify = not current_app.config["BENTO_DEBUG"]
+        cert_verify = current_app.config["BENTO_VALIDATE_SSL"]
 
         logger.info(f"Attempting DRS ingestion request to {url}:\n"
                     f"cert verify: {cert_verify}\n"
@@ -89,7 +90,7 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
 
         if output["type"] == w.WORKFLOW_TYPE_FILE:
             workflow_outputs[output["id"]] = return_drs_url_or_full_path(
-                os.path.abspath(os.path.join(run_dir, fo)), c_otts)
+                os.path.abspath(os.path.join(run_dir, "output", fo)), c_otts)
             logger.info(f"Setting workflow output {output['id']} to {workflow_outputs[output['id']]}")
 
         elif output["type"] == w.WORKFLOW_TYPE_FILE_ARRAY:
@@ -165,7 +166,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
             headers["X-OTT"] = c_otts.pop()
 
         try:
-            cert_verify = not current_app.config["BENTO_DEBUG"]
+            cert_verify = current_app.config["BENTO_VALIDATE_SSL"]
 
             logger.info(
                 f"Calling ingestion callback\n"
@@ -210,7 +211,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     # TODO: Change based on workflow type / what's supported - get first runner
     #  'enabled' (somehow) which supports the type
     logger.info("Initializing backend")
-    backend: WESBackend = ToilWDLBackend(
+    backend: WESBackend = CromwellLocalBackend(
         tmp_dir=current_app.config["SERVICE_TEMP"],
         logger=logger,
         event_bus=event_bus,
@@ -223,14 +224,15 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         chord_callback=chord_callback,
         chord_url=(current_app.config["CHORD_URL"] or None),
 
+        validate_ssl=current_app.config["BENTO_VALIDATE_SSL"],
         debug=current_app.config["BENTO_DEBUG"],
     )
 
     try:
-        logger.info("Starting Workflow execution...")
+        logger.info("Starting workflow execution...")
         backend.perform_run(run, self.request.id)
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while performing run: {type(e).__name__} {e}")
-        finish_run(db, c, event_bus, run, states.STATE_SYSTEM_ERROR)
+        finish_run(db, c, event_bus, run, states.STATE_SYSTEM_ERROR, logger=logger)
         raise e

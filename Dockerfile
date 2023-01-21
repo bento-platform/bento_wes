@@ -1,10 +1,21 @@
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-latest
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.01.17 AS base-deps
 
-# Install system packages for HTSLib + SAMtools
-RUN apt-get update -y && apt-get install -y samtools tabix bcftools
+# Install system packages for HTSLib + SAMtools + curl and jq for workflows
+# OpenJDK is for running WOMtool/Cromwell
+RUN apt-get update -y && \
+    apt-get install -y samtools tabix bcftools curl jq openjdk-17-jre && \
+    rm -rf /var/lib/apt/lists/*
 
 # Boostrap dependencies for setting up and running the Python application
-RUN pip install --no-cache-dir poetry==1.2.2 gunicorn==20.1.0 "pysam>=0.20.0,<0.21.0"
+RUN pip install --no-cache-dir poetry==1.3.2 gunicorn==20.1.0 "pysam>=0.20.0,<0.21.0"
+
+WORKDIR /
+ENV CROMWELL_VERSION=84
+RUN curl -L \
+    https://github.com/broadinstitute/cromwell/releases/download/${CROMWELL_VERSION}/cromwell-${CROMWELL_VERSION}.jar \
+    -o cromwell.jar
+
+FROM base-deps AS build-install
 
 # Backwards-compatible with old BentoV2 container layout
 RUN mkdir -p /wes/tmp && mkdir -p /data
@@ -22,11 +33,11 @@ RUN poetry install --without dev --no-root
 # Manually copy only what's relevant
 # (Don't use .dockerignore, which allows us to have development containers too)
 COPY bento_wes bento_wes
-COPY entrypoint.sh entrypoint.sh
+COPY entrypoint.bash entrypoint.bash
 COPY LICENSE LICENSE
 COPY README.md README.md
 
 # Install the module itself, locally (similar to `pip install -e .`)
 RUN poetry install --without dev
 
-CMD [ "bash", "./entrypoint.sh" ]
+CMD [ "bash", "./entrypoint.bash" ]

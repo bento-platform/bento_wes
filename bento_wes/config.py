@@ -8,13 +8,21 @@ __all__ = [
     "Config",
 ]
 
+TRUTH_VALUES = ("true", "1")
 
 BENTO_EVENT_REDIS_URL = os.environ.get("BENTO_EVENT_REDIS_URL", "redis://localhost:6379")
 
 
 class Config:
     CHORD_URL = os.environ.get("CHORD_URL", "http://127.0.0.1:5000/")
-    BENTO_DEBUG = os.environ.get("CHORD_DEBUG", os.environ.get("FLASK_DEBUG", "false")).strip().lower() in ("true", "1")
+
+    BENTO_DEBUG = os.environ.get(
+        "BENTO_DEBUG",
+        os.environ.get(
+            "CHORD_DEBUG",
+            os.environ.get("FLASK_DEBUG", "false"))).strip().lower() in TRUTH_VALUES
+    BENTO_VALIDATE_SSL = os.environ.get("BENTO_VALIDATE_SSL", str(not BENTO_DEBUG)).strip().lower() in TRUTH_VALUES
+
     IS_RUNNING_DEV = os.environ.get("FLASK_DEBUG", "false").strip().lower() in ("true", "1")
 
     DATABASE = os.environ.get("DATABASE", "bento_wes.db")
@@ -25,6 +33,9 @@ class Config:
     # WDL-file-related configuration
     WOM_TOOL_LOCATION = os.environ.get("WOM_TOOL_LOCATION")
     WORKFLOW_HOST_ALLOW_LIST = os.environ.get("WORKFLOW_HOST_ALLOW_LIST")
+
+    # Backend configuration
+    CROMWELL_LOCATION = os.environ.get("CROMWELL_LOCATION", "/cromwell.jar")
 
     # OTT-related configuration
     OTT_ENDPOINT_NAMESPACE = os.environ.get("OTT_ENDPOINT_NAMESPACE", f"{CHORD_URL}api/auth/ott/")
