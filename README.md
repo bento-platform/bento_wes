@@ -126,6 +126,9 @@ CHORD_URL=http://127.0.0.1:5000/
 # checks for TLS certificate validity!
 CHORD_DEBUG=False
 
+# SSL Configuration - whether to validate certificates
+BENTO_VALIDATE_SSL=True
+
 # Celery configuration
 CELERY_RESULT_BACKEND=redis://
 CELERY_BROKER_URL=redis://
