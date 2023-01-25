@@ -20,19 +20,23 @@ FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.01.17 AS base-de
 
 # Install system packages for HTSLib + SAMtools + curl and jq for workflows
 # OpenJDK is for running WOMtool/Cromwell
-# Perl/cpanminus are for cBioPortal scripts / caches / utilities
+# Perl/libdbi-perl/lib*-dev/cpanminus/unzip are for cBioPortal scripts / caches / utilities
 RUN apt-get update -y && \
     apt-get install -y \
-      samtools \
-      tabix \
-      bcftools \
-      curl \
-      jq \
-      openjdk-17-jre \
-      perl \
-      libdbi-perl \
-      libperl-dev \
-      cpanminus \
+        samtools \
+        tabix \
+        bcftools \
+        curl \
+        jq \
+        openjdk-17-jre \
+        perl \
+        libdbi-perl \
+        libperl-dev \
+        cpanminus \
+        unzip \
+        libbz2-dev \
+        liblzma-dev \
+        zlib1g-dev \
     && \
     rm -rf /var/lib/apt/lists/*
 
