@@ -1,4 +1,4 @@
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.01.17 AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.02.09 AS base-deps
 
 # Install system packages for HTSLib + SAMtools + curl and jq for workflows
 # OpenJDK is for running WOMtool/Cromwell
@@ -21,13 +21,16 @@ FROM base-deps AS install
 RUN mkdir -p /wes/tmp && mkdir -p /data
 WORKDIR /wes
 
-COPY pyproject.toml pyproject.toml
-COPY poetry.toml poetry.toml
-COPY poetry.lock poetry.lock
+COPY pyproject.toml .
+COPY poetry.toml .
+COPY poetry.lock .
 
 # Install production + development dependencies
 # Without --no-root, we get errors related to the code not being copied in yet.
 # But we don't want the code here, otherwise Docker cache doesn't work well.
 RUN poetry install --no-root
+
+# Copy in the entrypoint so we have somewhere to start
+COPY entrypoint.dev.bash .
 
 CMD [ "bash", "./entrypoint.dev.bash" ]
