@@ -1,12 +1,12 @@
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.01.17 AS vcf2maf-dep
+FROM --platform=$BUILDPLATFORM debian:bullseye-slim AS downloaded-deps
+
+# Install VCF2MAF
+# TODO: I don't like /opt as a home for these
 
 WORKDIR /tmp/vcf2maf
-
 ENV VCF2MAF_VERSION=1.6.21
-
-# TODO: I don't like /opt as a home for these
 RUN apt-get update -y && \
-    apt-get install -y unzip && \
+    apt-get install -y curl git unzip && \
     echo "https://github.com/mskcc/vcf2maf/archive/refs/tags/v${VCF2MAF_VERSION}.zip" && \
     curl -L "https://github.com/mskcc/vcf2maf/archive/refs/tags/v${VCF2MAF_VERSION}.zip" -o vcf2maf.zip && \
     unzip vcf2maf.zip && \
@@ -16,7 +16,21 @@ RUN apt-get update -y && \
     cp -r vcf2maf/data /opt/data && \
     rm -rf vcf2maf
 
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.01.17 AS base-deps
+# Install Cromwell
+ENV CROMWELL_VERSION=84
+WORKDIR /
+RUN curl -L \
+    https://github.com/broadinstitute/cromwell/releases/download/${CROMWELL_VERSION}/cromwell-${CROMWELL_VERSION}.jar \
+    -o cromwell.jar
+
+# Clone (but don't install yet) Ensembl-VEP
+ENV VEP_ENSEMBL_RELEASE_VERSION=104.3
+RUN git clone --depth 1 -b "release/${VEP_ENSEMBL_RELEASE_VERSION}" https://github.com/Ensembl/ensembl-vep.git
+
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.02.09 AS base-deps
+
+# Copy Ensembl-VEP from downloaded-deps
+COPY --from=downloaded-deps /ensembl-vep /ensembl-vep
 
 # Install system packages for HTSLib + SAMtools + curl and jq for workflows
 # OpenJDK is for running WOMtool/Cromwell
@@ -43,12 +57,12 @@ RUN apt-get update -y && \
 # Boostrap dependencies for setting up and running the Python application
 RUN pip install --no-cache-dir poetry==1.3.2 gunicorn==20.1.0 "pysam>=0.20.0,<0.21.0"
 
-# Install Cromwell
-ENV CROMWELL_VERSION=84
+# Install Ensembl-VEP from cloned source
 WORKDIR /
-RUN curl -L \
-    https://github.com/broadinstitute/cromwell/releases/download/${CROMWELL_VERSION}/cromwell-${CROMWELL_VERSION}.jar \
-    -o cromwell.jar
+RUN cpanm --installdeps --with-recommends --notest --cpanfile ensembl-vep/cpanfile . && \
+    cd ensembl-vep && \
+    # Build vep in /ensembl-vep
+    perl INSTALL.pl -a a --NO_TEST --NO_UPDATE
 
 # Install Ensembl-VEP
 ENV VEP_ENSEMBL_RELEASE_VERSION=104.3
@@ -62,7 +76,10 @@ RUN git clone --depth 1 -b "release/${VEP_ENSEMBL_RELEASE_VERSION}" https://gith
 FROM base-deps AS build-install
 
 # Copy VCF2MAF
-COPY --from=vcf2maf-dep /opt /opt
+COPY --from=downloaded-deps /opt /opt
+
+# Copy Cromwell
+COPY --from=downloaded-deps /cromwell.jar /cromwell.jar
 
 # Backwards-compatible with old BentoV2 container layout
 RUN mkdir -p /wes/tmp && mkdir -p /data
