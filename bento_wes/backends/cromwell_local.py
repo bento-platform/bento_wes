@@ -75,5 +75,7 @@ class CromwellLocalBackend(WESBackend):
             "--options", options_file,
             "--workflow-root", run_dir,
             "--metadata-output", run_dir + "/_job_metadata_output.json",
+            "--type", "WDL",
+            "--type-version", "1.0",
             workflow_path,
         ))
