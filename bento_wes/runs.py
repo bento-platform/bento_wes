@@ -336,8 +336,19 @@ def run_detail(run_id):
 def get_stream(c, stream, run_id):
     c.execute("SELECT * FROM runs AS r, run_logs AS rl WHERE r.id = ? AND r.run_log = rl.id", (str(run_id),))
     run = c.fetchone()
-    return (current_app.response_class(response=run[stream], mimetype="text/plain", status=200) if run is not None
-            else flask_not_found_error(f"Stream {stream} not found for run {run_id}"))
+    return (current_app.response_class(
+        headers={
+            # If we've finished, we allow long-term (24h) caching of the stdout/stderr responses.
+            # Otherwise, no caching allowed!
+            "Cache-Control": (
+                "private, max-age=86400" if run["state"] in states.TERMINATED_STATES
+                else "no-cache, no-store, must-revalidate, max-age=0"
+            ),
+        },
+        response=run[stream],
+        mimetype="text/plain",
+        status=200,
+    ) if run is not None else flask_not_found_error(f"Stream {stream} not found for run {run_id}"))
 
 
 @bp_runs.route("/runs/<uuid:run_id>/stdout", methods=["GET"])

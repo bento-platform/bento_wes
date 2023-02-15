@@ -68,7 +68,7 @@ def service_info():
         "description": "Workflow execution service for a CHORD application.",
         "organization": {
             "name": "C3G",
-            "url": "http://www.computationalgenomics.ca"
+            "url": "https://www.computationalgenomics.ca"
         },
         "contactUrl": "mailto:info@c3g.ca",
         "version": bento_wes.__version__,
@@ -87,16 +87,19 @@ def service_info():
         if res_tag := subprocess.check_output(["git", "describe", "--tags", "--abbrev=0"]):
             res_tag_str = res_tag.decode().rstrip()
             info["git_tag"] = res_tag_str
+            # noinspection PyTypeChecker
             info["bento"]["gitTag"] = res_tag_str
         if res_branch := subprocess.check_output(["git", "branch", "--show-current"]):
             res_branch_str = res_branch.decode().rstrip()
             info["git_branch"] = res_branch_str
+            # noinspection PyTypeChecker
             info["bento"]["gitBranch"] = res_branch_str
         if res_commit := subprocess.check_output(["git", "rev-parse", "HEAD"]):
             res_commit_str = res_commit.decode().rstrip()
+            # noinspection PyTypeChecker
             info["bento"]["gitCommit"] = res_commit_str
     except Exception as e:
         except_name = type(e).__name__
-        current_app.logger.error(f"Error retrieving git information: {str(except_name)}: {e}")
+        current_app.logger.info(f"Could not retrieve git information: {str(except_name)}: {e}")
 
     return jsonify(info)
