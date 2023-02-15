@@ -68,7 +68,7 @@ def service_info():
         "description": "Workflow execution service for a CHORD application.",
         "organization": {
             "name": "C3G",
-            "url": "http://www.computationalgenomics.ca"
+            "url": "https://www.computationalgenomics.ca"
         },
         "contactUrl": "mailto:info@c3g.ca",
         "version": bento_wes.__version__,
