@@ -1,13 +1,16 @@
 FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.02.21 AS base-deps
 
+SHELL ["/bin/bash", "-c"]
+
 # Install system packages for HTSLib + SAMtools + curl and jq for workflows
 # OpenJDK is for running WOMtool/Cromwell
+# Then, bootstrap dependencies for setting up and running the Python application
 RUN apt-get update -y && \
     apt-get install -y samtools tabix bcftools curl jq openjdk-17-jre && \
-    rm -rf /var/lib/apt/lists/*
-
-# Boostrap dependencies for setting up and running the Python application
-RUN pip install --no-cache-dir poetry==1.3.2 gunicorn==20.1.0 "pysam>=0.20.0,<0.21.0"
+    rm -rf /var/lib/apt/lists/* && \
+    python -m venv /env && \
+    source /env/bin/activate && \
+    pip install --no-cache-dir poetry==1.3.2 gunicorn==20.1.0 "pysam>=0.20.0,<0.21.0"
 
 WORKDIR /
 ENV CROMWELL_VERSION=84
@@ -28,7 +31,7 @@ COPY poetry.lock .
 # Install production + development dependencies
 # Without --no-root, we get errors related to the code not being copied in yet.
 # But we don't want the code here, otherwise Docker cache doesn't work well.
-RUN poetry install --no-root
+RUN source /env/bin/activate && poetry install --no-root
 
 # Copy in the entrypoint & run script so we have somewhere to start
 COPY entrypoint.bash .

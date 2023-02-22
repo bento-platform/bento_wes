@@ -3,6 +3,12 @@
 # Set .gitconfig for development
 /set_gitconfig.bash
 
+# Source the development virtual environment
+source /env/bin/activate
+
+# Update dependencies and install module locally (similar to pip install -e: "editable mode")
+poetry install
+
 export FLASK_APP="bento_wes.app:application"
 
 if [ -z "${INTERNAL_PORT}" ]; then
@@ -10,8 +16,8 @@ if [ -z "${INTERNAL_PORT}" ]; then
   export INTERNAL_PORT=5000
 fi
 
-# Install any dependency changes if needed
-python -m poetry install
+# Create temporary directory if needed
+mkdir -p /wes/tmp
 
 # Clean up after any crashed previous container runs
 job_store_path="${SERVICE_TEMP:-tmp}/toil_job_store"
