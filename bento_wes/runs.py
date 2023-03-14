@@ -95,7 +95,7 @@ def _create_run(db, c):
         # - Extract filenames from workflow_params and inject them back into workflow_params
         #  as an array-of-strings alongside the original array-of-files
         # - Pass workflow ingestion URL in as a parameter to the workflow (used in the .wdl file directly)
-        if "gohan" in workflow_ingestion_url:
+        if workflow_ingestion_url and "gohan" in workflow_ingestion_url:
             workflow_params["vcf_gz.original_vcf_gz_file_paths"] = workflow_params["vcf_gz.vcf_gz_file_names"]
             gohan_url = urlparse(workflow_ingestion_url)
             workflow_params["vcf_gz.gohan_url"] = (f"{gohan_url.scheme}" +
