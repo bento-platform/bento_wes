@@ -1,5 +1,11 @@
 FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.02.27 AS base-deps
 
+LABEL org.opencontainers.image.description="Local development image for Bento WES."
+LABEL devcontainer.metadata='[{ \
+  "remoteUser": "bento_user", \
+  "workspaceFolder": "/wes" \
+}]'
+
 SHELL ["/bin/bash", "-c"]
 
 # Install system packages for HTSLib + SAMtools + curl and jq for workflows
