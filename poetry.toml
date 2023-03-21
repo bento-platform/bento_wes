@@ -1,4 +1,4 @@
 [virtualenvs]
 create = false
 # workaround: https://github.com/python-poetry/poetry/issues/7686
-installer.modern-installation = false
+experimental.new-installer = false
