@@ -4,10 +4,7 @@
 /set_gitconfig.bash
 
 # Update dependencies and install module locally
-poetry export -f requirements.txt --with dev --output requirements.txt
-pip install --user -r requirements.txt
-rm requirements.txt
-pip install -e .
+/poetry_user_install_dev.bash
 
 export FLASK_APP="bento_wes.app:application"
 

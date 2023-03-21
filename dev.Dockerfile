@@ -41,7 +41,7 @@ COPY poetry.lock .
 # Install production + development dependencies
 # Without --no-root, we get errors related to the code not being copied in yet.
 # But we don't want the code here, otherwise Docker cache doesn't work well.
-RUN poetry install --no-root
+RUN poetry --no-cache install --no-root
 
 # Copy in the entrypoint & run script so we have somewhere to start
 COPY entrypoint.bash .
