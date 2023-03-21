@@ -3,6 +3,7 @@ FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.02.27 AS base-de
 LABEL org.opencontainers.image.description="Local development image for Bento WES."
 LABEL devcontainer.metadata='[{ \
   "remoteUser": "bento_user", \
+  "customizations": {"vscode": {"extensions": ["ms-python.python"]}}, \
   "workspaceFolder": "/wes" \
 }]'
 
