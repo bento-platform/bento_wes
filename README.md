@@ -5,6 +5,8 @@
 [![codecov](https://codecov.io/gh/bento-platform/bento_wes/branch/master/graph/badge.svg)](https://codecov.io/gh/bento-platform/bento_wes)
 
 
+Developing `bento_wes` requires Python 3.8+ and Poetry 1.4+.
+
 
 ## Overview
 
@@ -187,7 +189,8 @@ install the development dependencies:
 ```bash
 virtualenv -p python3 ./env
 source env/bin/activate
-pip install -r requirements.txt
+pip install "poetry>=1.4.1"
+poetry install
 ```
 
 
