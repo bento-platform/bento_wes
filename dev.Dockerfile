@@ -15,7 +15,6 @@ SHELL ["/bin/bash", "-c"]
 RUN apt-get update -y && \
     apt-get install -y samtools tabix bcftools curl jq openjdk-17-jre && \
     rm -rf /var/lib/apt/lists/* && \
-    source /env/bin/activate && \
     pip install --no-cache-dir gunicorn==20.1.0 "pysam>=0.20.0,<0.21.0"
 
 WORKDIR /
