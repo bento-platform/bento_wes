@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "bento_wes"
-version = "0.8.5"
+version = "0.8.6"
 description = "Workflow execution service for the Bento platform."
 authors = [
     "David Lougheed <david.lougheed@mail.mcgill.ca>",

@@ -1,4 +1,15 @@
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.02.27 AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.03.21 AS base-deps
+
+LABEL org.opencontainers.image.description="Local development image for Bento WES."
+LABEL devcontainer.metadata='[{ \
+  "remoteUser": "bento_user", \
+  "customizations": { \
+    "vscode": { \
+      "extensions": ["ms-python.python", "eamodio.gitlens"], \
+      "settings": {"workspaceFolder": "/wes"} \
+    } \
+  } \
+}]'
 
 SHELL ["/bin/bash", "-c"]
 
@@ -8,11 +19,10 @@ SHELL ["/bin/bash", "-c"]
 RUN apt-get update -y && \
     apt-get install -y samtools tabix bcftools curl jq openjdk-17-jre && \
     rm -rf /var/lib/apt/lists/* && \
-    source /env/bin/activate && \
     pip install --no-cache-dir gunicorn==20.1.0 "pysam>=0.20.0,<0.21.0"
 
 WORKDIR /
-ENV CROMWELL_VERSION=84
+ENV CROMWELL_VERSION=85
 RUN curl -L \
     https://github.com/broadinstitute/cromwell/releases/download/${CROMWELL_VERSION}/cromwell-${CROMWELL_VERSION}.jar \
     -o cromwell.jar
@@ -30,7 +40,7 @@ COPY poetry.lock .
 # Install production + development dependencies
 # Without --no-root, we get errors related to the code not being copied in yet.
 # But we don't want the code here, otherwise Docker cache doesn't work well.
-RUN source /env/bin/activate && poetry install --no-root
+RUN poetry --no-cache install --no-root
 
 # Copy in the entrypoint & run script so we have somewhere to start
 COPY entrypoint.bash .
