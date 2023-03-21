@@ -5,7 +5,7 @@ LABEL devcontainer.metadata='[{ \
   "remoteUser": "bento_user", \
   "customizations": { \
     "vscode": { \
-      "extensions": ["ms-python.python", "ms-python.vscode-pylance"], \
+      "extensions": ["ms-python.python", "eamodio.gitlens"], \
       "settings": {"workspaceFolder": "/wes"} \
     } \
   } \
