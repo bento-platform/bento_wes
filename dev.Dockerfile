@@ -5,11 +5,10 @@ LABEL devcontainer.metadata='[{ \
   "remoteUser": "bento_user", \
   "customizations": { \
     "vscode": { \
-      "extensions": ["ms-python.python"], \
+      "extensions": ["ms-python.python", "ms-python.vscode-pylance"], \
       "settings": {"workspaceFolder": "/wes"} \
     } \
-  }, \
-  "workspaceFolder": "/wes" \
+  } \
 }]'
 
 SHELL ["/bin/bash", "-c"]
