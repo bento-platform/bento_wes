@@ -40,10 +40,10 @@ celery --app bento_wes.app worker --loglevel="${celery_log_level}" &
 : "${INTERNAL_PORT:=5000}"
 
 # Set internal debug port, falling back to debugpy default
-: "${BENTO_WES_DEBUGGER_INTERNAL_PORT:=5680}"
+: "${DEBUGGER_PORT:=5680}"
 
 # Start API server
 echo "[bento_wes] [entrypoint] Starting Flask server"
-python -m debugpy --listen 0.0.0.0:${BENTO_WES_DEBUGGER_INTERNAL_PORT} -m flask run \
+python -m debugpy --listen 0.0.0.0:${DEBUGGER_PORT} -m flask run \
   --host 0.0.0.0 \
   --port "${INTERNAL_PORT}"
