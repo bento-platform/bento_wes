@@ -189,7 +189,7 @@ install the development dependencies:
 ```bash
 virtualenv -p python3 ./env
 source env/bin/activate
-pip install "poetry>=1.4.1"
+pip install "poetry==1.3.2"
 poetry install
 ```
 
