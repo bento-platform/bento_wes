@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Set .gitconfig for development
-/set_gitconfig.bash
-
 # Update dependencies and install module locally
 /poetry_user_install_dev.bash
 
