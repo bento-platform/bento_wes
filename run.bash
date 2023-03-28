@@ -1,6 +1,5 @@
 #!/bin/bash
 
-export FLASK_DEBUG=false
 if [ -z "${INTERNAL_PORT}" ]; then
   # Set default internal port to 5000
   export INTERNAL_PORT=5000
