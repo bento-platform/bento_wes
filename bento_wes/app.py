@@ -53,10 +53,6 @@ with application.app_context():  # pragma: no cover
     else:
         update_db()
 
-    if application.config["IS_RUNNING_DEV"]:
-        app_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        subprocess.run(["git", "config", "--global", "--add", "safe.directory", str(app_dir)])
-
 
 # TODO: Not compatible with GA4GH WES due to conflict with GA4GH service-info (preferred)
 @application.route("/service-info", methods=["GET"])
