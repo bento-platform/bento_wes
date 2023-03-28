@@ -75,8 +75,6 @@ def service_info():
         },
     }
 
-    print(application.config["IS_RUNNING_DEV"])
-
     if not current_app.config["IS_RUNNING_DEV"]:
         return jsonify(info)
 
