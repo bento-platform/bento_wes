@@ -58,7 +58,7 @@ with application.app_context():  # pragma: no cover
 @application.route("/service-info", methods=["GET"])
 def service_info():
     info: GA4GHServiceInfo = {
-        "id": application.config["SERVICE_ID"],
+        "id": current_app.config["SERVICE_ID"],
         "name": SERVICE_NAME,  # TODO: Should be globally unique?
         "type": SERVICE_TYPE,
         "description": "Workflow execution service for a Bento instance.",
@@ -77,7 +77,7 @@ def service_info():
 
     print(application.config["IS_RUNNING_DEV"])
 
-    if not application.config["IS_RUNNING_DEV"]:
+    if not current_app.config["IS_RUNNING_DEV"]:
         return jsonify(info)
 
     info["environment"] = "dev"
