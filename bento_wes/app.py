@@ -78,6 +78,9 @@ def service_info():
             "gitRepository": "https://github.com/bento-platform/bento_wes",
         },
     }
+
+    print(application.config["IS_RUNNING_DEV"])
+
     if not application.config["IS_RUNNING_DEV"]:
         return jsonify(info)
 
