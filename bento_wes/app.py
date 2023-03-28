@@ -65,7 +65,7 @@ def service_info():
         "id": application.config["SERVICE_ID"],
         "name": SERVICE_NAME,  # TODO: Should be globally unique?
         "type": SERVICE_TYPE,
-        "description": "Workflow execution service for a CHORD application.",
+        "description": "Workflow execution service for a Bento instance.",
         "organization": {
             "name": "C3G",
             "url": "https://www.computationalgenomics.ca"
