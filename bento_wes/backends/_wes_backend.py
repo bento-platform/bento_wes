@@ -21,8 +21,6 @@ from .backend_types import Command, ProcessResult
 
 __all__ = ["WESBackend"]
 
-WORKFLOW_TIMEOUT = 60 * 60 * 24  # 24 hours
-
 # Spec: https://software.broadinstitute.org/wdl/documentation/spec#whitespace-strings-identifiers-constants
 WDL_WORKSPACE_NAME_REGEX = re.compile(r"workflow\s+([a-zA-Z][a-zA-Z0-9_]+)")
 
@@ -31,6 +29,7 @@ class WESBackend(ABC):
     def __init__(
         self,
         tmp_dir: str,
+        workflow_timeout: int,  # Workflow timeout, in seconds
         logger=None,
         event_bus: Optional[EventBus] = None,
         workflow_host_allow_list: Optional[set] = None,
@@ -40,6 +39,8 @@ class WESBackend(ABC):
         validate_ssl: bool = True,
         debug: bool = False,
     ):
+        self._workflow_timeout: int = workflow_timeout
+
         self.db: sqlite3.Connection = get_db()
 
         self.tmp_dir: str = tmp_dir
@@ -371,7 +372,7 @@ class WESBackend(ABC):
         timed_out = False
 
         try:
-            stdout, stderr = runner_process.communicate(timeout=WORKFLOW_TIMEOUT)
+            stdout, stderr = runner_process.communicate(timeout=self._workflow_timeout)
 
         except subprocess.TimeoutExpired:
             runner_process.kill()

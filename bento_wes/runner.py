@@ -213,6 +213,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
     logger.info("Initializing backend")
     backend: WESBackend = CromwellLocalBackend(
         tmp_dir=current_app.config["SERVICE_TEMP"],
+        workflow_timeout=current_app.config["WORKFLOW_TIMEOUT"],
         logger=logger,
         event_bus=event_bus,
 

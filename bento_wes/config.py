@@ -60,3 +60,5 @@ class Config:
     VEP_CACHE_DIR: Optional[str] = os.environ.get("VEP_CACHE_DIR")
 
     INGEST_POST_TIMEOUT: int = 60 * 60  # 1 hour
+    # Timeout for workflow runs themselves, in seconds - default to 48 hours
+    WORKFLOW_TIMEOUT: int = int(os.environ.get("WORKFLOW_TIMEOUT", str(60 * 60 * 48)))
