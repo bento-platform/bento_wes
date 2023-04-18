@@ -32,5 +32,5 @@ jobs:
         run: python -m poetry install
       - name: Test
         run: mkdir -p tmp && pytest -svv --cov=bento_wes --cov-branch
-      - name: Codecov
-        run: codecov
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
