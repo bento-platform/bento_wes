@@ -31,7 +31,8 @@ from .workflows import (
     count_bento_workflow_file_outputs,
 )
 
-from .db import get_db, run_request_dict,run_request_dict_public, run_log_dict, run_log_dict_public, get_task_logs, get_run_details, update_run_state_and_commit
+from .db import get_db, run_request_dict, run_request_dict_public, run_log_dict, \
+                run_log_dict_public, get_task_logs, get_run_details, update_run_state_and_commit
 
 
 bp_runs = Blueprint("runs", __name__)
@@ -328,6 +329,7 @@ def fetch_run_details(c, public_endpoint=False):
 
     return runs if not public_endpoint else get_latest_runs_by_data_type(runs)
 
+
 def get_latest_runs_by_data_type(runs):
     runs_by_data_type = defaultdict(list)
     for run in runs:
@@ -338,6 +340,7 @@ def get_latest_runs_by_data_type(runs):
         latest_runs_by_data_type[data_type] = max(runs, key=lambda r: r['end_time'])
 
     return [run for run in latest_runs_by_data_type.values()]
+
 
 @bp_runs.route("/runs", methods=["GET", "POST"])
 @flask_permissions_owner  # TODO: Allow others to submit analysis runs?
@@ -361,6 +364,7 @@ def run_list():
         } for run in c.fetchall()])
 
     return jsonify(fetch_run_details(c))
+
 
 @bp_runs.route("/runs-public", methods=["GET"])
 def run_list_public():
