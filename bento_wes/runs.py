@@ -16,6 +16,8 @@ from flask import Blueprint, current_app, jsonify, request
 from urllib.parse import urljoin, urlparse
 from werkzeug.utils import secure_filename
 
+from collections import defaultdict
+
 from . import states
 from .celery import celery
 from .events import get_flask_event_bus
@@ -29,7 +31,7 @@ from .workflows import (
     count_bento_workflow_file_outputs,
 )
 
-from .db import get_db, run_request_dict, run_log_dict, get_task_logs, get_run_details, update_run_state_and_commit
+from .db import get_db, run_request_dict,run_request_dict_public, run_log_dict, run_log_dict_public, get_task_logs, get_run_details, update_run_state_and_commit
 
 
 bp_runs = Blueprint("runs", __name__)
@@ -288,6 +290,55 @@ def _create_run(db, c):
         return flask_bad_request_error("Assertion error: bad run request format")
 
 
+def fetch_run_details(c, public_endpoint=False):
+    c.execute(
+        "SELECT r.id AS run_id, r.state AS state, rr.*, rl.* "
+        "FROM runs AS r, run_requests AS rr, run_logs AS rl "
+        "WHERE r.request = rr.id AND r.run_log = rl.id"
+    )
+
+    runs = []
+    for r in c.fetchall():
+        request = run_request_dict(r) if not public_endpoint else run_request_dict_public(r)
+        run_log = run_log_dict(r["run_id"], r) if not public_endpoint else run_log_dict_public(r["run_id"], r)
+        end_time = run_log['end_time']
+        state = r['state']
+
+        if public_endpoint:
+            if state == 'COMPLETE':
+                runs.append({
+                    'end_time': end_time,
+                    'state': state,
+                    'request': request,
+                    'run_log': run_log,
+                    'run_id': r['run_id'],
+                })
+        else:
+            runs.append({
+                'run_id': r["run_id"],
+                'state': state,
+                'details': {
+                    'run_id': r["run_id"],
+                    'state': state,
+                    'request': request,
+                    'run_log': run_log,
+                    'task_logs': get_task_logs(c, r["run_id"])
+                }
+            })
+
+    return runs if not public_endpoint else get_latest_runs_by_data_type(runs)
+
+def get_latest_runs_by_data_type(runs):
+    runs_by_data_type = defaultdict(list)
+    for run in runs:
+        runs_by_data_type[run['request']['tags']['workflow_metadata']['data_type']].append(run)
+
+    latest_runs_by_data_type = {}
+    for data_type, runs in runs_by_data_type.items():
+        latest_runs_by_data_type[data_type] = max(runs, key=lambda r: r['end_time'])
+
+    return [run for run in latest_runs_by_data_type.values()]
+
 @bp_runs.route("/runs", methods=["GET", "POST"])
 @flask_permissions_owner  # TODO: Allow others to submit analysis runs?
 def run_list():
@@ -309,21 +360,13 @@ def run_list():
             "state": run["state"]
         } for run in c.fetchall()])
 
-    c.execute("SELECT r.id AS run_id, r.state AS state, rr.*, rl.* "
-              "FROM runs AS r, run_requests AS rr, run_logs AS rl "
-              "WHERE r.request = rr.id AND r.run_log = rl.id")
+    return jsonify(fetch_run_details(c))
 
-    return jsonify([{
-        "run_id": r["run_id"],
-        "state": r["state"],
-        "details": {
-            "run_id": r["run_id"],
-            "state": r["state"],
-            "request": run_request_dict(r),
-            "run_log": run_log_dict(r["run_id"], r),
-            "task_logs": get_task_logs(c, r["run_id"])
-        }
-    } for r in c.fetchall()])
+@bp_runs.route("/runs-public", methods=["GET"])
+def run_list_public():
+    db = get_db()
+    c = db.cursor()
+    return jsonify(fetch_run_details(c, public_endpoint=True))
 
 
 @bp_runs.route("/runs/<uuid:run_id>", methods=["GET"])
