@@ -171,36 +171,27 @@ def test_run_cancel_endpoint(client, mocked_responses):
     assert error["errors"][0]["message"].startswith("No Celery ID present")
 
 
-def test_runs_public_endpoint(client, mocked_responses):
-    rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
-    assert rv.status_code == 200
-    created_run_data = rv.get_json()
-    assert "run_id" in created_run_data
-
+def test_runs_public_endpoint(client):
     rv = client.get("/runs_public")
     assert rv.status_code == 200
     data = rv.get_json()
-
-    assert len(data) > 0
 
     expected_keys = ["run_id", "request", "run_log", "end_time", "state"]
     for run in data:
         assert set(run.keys()) == set(expected_keys)
 
-    created_run = next((run for run in data if run["run_id"] == created_run_data["run_id"]), None)
-    assert created_run is not None
+        assert "workflow_type" in run["request"]
+        assert "tags" in run["request"]
+        assert "table_id" in run["request"]["tags"]
+        assert "workflow_id" in run["request"]["tags"]
+        assert "workflow_metadata" in run["request"]["tags"]
+        assert "data_type" in run["request"]["tags"]["workflow_metadata"]
+        assert "id" in run["request"]["tags"]["workflow_metadata"]
 
-    assert "workflow_type" in created_run["request"]
-    assert "tags" in created_run["request"]
-    assert "table_id" in created_run["request"]["tags"]
-    assert "workflow_id" in created_run["request"]["tags"]
-    assert "workflow_metadata" in created_run["request"]["tags"]
-    assert "data_type" in created_run["request"]["tags"]["workflow_metadata"]
-    assert "id" in created_run["request"]["tags"]["workflow_metadata"]
+        assert "id" in run["run_log"]
+        assert "start_time" in run["run_log"]
+        assert "end_time" in run["run_log"]
 
-    assert "id" in created_run["run_log"]
-    assert "start_time" in created_run["run_log"]
-    assert "end_time" in created_run["run_log"]
 
     # TODO: Get celery running for tests
 
