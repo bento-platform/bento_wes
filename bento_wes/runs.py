@@ -366,7 +366,7 @@ def run_list():
     return jsonify(fetch_run_details(c))
 
 
-@bp_runs.route("/runs-public", methods=["GET"])
+@bp_runs.route("/runs_public", methods=["GET"])
 def run_list_public():
     db = get_db()
     c = db.cursor()

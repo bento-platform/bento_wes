@@ -177,7 +177,7 @@ def test_runs_public_endpoint(client, mocked_responses):
     created_run_data = rv.get_json()
     assert "run_id" in created_run_data
 
-    rv = client.get("/runs-public")
+    rv = client.get("/runs_public")
     assert rv.status_code == 200
     data = rv.get_json()
 
