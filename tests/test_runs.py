@@ -192,7 +192,6 @@ def test_runs_public_endpoint(client):
         assert "start_time" in run["run_log"]
         assert "end_time" in run["run_log"]
 
-
     # TODO: Get celery running for tests
 
     # rv = client.post(f"/runs/{cr_data['run_id']}/cancel")
