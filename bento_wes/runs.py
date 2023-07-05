@@ -212,10 +212,10 @@ def _create_run(db, c):
 
         if "auth" in workflow_metadata:
             for tok in workflow_metadata["auth"]:
-                tokenFactory: AuthorizationToken = tt if tok.get("type", "tt") == "tt" else ott
+                token_factory: AuthorizationToken = tt if tok.get("type", "tt") == "tt" else ott
                 scope = tok.get("scope", "//")
                 try:
-                    token = tokenFactory.get(scope, 1)
+                    token = token_factory.get(scope, 1)
                 except Exception as err:
                     return flask_internal_server_error(str(err))
 
