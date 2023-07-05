@@ -12,7 +12,6 @@ from urllib.parse import urlparse
 
 from . import states
 from .backends import WESBackend
-# from .backends.toil_wdl import ToilWDLBackend
 from .backends.cromwell_local import CromwellLocalBackend
 from .celery import celery
 from .constants import SERVICE_ARTIFACT
