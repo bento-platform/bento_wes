@@ -17,6 +17,7 @@ from urllib.parse import urljoin, urlparse
 from werkzeug.utils import secure_filename
 
 from . import states
+from .authz import authz_middleware
 from .celery import celery
 from .events import get_flask_event_bus
 from .runner import run_workflow
@@ -67,6 +68,7 @@ def _create_run(db, c):
             # Bento singularity architecture) or
             "ingestion_path" in tags or "ingestion_url" in tags,
 
+            "project_id" in tags,
             "dataset_id" in tags,
         ))
 
@@ -77,9 +79,9 @@ def _create_run(db, c):
             "ingestion_url",
             (f"{current_app.config['CHORD_URL'].rstrip('/')}/{workflow_ingestion_path.lstrip('/')}"
              if workflow_ingestion_path else None))
+
+        project_id = tags.get("project_id", None)
         dataset_id = tags.get("dataset_id", None)
-        if chord_mode:
-            dataset_id = str(uuid.UUID(dataset_id))  # Check and standardize dataset ID
 
         not_ingestion_mode = workflow_metadata.get("action") in ["export", "analysis"]
 
@@ -275,8 +277,16 @@ def _create_run(db, c):
         c.execute("UPDATE runs SET state = ? WHERE id = ?", (states.STATE_QUEUED, str(run_id)))
         db.commit()
 
-        run_workflow.delay(run_id, chord_mode, workflow_metadata, workflow_ingestion_url, dataset_id, one_time_tokens,
-                           use_otts_for_drs)
+        run_workflow.delay(
+            run_id,
+            chord_mode,
+            workflow_metadata,
+            workflow_ingestion_url,
+            project_id,
+            dataset_id,
+            one_time_tokens,
+            use_otts_for_drs,
+        )
 
         return jsonify({"run_id": str(run_id)})
 
