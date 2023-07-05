@@ -90,7 +90,7 @@ Parameter:
     }
     "ingestion_path"?,  // optional callback
     "ingestion_url"?,
-    "table_id"          // used for ingestion callbacks
+    "dataset_id"          // used for ingestion callbacks
   }
 }
 ```

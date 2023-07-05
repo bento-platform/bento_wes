@@ -1,13 +1,13 @@
 import json
 
 __all__ = [
-    "EXAMPLE_TABLE_ID",
+    "EXAMPLE_DATASET_ID",
     "EXAMPLE_RUN",
     "EXAMPLE_RUN_BODY",
 ]
 
 
-EXAMPLE_TABLE_ID = "ef9da1da-ef7f-43d6-ace3-456bf8e58431"
+EXAMPLE_DATASET_ID = "ef9da1da-ef7f-43d6-ace3-456bf8e58431"
 
 EXAMPLE_RUN = {
     "workflow_params": {
@@ -42,7 +42,7 @@ EXAMPLE_RUN = {
             ],
         },
         "ingestion_url": "http://metadata.local/private/ingest",
-        "table_id": EXAMPLE_TABLE_ID,
+        "dataset_id": EXAMPLE_DATASET_ID,
     },
 }
 

@@ -67,7 +67,7 @@ def _create_run(db, c):
             # Bento singularity architecture) or
             "ingestion_path" in tags or "ingestion_url" in tags,
 
-            "table_id" in tags,
+            "dataset_id" in tags,
         ))
 
         workflow_id = tags.get("workflow_id", workflow_url)
@@ -77,9 +77,9 @@ def _create_run(db, c):
             "ingestion_url",
             (f"{current_app.config['CHORD_URL'].rstrip('/')}/{workflow_ingestion_path.lstrip('/')}"
              if workflow_ingestion_path else None))
-        table_id = tags.get("table_id", None)
+        dataset_id = tags.get("dataset_id", None)
         if chord_mode:
-            table_id = str(uuid.UUID(table_id))  # Check and standardize table ID
+            dataset_id = str(uuid.UUID(dataset_id))  # Check and standardize dataset ID
 
         not_ingestion_mode = workflow_metadata.get("action") in ["export", "analysis"]
 
@@ -207,8 +207,8 @@ def _create_run(db, c):
             workflow_params[f"{workflow_id}.temp_token_host"] = token_host
 
             # TODO: Refactor (Gohan)
-            # - Include table_id as part of the input parameters so Gohan can affiliate variants with a table
-            workflow_params["vcf_gz.table_id"] = table_id
+            # - Include dataset_id as part of the input parameters so Gohan can affiliate variants with a table
+            workflow_params["vcf_gz.dataset_id"] = dataset_id
 
         if "auth" in workflow_metadata:
             for tok in workflow_metadata["auth"]:
@@ -275,7 +275,7 @@ def _create_run(db, c):
         c.execute("UPDATE runs SET state = ? WHERE id = ?", (states.STATE_QUEUED, str(run_id)))
         db.commit()
 
-        run_workflow.delay(run_id, chord_mode, workflow_metadata, workflow_ingestion_url, table_id, one_time_tokens,
+        run_workflow.delay(run_id, chord_mode, workflow_metadata, workflow_ingestion_url, dataset_id, one_time_tokens,
                            use_otts_for_drs)
 
         return jsonify({"run_id": str(run_id)})

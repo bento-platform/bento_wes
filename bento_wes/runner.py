@@ -109,7 +109,7 @@ def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workfl
 
 @celery.task(bind=True)
 def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata: dict,
-                 c_workflow_ingestion_url: Optional[str], c_table_id: Optional[str], c_otts: List[str],
+                 c_workflow_ingestion_url: Optional[str], c_dataset_id: Optional[str], c_otts: List[str],
                  c_use_otts_for_drs: bool):
     db = get_db()
     c = db.cursor()
@@ -147,7 +147,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
 
         # Run result object
         run_results = {
-            "table_id": c_table_id,
+            "dataset_id": c_dataset_id,
             "workflow_id": workflow_name,
             "workflow_metadata": c_workflow_metadata,
             "workflow_outputs": workflow_outputs,
