@@ -1,6 +1,6 @@
 import os
 
-from typing import Optional, Tuple
+from typing import Optional
 
 from .constants import SERVICE_ID
 from .logger import logger
@@ -52,18 +52,8 @@ class Config:
     # Backend configuration
     CROMWELL_LOCATION: str = os.environ.get("CROMWELL_LOCATION", "/cromwell.jar")
 
-    # OTT-related configuration
-    OTT_ENDPOINT_NAMESPACE: str = os.environ.get("OTT_ENDPOINT_NAMESPACE", f"{CHORD_URL}api/auth/ott/")
-
-    # TT (temporary token)-related config
-    TT_ENDPOINT_NAMESPACE: str = os.environ.get("TT_ENDPOINT_NAMESPACE", f"{CHORD_URL}api/auth/tt/")
-
     # DRS-related configuration
     DRS_URL: str = os.environ.get("DRS_URL", f"{CHORD_URL}api/drs").strip().rstrip("/")
-    WRITE_OUTPUT_TO_DRS: bool = os.environ.get("WRITE_OUTPUT_TO_DRS", "false").lower().strip() in TRUTH_VALUES
-    DRS_DEDUPLICATE: bool = os.environ.get("DRS_DEDUPLICATE", "true").lower().strip() in TRUTH_VALUES
-    DRS_SKIP_TYPES: Tuple[str, ...] = tuple(
-        t.strip() for t in os.environ.get("DRS_SKIP_TYPES", "").split(",") if t.strip())
 
     # Other services, used for interpolating workflow variables
     METADATA_URL: str = os.environ.get("METADATA_URL", f"{CHORD_URL}api/metadata").strip().rstrip("/")

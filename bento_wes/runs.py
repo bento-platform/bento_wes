@@ -27,7 +27,6 @@ from .workflows import (
     WorkflowDownloadError,
     WorkflowManager,
     parse_workflow_host_allow_list,
-    count_bento_workflow_file_outputs,
 )
 
 from .db import get_db, run_request_dict, run_log_dict, get_task_logs, get_run_details, update_run_state_and_commit
@@ -137,8 +136,7 @@ def _create_run(db, c):
         )
 
         # Optional Authorization HTTP header to forward to nested requests
-        # TODO: Move X-Auth... constant to bento_lib
-        auth_header = request.headers.get("X-Authorization", request.headers.get("Authorization"))
+        auth_header = request.headers.get("Authorization")
         auth_header_dict = {"Authorization": auth_header} if auth_header else {}
 
         try:
@@ -151,78 +149,6 @@ def _create_run(db, c):
         except (WorkflowDownloadError, requests.exceptions.ConnectionError) as e:
             return flask_bad_request_error(f"Could not access workflow file: {workflow_url} (Python error: {e})")
 
-        # Generate one-time tokens for ingestion purposes if in Bento mode
-        one_time_tokens = []
-        drs_url: str = current_app.config["DRS_URL"]
-        use_otts_for_drs: bool = chord_url in drs_url and urlparse(drs_url).scheme != "http+unix"
-        ott_endpoint_namespace: str = current_app.config["OTT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
-        tt_endpoint_namespace: str = current_app.config["TT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
-
-        token_host = urlparse(chord_url).netloc
-
-        ott = AuthorizationToken(
-            {**auth_header_dict},  # TODO: Host?
-            ott_endpoint_namespace
-        )
-
-        tt = AuthorizationToken(
-            {**auth_header_dict},
-            tt_endpoint_namespace
-        )
-
-        if chord_mode and ott_endpoint_namespace:
-            # Generate the correct number of one-time tokens for the DRS and ingest scopes
-            # to allow for the callback to ingest files
-            # Skip doing this for DRS if the DRS URL is an internal (container) URL
-            # TODO: Remove this ^ bit
-
-            if use_otts_for_drs:
-                # TODO: This sort of assumes DRS is on the same domain as WES, which isn't necessarily correct
-                #  An error should be thrown if there's a mismatch and we're still trying to do OTT stuff, probably
-                scope = f"/{drs_url.replace(chord_url, '').rstrip('/')}/"
-                nb_tokens = count_bento_workflow_file_outputs(workflow_id, workflow_params, workflow_metadata)
-                try:
-                    one_time_tokens.extend(ott.get(scope, nb_tokens))
-                except Exception as err:
-                    return flask_internal_server_error(err)
-
-            # Request an additional OTT for the service ingest request
-            scope = ("/" if chord_url in workflow_ingestion_url else "") + workflow_ingestion_url.replace(
-                chord_url, "").rsplit("/", 1)[0] + "/"
-            one_time_tokens.extend(ott.get(scope, 1))
-
-        # Generate temporary tokens for polling purposes during ingestion
-        # (Gohan specific)
-        if chord_mode and tt_endpoint_namespace and "gohan" in workflow_ingestion_url:
-
-            scope = ("/" if chord_url in workflow_ingestion_url else "") + workflow_ingestion_url.replace(
-                chord_url, "").rsplit("/", 1)[0] + "/"
-            try:
-                token = tt.get(scope, 1)
-            except Exception as err:
-                return flask_internal_server_error(err)
-
-            # TODO: Refactor (Gohan)
-            # - Pass TT in as a parameter to the workflow (used in the .wdl file directly)
-            #    (current purpose for this is only to get automatic Gohan workflow requests through)
-            workflow_params[f"{workflow_id}.temp_token"] = token[0]
-            workflow_params[f"{workflow_id}.temp_token_host"] = token_host
-
-            # TODO: Refactor (Gohan)
-            # - Include dataset_id as part of the input parameters so Gohan can affiliate variants with a table
-            workflow_params["vcf_gz.dataset_id"] = dataset_id
-
-        if "auth" in workflow_metadata:
-            for tok in workflow_metadata["auth"]:
-                token_factory: AuthorizationToken = tt if tok.get("type", "tt") == "tt" else ott
-                scope = tok.get("scope", "//")
-                try:
-                    token = token_factory.get(scope, 1)
-                except Exception as err:
-                    return flask_internal_server_error(str(err))
-
-                workflow_params[f"{workflow_id}.{tok['id']}"] = token[0]
-                workflow_params[f"{workflow_id}.auth_host"] = token_host
         # ---
 
         # Begin creating the job after validating the request
@@ -277,16 +203,7 @@ def _create_run(db, c):
         c.execute("UPDATE runs SET state = ? WHERE id = ?", (states.STATE_QUEUED, str(run_id)))
         db.commit()
 
-        run_workflow.delay(
-            run_id,
-            chord_mode,
-            workflow_metadata,
-            workflow_ingestion_url,
-            project_id,
-            dataset_id,
-            one_time_tokens,
-            use_otts_for_drs,
-        )
+        run_workflow.delay(run_id, chord_mode)
 
         return jsonify({"run_id": str(run_id)})
 
