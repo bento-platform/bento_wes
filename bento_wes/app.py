@@ -7,6 +7,7 @@ from bento_lib.types import GA4GHServiceInfo
 from flask import current_app, Flask, jsonify
 from werkzeug.exceptions import BadRequest, NotFound
 
+from .authz import authz_middleware
 from .celery import celery
 from .config import Config
 from .constants import BENTO_SERVICE_KIND, SERVICE_NAME, SERVICE_TYPE
@@ -18,9 +19,14 @@ from .runs import bp_runs
 application = Flask(__name__)
 application.config.from_object(Config)
 
+# Attach authz middleware to Flask instance
+authz_middleware.attach(application)
+
+# Mount API routes
 application.register_blueprint(bp_runs)
 
-# Generic catch-all
+# Register error handlers
+#  - generic catch-all:
 application.register_error_handler(
     Exception,
     flask_errors.flask_error_wrap_with_traceback(flask_errors.flask_internal_server_error, service_name=SERVICE_NAME)

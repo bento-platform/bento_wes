@@ -3,14 +3,32 @@ import os
 from typing import Optional, Tuple
 
 from .constants import SERVICE_ID
+from .logger import logger
 
 
 __all__ = [
+    "BENTO_AUTHZ_SERVICE_URL",
+    "AUTHZ_ENABLED",
+    "BENTO_DEBUG",
     "BENTO_EVENT_REDIS_URL",
     "Config",
 ]
 
 TRUTH_VALUES = ("true", "1")
+
+BENTO_AUTHZ_SERVICE_URL = os.environ.get("BENTO_AUTHZ_SERVICE_URL", "")
+
+if BENTO_AUTHZ_SERVICE_URL == "":
+    logger.critical("BENTO_AUTHZ_SERVICE_URL must be set")
+    exit(1)
+
+AUTHZ_ENABLED = os.environ.get("AUTHZ_ENABLED", "true").strip().lower() in TRUTH_VALUES
+
+BENTO_DEBUG: bool = os.environ.get(
+        "BENTO_DEBUG",
+        os.environ.get(
+            "CHORD_DEBUG",
+            os.environ.get("FLASK_DEBUG", "false"))).strip().lower() in TRUTH_VALUES
 
 BENTO_EVENT_REDIS_URL = os.environ.get("BENTO_EVENT_REDIS_URL", "redis://localhost:6379")
 
@@ -18,11 +36,7 @@ BENTO_EVENT_REDIS_URL = os.environ.get("BENTO_EVENT_REDIS_URL", "redis://localho
 class Config:
     CHORD_URL: str = os.environ.get("CHORD_URL", "http://127.0.0.1:5000/")
 
-    BENTO_DEBUG: bool = os.environ.get(
-        "BENTO_DEBUG",
-        os.environ.get(
-            "CHORD_DEBUG",
-            os.environ.get("FLASK_DEBUG", "false"))).strip().lower() in TRUTH_VALUES
+    BENTO_DEBUG: bool = BENTO_DEBUG
     BENTO_VALIDATE_SSL: bool = os.environ.get(
         "BENTO_VALIDATE_SSL", str(not BENTO_DEBUG)).strip().lower() in TRUTH_VALUES
 
