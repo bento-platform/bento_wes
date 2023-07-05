@@ -75,7 +75,7 @@ def service_info():
         },
     }
 
-    if not current_app.config["IS_RUNNING_DEV"]:
+    if not current_app.config["BENTO_DEBUG"]:
         return jsonify(info)
 
     info["environment"] = "dev"

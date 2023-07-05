@@ -26,8 +26,6 @@ class Config:
     BENTO_VALIDATE_SSL: bool = os.environ.get(
         "BENTO_VALIDATE_SSL", str(not BENTO_DEBUG)).strip().lower() in TRUTH_VALUES
 
-    IS_RUNNING_DEV: bool = os.environ.get("FLASK_DEBUG", "false").strip().lower() in TRUTH_VALUES
-
     DATABASE: str = os.environ.get("DATABASE", "bento_wes.db")
     SERVICE_ID = SERVICE_ID
     SERVICE_TEMP: str = os.environ.get("SERVICE_TEMP", "tmp")
