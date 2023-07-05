@@ -18,9 +18,7 @@ cromwell-executions
 cromwell-workflow-logs
 
 # IDE stuff
-.idea/workspace.xml
-.idea/dataSources*
-.idea/rSettings.xml
+.idea/*
 *.swp
 *.swo
 .vscode/*
