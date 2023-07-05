@@ -17,8 +17,9 @@ with additional Bento-specific features.
 ### Workflow definition
 A workflow is based on a `.wdl` file which defines the different tasks with
 their related I/O dependencies (i.e. which variables or files are required as
-input, and what is the output of the workflow). See the [Workflow Definition Language Specs](https://github.com/openwdl/wdl/blob/main/versions/draft-2/SPEC.md) for more information.
-A mandatory JSON file containing the
+input, and what is the output of the workflow). See the 
+[Workflow Definition Language Specs](https://github.com/openwdl/wdl/blob/main/versions/draft-2/SPEC.md) 
+for more information. A mandatory JSON file containing the
 required metadata (variables values, file names, etc... to be used by the workflow) is also provided.
 
 ### Where are workflows defined in Bento?
@@ -41,11 +42,12 @@ The WES container may receive a `/runs` POST request to execute a given workflow
 with specified metadata. The WES service then queries the worflow provider
 to get the relevant `.wdl` file which is copied over in a temporary execution folder,
 along with the metadata as JSON.
-The [Toil library](https://toil.readthedocs.io/en/latest/running/wdl.html)
-is used to generate a script from the workflow definition and a process is
-spawned to run it. In a first step, the dependencies such as
-input files are copied over locally. Note that in DEV mode, the temporary files
+
+The [Cromwell](https://cromwell.readthedocs.io/en/stable/) workflow management system
+is used to execute the WDL files. In a first step, the dependencies such as
+input files are copied over locally. Note that in development mode, the temporary files
 are not cleaned up after completion.
+
 Each run is monitored and its state is stored in a local database.
 
 Note that some metadata may contain callback urls which are called once the
@@ -249,44 +251,16 @@ nohup celery --loglevel=INFO --app bento_wes.app worker &> celery.log &
 ## About the implementation
 This service is built around a [Flask](https://flask.palletsprojects.com/) application.
 It uses [Celery](https://github.com/celery/celery) to monitor and run workflows executed
-by [Toil](http://toil.ucsc-cgl.org/).
+by [Cromwell](https://cromwell.readthedocs.io/en/stable/).
+
 The workflows are downloaded from local services.
+
 There are no checks on the workflows validity in that case
 (assumption that workflows coming from configured hosts are correct,
 see above `WORKFLOW_HOST_ALLOW_LIST` env variable).
+
 For now the [WOMtool](https://cromwell.readthedocs.io/en/stable/WOMtool/) utility used for checking `.wdl` files
 validity is disabled in Bento (see the corresponding Dockerfile).
-
-### WDL files syntax tips
-Toil support for WDL files is considered in alpha stage. Currently the Toil library version
-used in `bento-wes` is `3.2` which only supports `draft-2` version of the WDL specs.
-This makes it error-prone to rely on WOMtools for syntax checks.
-Here is a list of the limitations found:
-- Chaning tasks in scatter blocks is unsupported (i.e. tasks which inputs depend on previous tasks outputs)
-- Input block is unsupported (WDL-draft2 limitation)
-- Interpolation of internal variables with `~{}` syntax is unsupported, even in `<<<>>>` delimited command blocks. Use `${}` instead.
-- If the shell script command block makes use of local variables defined in
-  the shell script (as opposed to WDL variables declared externally), the
-  `${VARNAME}` conflicts with WDL variables. A trick is to define a `dollar`
-  WDL variable `String dollar = "$"` and use it to "escape" shell variables
-  (e.g. `${dollar}{VARNAME}`).
-  ```wdl
-  String dollar = "$"
-
-  command <<<
-    PI=3.14
-    echo ${dollar}{PI}
-  >>>
-  ```
-- File names based on WDL variables used in the `output` block must be enclosed
-  in quotes and use string interpolation
-  ```wdl
-  String output_file = "myfilename.txt"
-
-  output {
-    File out = "${output_file}"
-  }
-  ```
 
 ### runs.py
 This script contains the routes definitions as [Flask's Blueprints](https://flask.palletsprojects.com/en/2.0.x/blueprints/)
