@@ -24,6 +24,9 @@ __all__ = ["WESBackend"]
 # Spec: https://software.broadinstitute.org/wdl/documentation/spec#whitespace-strings-identifiers-constants
 WDL_WORKSPACE_NAME_REGEX = re.compile(r"workflow\s+([a-zA-Z][a-zA-Z0-9_]+)")
 
+PARAM_SECRET_PREFIX = "secret__"
+ParamDict = dict[str, str | int | float | bool]
+
 
 class WESBackend(ABC):
     def __init__(
@@ -123,7 +126,7 @@ class WESBackend(ABC):
         pass
 
     @abstractmethod
-    def _serialize_params(self, workflow_params: dict) -> str:
+    def _serialize_params(self, workflow_params: ParamDict) -> str:
         """
         Serializes parameters for a particular workflow run into the format expected by the backend's runner.
         :param workflow_params: A dictionary of key-value pairs representing the workflow parameters
@@ -293,12 +296,13 @@ class WESBackend(ABC):
         if not self.debug:
             shutil.rmtree(self.run_dir(run), ignore_errors=True)
 
-    def _initialize_run_and_get_command(self, run: dict, celery_id) -> Optional[Command]:
+    def _initialize_run_and_get_command(self, run: dict, celery_id, access_token: str) -> tuple[Command, dict] | None:
         """
         Performs "initialization" operations on the run, including setting states, downloading and validating the
         workflow file, and generating and logging the workflow-running command.
         :param run: The run to initialize
         :param celery_id: The Celery ID of the Celery task responsible for executing the run
+        :param access_token: An access token for talking with this Bento instance's services
         :return: The command to execute, if no errors occurred; None otherwise
         """
 
@@ -314,7 +318,10 @@ class WESBackend(ABC):
 
         c = self.db.cursor()
 
-        workflow_params: dict = run["request"]["workflow_params"]
+        workflow_params: ParamDict = {
+            **run["request"]["workflow_params"],
+            f"{PARAM_SECRET_PREFIX}access_token": access_token,
+        }
 
         # -- Validate the workflow --------------------------------------------
         error = self._check_workflow_and_type(run)
@@ -346,14 +353,15 @@ class WESBackend(ABC):
         c.execute("UPDATE run_logs SET cmd = ?, celery_id = ? WHERE id = ?", (" ".join(cmd), celery_id, run_log_id))
         self.db.commit()
 
-        return cmd
+        return cmd, workflow_params
 
-    def _perform_run(self, run: dict, cmd: Command) -> Optional[ProcessResult]:
+    def _perform_run(self, run: dict, cmd: Command, params_with_secrets: ParamDict) -> Optional[ProcessResult]:
         """
         Performs a run based on a provided command and returns stdout, stderr, exit code, and whether the process timed
         out while running.
         :param run: The run to execute
         :param cmd: The command used to execute the run
+        :param params_with_secrets: A dictionary of parameters, including secret values
         :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
         """
 
@@ -381,6 +389,15 @@ class WESBackend(ABC):
 
         finally:
             exit_code = runner_process.returncode
+
+        # -- Censor output in case it includes any secrets
+
+        for k, v in params_with_secrets.items():
+            if not k.startswith(PARAM_SECRET_PREFIX):
+                continue
+            if isinstance(v, str) and len(v) >= 5:  # redacted secrets must be somewhat lengthy
+                stdout = stdout.replace(v, "<redacted>")
+                stderr = stderr.replace(v, "<redacted>")
 
         # Complete run ========================================================
 
@@ -413,11 +430,12 @@ class WESBackend(ABC):
 
         return ProcessResult((stdout, stderr, exit_code, timed_out))
 
-    def perform_run(self, run: dict, celery_id) -> Optional[ProcessResult]:
+    def perform_run(self, run: dict, celery_id, access_token: str) -> Optional[ProcessResult]:
         """
         Executes a run from start to finish (initialization, startup, and completion / cleanup.)
         :param run: The run to execute
         :param celery_id: The ID of the Celery task responsible for executing the workflow
+        :param access_token: An access token for talking with this Bento instance's services
         :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
         """
 
@@ -427,9 +445,11 @@ class WESBackend(ABC):
         self._runs[run["run_id"]] = run
 
         # Initialization (loading / downloading files) ------------------------
-        cmd = self._initialize_run_and_get_command(run, celery_id)
-        if cmd is None:
+        init_vals = self._initialize_run_and_get_command(run, celery_id, access_token)
+        if init_vals is None:
             return
 
+        cmd, params_with_secrets = init_vals
+
         # Perform, finish, and clean up run -----------------------------------
-        return self._perform_run(run, cmd)
+        return self._perform_run(run, cmd, params_with_secrets)

@@ -74,3 +74,9 @@ class Config:
     INGEST_POST_TIMEOUT: int = 60 * 60  # 1 hour
     # Timeout for workflow runs themselves, in seconds - default to 48 hours
     WORKFLOW_TIMEOUT: int = int(os.environ.get("WORKFLOW_TIMEOUT", str(60 * 60 * 48)))
+
+    # Auth-related config for WES itself
+    BENTO_OPENID_CONFIG_URL: str = os.environ.get(
+        "BENTO_OPENID_CONFIG_URL", "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration")
+    WES_CLIENT_ID: str = os.environ.get("WES_CLIENT_ID", "bento_wes")
+    WES_CLIENT_SECRET: str = os.environ.get("WES_CLIENT_SECRET", "")

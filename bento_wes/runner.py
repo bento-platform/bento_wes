@@ -229,9 +229,33 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool, c_workflow_metadata:
         debug=current_app.config["BENTO_DEBUG"],
     )
 
+    # Obtain access token for use inside workflow to ingest data
+    try:
+        logger.info("Obtaining access token")
+        # TODO: cache OpenID config
+        # TODO: handle errors more elegantly/precisely
+
+        # TODO: somehow get an access token which is only able to ingest into a specific dataset, not everything.
+        #  - perhaps exchange the user's token for some type of limited-scope token (ingest only) which lasts 24 hours,
+        #    given out by the authorization service?
+
+        openid_config = requests.get(current_app.config["BENTO_OPENID_CONFIG_URL"]).json()
+        token_res = requests.post(openid_config["token_endpoint"], data={
+            "grant_type": "client_credentials",
+            "client_id": current_app.config["WES_CLIENT_ID"],
+            "client_secret": current_app.config["WES_CLIENT_SECRET"],
+        })
+        access_token = token_res.json()["access_token"]
+    except Exception as e:
+        # Intercept any uncaught exceptions and finish with an error state
+        logger.error(f"Uncaught exception while obtaining access token: {type(e).__name__} {e}")
+        finish_run(db, c, event_bus, run, states.STATE_SYSTEM_ERROR, logger=logger)
+        raise e
+
+    # Perform the run
     try:
         logger.info("Starting workflow execution...")
-        backend.perform_run(run, self.request.id)
+        backend.perform_run(run, self.request.id, access_token)
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while performing run: {type(e).__name__} {e}")
