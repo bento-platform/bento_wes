@@ -12,7 +12,7 @@ from bento_lib.responses.flask_errors import (
     flask_not_found_error,
 )
 from flask import Blueprint, current_app, jsonify, request
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 from werkzeug.utils import secure_filename
 
 from . import states
@@ -365,25 +365,3 @@ def run_status(run_id):
         "run_id": run["id"],
         "state": run["state"]
     })
-
-
-class AuthorizationToken():
-    """Encapsulation of requests for authorization tokens (one time or temp)"""
-
-    def __init__(self, headers, endpoint_namespace):
-        self.headers = headers
-        self.generate_url = urljoin(endpoint_namespace.rstrip("/") + "/", "generate")
-
-    def get(self, scope, number):
-        tr = requests.post(self.generate_url, headers=self.headers, json={
-            "scope": scope,
-            "number": number,
-        }, verify=current_app.config["BENTO_VALIDATE_SSL"])
-
-        if not tr.ok:
-            # An error occurred while requesting authorization token, so we cannot complete the run request
-            raise Exception(
-                f"Got error while requesting authorization tokens: {tr.content} "
-                f"(Scope: {scope}, URL: {self.generate_url}, headers included: {list(self.headers.keys())})")
-
-        return tr.json()
