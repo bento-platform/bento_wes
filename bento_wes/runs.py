@@ -1,6 +1,8 @@
 import json
 import logging
 import os
+import sqlite3
+
 import requests
 import shutil
 import traceback
@@ -10,13 +12,15 @@ from bento_lib.responses.flask_errors import (
     flask_bad_request_error,
     flask_internal_server_error,
     flask_not_found_error,
+    flask_forbidden_error,
 )
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request
+from typing import Callable, Literal
 from urllib.parse import urlparse
 from werkzeug.utils import secure_filename
 
 from . import states
-from .authz import authz_middleware
+from .authz import authz_middleware, PERMISSION_INGEST_DATA, PERMISSION_VIEW_RUNS
 from .celery import celery
 from .events import get_flask_event_bus
 from .runner import run_workflow
@@ -34,6 +38,28 @@ from .db import get_db, run_request_dict, run_log_dict, get_task_logs, get_run_d
 bp_runs = Blueprint("runs", __name__)
 
 logger = logging.getLogger(__name__)
+
+
+def _get_project_and_dataset_id_from_tags(tags: dict) -> tuple[str | None, str | None]:
+    project_id = tags.get("project_id", None)
+    dataset_id = tags.get("dataset_id", None)
+    return project_id, dataset_id
+
+
+def _get_project_and_dataset_id_from_run_request(run_request: dict) -> tuple[str | None, str | None]:
+    return _get_project_and_dataset_id_from_tags(run_request["tags"])
+
+
+def _check_runs_permission(runs_project_datasets: list[tuple[str, str]], permission: str) -> tuple[bool, ...]:
+    # TODO: post to authz
+    pass
+
+
+def _check_single_run_permission_and_mark(project_and_dataset: tuple[str | None, str | None], permission: str) -> bool:
+    p_res = _check_runs_permission([project_and_dataset], permission)
+    # By calling this, the developer indicates that they will have handled permissions adequately:
+    authz_middleware.mark_authz_done(request)
+    return p_res and p_res[0]
 
 
 def _create_run(db, c):
@@ -78,14 +104,17 @@ def _create_run(db, c):
             (f"{current_app.config['CHORD_URL'].rstrip('/')}/{workflow_ingestion_path.lstrip('/')}"
              if workflow_ingestion_path else None))
 
-        project_id = tags.get("project_id", None)
-        dataset_id = tags.get("dataset_id", None)
+        # Check ingest permissions before continuing
 
-        # TODO: check permissions based on project and dataset id
+        if not _check_single_run_permission_and_mark(
+                _get_project_and_dataset_id_from_tags(tags), PERMISSION_INGEST_DATA):
+            return flask_forbidden_error("Forbidden")
+
+        # We have permission - so continue
 
         not_ingestion_mode = workflow_metadata.get("action") in ["export", "analysis"]
 
-        # Don't accept anything (ex. CWL) other than WDL TODO: CWL support
+        # Don't accept anything (ex. CWL) other than WDL
         assert workflow_type == "WDL"
         assert workflow_type_version == "1.0"
 
@@ -228,46 +257,58 @@ def run_list():
     # CHORD Extension: Include run details with /runs request
     with_details = request.args.get("with_details", "false").lower() == "true"
 
-    if not with_details:
-        c.execute("SELECT * FROM runs")
-
-        return jsonify([{
-            "run_id": run["id"],
-            "state": run["state"]
-        } for run in c.fetchall()])
-
-    c.execute("SELECT r.id AS run_id, r.state AS state, rr.*, rl.* "
-              "FROM runs AS r, run_requests AS rr, run_logs AS rl "
-              "WHERE r.request = rr.id AND r.run_log = rl.id")
-
     res_list = []
+    perms_list: list[tuple[str, str]] = []
+
+    c.execute("SELECT * FROM runs")
 
     for r in c.fetchall():
-        run_req = run_request_dict(r)
-        # TODO: check permissions for each
-        res_list.append({
-            "run_id": r["run_id"],
+        run = {
+            "run_id": r["id"],
             "state": r["state"],
-            "details": {
+        }
+
+        run_req = run_request_dict(r)
+
+        project_id, dataset_id = _get_project_and_dataset_id_from_run_request(run_req)
+
+        if project_id is None or dataset_id is None:
+            logger.error(f"Invalid run encountered (missing project_id or dataset_id in request tags): {r['id']}")
+            continue
+
+        perms_list.append((project_id, dataset_id))
+
+        if with_details:
+            run["details"] = {
                 "run_id": r["run_id"],
                 "state": r["state"],
                 "request": run_req,
                 "run_log": run_log_dict(r["run_id"], r),
                 "task_logs": get_task_logs(c, r["run_id"])
             }
-        })
+
+        res_list.append(run)
+
+    p_res = _check_runs_permission(perms_list, PERMISSION_VIEW_RUNS)
+    res_list = [v for v, p in zip(res_list, p_res) if p]
+
+    authz_middleware.mark_authz_done(request)
 
     return jsonify(res_list)
 
 
 @bp_runs.route("/runs/<uuid:run_id>", methods=["GET"])
 def run_detail(run_id):
-    # TODO: check permissions based on project/dataset
     run_details, err = get_run_details(get_db().cursor(), run_id)
+
+    if not _check_single_run_permission_and_mark(
+            _get_project_and_dataset_id_from_run_request(run_details["request"]), PERMISSION_VIEW_RUNS):
+        return flask_forbidden_error("Forbidden")
+
     return jsonify(run_details) if run_details is not None else flask_not_found_error(f"Run {run_id} not found ({err})")
 
 
-def get_stream(c, stream, run_id):
+def get_stream(c: sqlite3.Cursor, stream: Literal["stdout", "stderr"], run_id: uuid.UUID):
     c.execute("SELECT * FROM runs AS r, run_logs AS rl WHERE r.id = ? AND r.run_log = rl.id", (str(run_id),))
     run = c.fetchone()
     return (current_app.response_class(
@@ -285,68 +326,90 @@ def get_stream(c, stream, run_id):
     ) if run is not None else flask_not_found_error(f"Stream {stream} not found for run {run_id}"))
 
 
+def check_run_authz_then_return_response(
+    c: sqlite3.Cursor,
+    run_id: uuid.UUID,
+    cb: Callable[[], Response | dict],
+    permission: str = PERMISSION_VIEW_RUNS,
+):
+    run_details, rd_err = get_run_details(c, run_id)
+
+    if rd_err:
+        # Without permissions, don't even leak if this run exists - just return forbidden
+        authz_middleware.mark_authz_done(request)
+        return flask_forbidden_error("Forbidden")
+
+    if not _check_single_run_permission_and_mark(
+            _get_project_and_dataset_id_from_run_request(run_details["request"]), permission):
+        return flask_forbidden_error("Forbidden")
+
+    return cb()
+
+
 @bp_runs.route("/runs/<uuid:run_id>/stdout", methods=["GET"])
-def run_stdout(run_id):
-    # TODO: check permissions based on project/dataset
-    return get_stream(get_db().cursor(), "stdout", run_id)
+def run_stdout(run_id: uuid.UUID):
+    c = get_db().cursor()
+    return check_run_authz_then_return_response(c, run_id, lambda: get_stream(c, "stdout", run_id))
 
 
 @bp_runs.route("/runs/<uuid:run_id>/stderr", methods=["GET"])
 def run_stderr(run_id):
-    # TODO: check permissions based on project/dataset
-    return get_stream(get_db().cursor(), "stderr", run_id)
+    c = get_db().cursor()
+    return check_run_authz_then_return_response(c, run_id, lambda: get_stream(c, "stderr", run_id))
 
 
 @bp_runs.route("/runs/<uuid:run_id>/cancel", methods=["POST"])
 def run_cancel(run_id):
-    # TODO: check permissions based on project/dataset
-
     # TODO: Check if already completed
     # TODO: Check if run log exists
     # TODO: from celery.task.control import revoke; revoke(celery_id, terminate=True)
     db = get_db()
     c = db.cursor()
-    event_bus = get_flask_event_bus()
 
-    c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
-    run = c.fetchone()
+    def perform_run_cancel():
+        c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
+        run = c.fetchone()
 
-    if run is None:
-        return flask_not_found_error(f"Run {run_id} not found")
+        if run is None:
+            return flask_not_found_error(f"Run {run_id} not found")
 
-    if run["state"] in (states.STATE_CANCELING, states.STATE_CANCELED):
-        return flask_bad_request_error("Run already canceled")
+        if run["state"] in (states.STATE_CANCELING, states.STATE_CANCELED):
+            return flask_bad_request_error("Run already canceled")
 
-    if run["state"] in states.FAILURE_STATES:
-        return flask_bad_request_error("Run already terminated with error")
+        if run["state"] in states.FAILURE_STATES:
+            return flask_bad_request_error("Run already terminated with error")
 
-    if run["state"] in states.SUCCESS_STATES:
-        return flask_bad_request_error("Run already completed")
+        if run["state"] in states.SUCCESS_STATES:
+            return flask_bad_request_error("Run already completed")
 
-    c.execute("SELECT * FROM run_logs WHERE id = ?", (run["run_log"],))
-    run_log = c.fetchone()
+        c.execute("SELECT * FROM run_logs WHERE id = ?", (run["run_log"],))
+        run_log = c.fetchone()
 
-    if run_log is None:
-        return flask_internal_server_error(f"No run log present for run {run_id}")
+        if run_log is None:
+            return flask_internal_server_error(f"No run log present for run {run_id}")
 
-    if run_log["celery_id"] is None:
-        # Never made it into the queue, so "cancel" it
-        return flask_internal_server_error(f"No Celery ID present for run {run_id}")
+        if run_log["celery_id"] is None:
+            # Never made it into the queue, so "cancel" it
+            return flask_internal_server_error(f"No Celery ID present for run {run_id}")
 
-    # TODO: terminate=True might be iffy
-    update_run_state_and_commit(db, c, event_bus, run["id"], states.STATE_CANCELING)
-    celery.control.revoke(run_log["celery_id"], terminate=True)  # Remove from queue if there, terminate if running
+        event_bus = get_flask_event_bus()
 
-    # TODO: wait for revocation / failure and update status...
+        # TODO: terminate=True might be iffy
+        update_run_state_and_commit(db, c, event_bus, run["id"], states.STATE_CANCELING)
+        celery.control.revoke(run_log["celery_id"], terminate=True)  # Remove from queue if there, terminate if running
 
-    # TODO: Generalize clean-up code / fetch from back-end
-    run_dir = os.path.join(current_app.config["SERVICE_TEMP"], run["run_id"])
-    if not current_app.config["BENTO_DEBUG"]:
-        shutil.rmtree(run_dir, ignore_errors=True)
+        # TODO: wait for revocation / failure and update status...
 
-    update_run_state_and_commit(db, c, event_bus, run["id"], states.STATE_CANCELED)
+        # TODO: Generalize clean-up code / fetch from back-end
+        run_dir = os.path.join(current_app.config["SERVICE_TEMP"], run["run_id"])
+        if not current_app.config["BENTO_DEBUG"]:
+            shutil.rmtree(run_dir, ignore_errors=True)
 
-    return current_app.response_class(status=204)  # TODO: Better response
+        update_run_state_and_commit(db, c, event_bus, run["id"], states.STATE_CANCELED)
+
+        return current_app.response_class(status=204)  # TODO: Better response
+
+    return check_run_authz_then_return_response(c, run_id, perform_run_cancel)
 
 
 @bp_runs.route("/runs/<uuid:run_id>/status", methods=["GET"])
@@ -355,13 +418,16 @@ def run_status(run_id):
 
     c = get_db().cursor()
 
-    c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
-    run = c.fetchone()
+    def run_status_response():
+        c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
+        run = c.fetchone()
 
-    if run is None:
-        return flask_not_found_error(f"Run {run_id} not found")
+        if run is None:
+            return flask_not_found_error(f"Run {run_id} not found")
 
-    return jsonify({
-        "run_id": run["id"],
-        "state": run["state"]
-    })
+        return jsonify({
+            "run_id": run["id"],
+            "state": run["state"]
+        })
+
+    return check_run_authz_then_return_response(c, run_id, run_status_response)
