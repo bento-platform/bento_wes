@@ -38,21 +38,21 @@ from .db import get_db, run_request_dict, run_log_dict, get_task_logs, get_run_d
 bp_runs = Blueprint("runs", __name__)
 
 
-def _get_project_and_dataset_id_from_tags(tags: dict) -> tuple[str | None, str | None]:
-    project_id = tags.get("project_id", None)
+def _get_project_and_dataset_id_from_tags(tags: dict) -> tuple[str, str | None]:
+    project_id = tags["project_id"]
     dataset_id = tags.get("dataset_id", None)
     return project_id, dataset_id
 
 
-def _get_project_and_dataset_id_from_run_request(run_request: dict) -> tuple[str | None, str | None]:
+def _get_project_and_dataset_id_from_run_request(run_request: dict) -> tuple[str, str | None]:
     return _get_project_and_dataset_id_from_tags(run_request["tags"])
 
 
-def _check_runs_permission(runs_project_datasets: list[tuple[str, str]], permission: str) -> tuple[bool, ...]:
+def _check_runs_permission(runs_project_datasets: list[tuple[str, str | None]], permission: str) -> tuple[bool, ...]:
     return authz_middleware.authz_post(request, "/policy/evaluate", body={
         "requested_resource": [
             {
-                **({"project": project_id} if project_id else {}),
+                "project": project_id,
                 **({"dataset": dataset_id} if dataset_id else {}),
             }
             for project_id, dataset_id in runs_project_datasets
@@ -61,7 +61,7 @@ def _check_runs_permission(runs_project_datasets: list[tuple[str, str]], permiss
     }).json()["result"]
 
 
-def _check_single_run_permission_and_mark(project_and_dataset: tuple[str | None, str | None], permission: str) -> bool:
+def _check_single_run_permission_and_mark(project_and_dataset: tuple[str, str | None], permission: str) -> bool:
     p_res = _check_runs_permission([project_and_dataset], permission)
     # By calling this, the developer indicates that they will have handled permissions adequately:
     authz_middleware.mark_authz_done(request)
@@ -87,20 +87,9 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
 
         # TODO: Move CHORD-specific stuff out somehow?
 
-        # Only "turn on" CHORD-specific features if specific tags are present
-
-        chord_mode = all((
-            "workflow_id" in tags,
-            "workflow_metadata" in tags,
-            tags["workflow_metadata"].get("action", "ingestion") == "ingestion",
-
-            # Allow either a path to be specified for ingestion (for the 'classic'
-            # Bento singularity architecture) or
-            "ingestion_path" in tags or "ingestion_url" in tags,
-
-            "project_id" in tags,
-            "dataset_id" in tags,
-        ))
+        assert "workflow_id" in tags
+        assert "workflow_metadata" in tags
+        assert "action" in tags["workflow_metadata"]
 
         workflow_id = tags.get("workflow_id", workflow_url)
         workflow_metadata = tags.get("workflow_metadata", {})
@@ -239,7 +228,7 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
         c.execute("UPDATE runs SET state = ? WHERE id = ?", (states.STATE_QUEUED, str(run_id)))
         db.commit()
 
-        run_workflow.delay(run_id, chord_mode)
+        run_workflow.delay(run_id)
 
         return jsonify({"run_id": str(run_id)})
 
@@ -264,7 +253,7 @@ def run_list():
     with_details = request.args.get("with_details", "false").lower() == "true"
 
     res_list = []
-    perms_list: list[tuple[str, str]] = []
+    perms_list: list[tuple[str, str | None]] = []
 
     c.execute("SELECT * FROM runs")
 

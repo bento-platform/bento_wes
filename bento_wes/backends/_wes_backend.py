@@ -1,3 +1,5 @@
+import bento_lib.workflows as w
+import json
 import pathlib
 import os
 import re
@@ -8,8 +10,9 @@ import uuid
 
 from abc import ABC, abstractmethod
 from bento_lib.events import EventBus
+from bento_lib.events.types import EVENT_WES_RUN_FINISHED
 from flask import current_app
-from typing import Callable, Optional, Tuple, Union
+from typing import Optional, Tuple, Union
 
 from bento_wes import states
 from bento_wes.db import get_db, finish_run, update_run_state_and_commit
@@ -18,6 +21,7 @@ from bento_wes.utils import iso_now
 from bento_wes.workflows import WorkflowType, WorkflowManager
 
 from .backend_types import Command, ProcessResult
+from ..constants import SERVICE_ARTIFACT
 
 __all__ = ["WESBackend"]
 
@@ -36,8 +40,6 @@ class WESBackend(ABC):
         logger=None,
         event_bus: Optional[EventBus] = None,
         workflow_host_allow_list: Optional[set] = None,
-        chord_mode: bool = False,
-        chord_callback: Optional[Callable[["WESBackend"], str]] = None,
         chord_url: Optional[str] = None,
         validate_ssl: bool = True,
         debug: bool = False,
@@ -57,8 +59,6 @@ class WESBackend(ABC):
         self.workflow_host_allow_list = workflow_host_allow_list
 
         # Bento-specific parameters
-        self.chord_mode: bool = chord_mode
-        self.chord_callback: Optional[Callable[["WESBackend"], str]] = chord_callback
         self.chord_url: str = chord_url
 
         self.validate_ssl: bool = validate_ssl
@@ -76,12 +76,6 @@ class WESBackend(ABC):
         self._runs = {}
 
         # Check that CHORD-dependent values are present
-
-        if chord_mode and not chord_callback:
-            raise ValueError("Missing chord_callback for chord_mode backend run")
-
-        if chord_mode and not chord_url:
-            raise ValueError("Missing chord_url for chord_mode backend run")
 
         self.log_debug(f"Instantiating WESBackend with debug={self.debug}")
 
@@ -355,6 +349,34 @@ class WESBackend(ABC):
 
         return cmd, workflow_params
 
+    def _build_workflow_outputs(self, run_dir, workflow_id: str, workflow_params: dict, c_workflow_metadata: dict):
+        self.logger.info(f"Building workflow outputs for workflow ID {workflow_id} "
+                         f"(WRITE_OUTPUT_TO_DRS={current_app.config['WRITE_OUTPUT_TO_DRS']})")
+        output_params = w.make_output_params(workflow_id, workflow_params, c_workflow_metadata["inputs"])
+
+        workflow_outputs = {}
+        for output in c_workflow_metadata["outputs"]:
+            fo = w.formatted_output(output, output_params)
+
+            # Skip optional outputs resulting from optional inputs
+            if fo is None:
+                continue
+
+            # Rewrite file outputs to include full path to temporary location
+            if output["type"] == w.WORKFLOW_TYPE_FILE:
+                workflow_outputs[output["id"]] = os.path.abspath(os.path.join(run_dir, "output", fo))
+
+            elif output["type"] == w.WORKFLOW_TYPE_FILE_ARRAY:
+                workflow_outputs[output["id"]] = [os.path.abspath(os.path.join(run_dir, wo)) for wo in fo]
+                self.logger.info(
+                    f"Setting workflow output {output['id']} to [{', '.join(workflow_outputs[output['id']])}]")
+
+            else:
+                workflow_outputs[output["id"]] = fo
+                self.logger.info(f"Setting workflow output {output['id']} to {workflow_outputs[output['id']]}")
+
+        return workflow_outputs
+
     def _perform_run(self, run: dict, cmd: Command, params_with_secrets: ParamDict) -> Optional[ProcessResult]:
         """
         Performs a run based on a provided command and returns stdout, stderr, exit code, and whether the process timed
@@ -401,6 +423,14 @@ class WESBackend(ABC):
 
         # Complete run ========================================================
 
+        # -- Get various Bento-specific data from tags ------------------------
+
+        tags = run["request"]["tags"]
+
+        workflow_metadata = tags.get("workflow_metadata", {})
+        project_id: str = tags["project_id"]
+        dataset_id: str | None = tags.get("dataset_id")
+
         # -- Update run log with stdout/stderr, exit code ---------------------
         #     - Explicitly don't commit here; sync with state update
         c.execute("UPDATE run_logs SET stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
@@ -418,15 +448,33 @@ class WESBackend(ABC):
             self.log_error("Encountered a non-zero exit code while performing run")
             return self._finish_run_and_clean_up(run, states.STATE_EXECUTOR_ERROR)
 
-        # Exit code is 0 otherwise
+        # Exit code is 0 otherwise; complete the run
 
-        if not self.chord_mode:
-            # TODO: What should be done if this run was not a CHORD routine?
-            self.log_debug("Not in Bento mode; finishing without running the callback")
-            return self._finish_run_and_clean_up(run, states.STATE_COMPLETE)
+        run_dir = self.run_dir(run)
+        workflow_name = self.get_workflow_name(self.workflow_path(run))
+        workflow_params: dict = run["request"]["workflow_params"]
 
-        # If in CHORD mode, run the callback and finish the run with whatever state is returned.
-        self._finish_run_and_clean_up(run, self.chord_callback(self))
+        workflow_outputs = self._build_workflow_outputs(run_dir, workflow_name, workflow_params, workflow_metadata)
+
+        # Explicitly don't commit here; sync with state update
+        c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run["run_id"])))
+
+        # Run result object
+        run_results = {
+            "project_id": project_id,
+            **({"dataset_id": dataset_id} if dataset_id else {}),
+
+            "workflow_id": workflow_name,
+            "workflow_metadata": workflow_metadata,
+            "workflow_outputs": workflow_outputs,
+            "workflow_params": workflow_params
+        }
+
+        # Emit event if possible
+        self.event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_FINISHED, run_results)
+
+        # Finally, set our state to COMPLETE + finish up the run.
+        self._finish_run_and_clean_up(run, states.STATE_COMPLETE)
 
         return ProcessResult((stdout, stderr, exit_code, timed_out))
 

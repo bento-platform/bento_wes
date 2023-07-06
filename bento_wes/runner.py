@@ -4,14 +4,12 @@ import requests
 import uuid
 
 from celery.utils.log import get_task_logger
-from bento_lib.events.types import EVENT_WES_RUN_FINISHED
-from flask import current_app, json
+from flask import current_app
 
 from . import states
 from .backends import WESBackend
 from .backends.cromwell_local import CromwellLocalBackend
 from .celery import celery
-from .constants import SERVICE_ARTIFACT
 from .db import get_db, get_run_details, finish_run
 from .events import get_new_event_bus
 from .workflows import parse_workflow_host_allow_list
@@ -49,7 +47,7 @@ def build_workflow_outputs(run_dir, workflow_id: str, workflow_params: dict, c_w
 
 
 @celery.task(bind=True)
-def run_workflow(self, run_id: uuid.UUID, chord_mode: bool):
+def run_workflow(self, run_id: uuid.UUID):
     db = get_db()
     c = db.cursor()
     event_bus = get_new_event_bus()
@@ -62,45 +60,7 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool):
         logger.error(f"Cannot find run {run_id} ({err})")
         return
 
-    # Get various Bento-specific data from tags -------------------------------
-
-    tags = run["request"]["tags"]
-
-    workflow_metadata = tags.get("workflow_metadata", {})
-    project_id = tags.get("project_id")
-    dataset_id = tags.get("dataset_id")
-
     # Pass to workflow execution backend---------------------------------------
-
-    def chord_callback(b: WESBackend):
-        run_dir = b.run_dir(run)
-        workflow_name = b.get_workflow_name(b.workflow_path(run))
-        workflow_params: dict = run["request"]["workflow_params"]
-
-        # TODO: Verify ingestion URL (vulnerability??)
-
-        workflow_outputs = build_workflow_outputs(run_dir, workflow_name, workflow_params, workflow_metadata)
-
-        # Explicitly don't commit here; sync with state update
-        c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run["run_id"])))
-
-        # Run result object
-        run_results = {
-            "project_id": project_id,
-            "dataset_id": dataset_id,
-
-            "workflow_id": workflow_name,
-            "workflow_metadata": workflow_metadata,
-            "workflow_outputs": workflow_outputs,
-            "workflow_params": workflow_params
-        }
-
-        # Emit event if possible
-        event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_FINISHED, run_results)
-        # TODO: If this is used to ingest, we'll have to wait for a confirmation before cleaning up; otherwise files
-        #  could get removed before they get processed.
-
-        return states.STATE_COMPLETE
 
     # TODO: Change based on workflow type / what's supported - get first runner
     #  'enabled' (somehow) which supports the type
@@ -115,8 +75,6 @@ def run_workflow(self, run_id: uuid.UUID, chord_mode: bool):
         workflow_host_allow_list=parse_workflow_host_allow_list(current_app.config["WORKFLOW_HOST_ALLOW_LIST"]),
 
         # Bento-specific stuff
-        chord_mode=chord_mode,
-        chord_callback=chord_callback,
         chord_url=(current_app.config["CHORD_URL"] or None),
 
         validate_ssl=current_app.config["BENTO_VALIDATE_SSL"],
