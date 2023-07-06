@@ -185,6 +185,8 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
     # task unless they are written arbitrarily to run_dir
     workflow_params[f"{workflow_id}.run_dir"] = run_dir
 
+    # TODO: more special parameters: service URLs, system__run_dir...
+
     # Move workflow attachments to run directory
 
     for attachment in workflow_attachment_list:
@@ -383,8 +385,6 @@ def run_cancel(run_id: uuid.UUID):
 
 @bp_runs.route("/runs/<uuid:run_id>/status", methods=["GET"])
 def run_status(run_id: uuid.UUID):
-    # TODO: check permissions based on project/dataset
-
     c = get_db().cursor()
 
     def run_status_response():
