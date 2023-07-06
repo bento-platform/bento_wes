@@ -206,7 +206,7 @@ def get_task_logs(c: sqlite3.Cursor, run_id: Union[uuid.UUID, str]) -> list:
     return [task_log_dict(task_log) for task_log in c.fetchall()]
 
 
-def get_run_details(c: sqlite3.Cursor, run_id: Union[uuid.UUID, str]) -> Tuple[Optional[dict], Optional[str]]:
+def get_run_details(c: sqlite3.Cursor, run_id: Union[uuid.UUID, str]) -> tuple[None, str] | tuple[dict, None]:
     # Runs, run requests, and run logs are created at the same time, so if any of them is missing return None.
 
     c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
