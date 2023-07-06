@@ -11,7 +11,7 @@ RUN apt-get update -y && \
     pip install --no-cache-dir poetry==1.3.2 gunicorn==20.1.0 "pysam>=0.20.0,<0.21.0"
 
 WORKDIR /
-ENV CROMWELL_VERSION=84
+ENV CROMWELL_VERSION=85
 RUN curl -L \
     https://github.com/broadinstitute/cromwell/releases/download/${CROMWELL_VERSION}/cromwell-${CROMWELL_VERSION}.jar \
     -o cromwell.jar
