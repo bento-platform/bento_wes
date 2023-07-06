@@ -6,7 +6,6 @@ import shutil
 import traceback
 import uuid
 
-from bento_lib.auth.flask_decorators import flask_permissions_owner
 from bento_lib.responses.flask_errors import (
     flask_bad_request_error,
     flask_internal_server_error,
@@ -81,6 +80,8 @@ def _create_run(db, c):
 
         project_id = tags.get("project_id", None)
         dataset_id = tags.get("dataset_id", None)
+
+        # TODO: check permissions based on project and dataset id
 
         not_ingestion_mode = workflow_metadata.get("action") in ["export", "analysis"]
 
@@ -216,7 +217,6 @@ def _create_run(db, c):
 
 
 @bp_runs.route("/runs", methods=["GET", "POST"])
-@flask_permissions_owner  # TODO: Allow others to submit analysis runs?
 def run_list():
     db = get_db()
     c = db.cursor()
@@ -240,22 +240,29 @@ def run_list():
               "FROM runs AS r, run_requests AS rr, run_logs AS rl "
               "WHERE r.request = rr.id AND r.run_log = rl.id")
 
-    return jsonify([{
-        "run_id": r["run_id"],
-        "state": r["state"],
-        "details": {
+    res_list = []
+
+    for r in c.fetchall():
+        run_req = run_request_dict(r)
+        # TODO: check permissions for each
+        res_list.append({
             "run_id": r["run_id"],
             "state": r["state"],
-            "request": run_request_dict(r),
-            "run_log": run_log_dict(r["run_id"], r),
-            "task_logs": get_task_logs(c, r["run_id"])
-        }
-    } for r in c.fetchall()])
+            "details": {
+                "run_id": r["run_id"],
+                "state": r["state"],
+                "request": run_req,
+                "run_log": run_log_dict(r["run_id"], r),
+                "task_logs": get_task_logs(c, r["run_id"])
+            }
+        })
+
+    return jsonify(res_list)
 
 
 @bp_runs.route("/runs/<uuid:run_id>", methods=["GET"])
-@flask_permissions_owner
 def run_detail(run_id):
+    # TODO: check permissions based on project/dataset
     run_details, err = get_run_details(get_db().cursor(), run_id)
     return jsonify(run_details) if run_details is not None else flask_not_found_error(f"Run {run_id} not found ({err})")
 
@@ -279,20 +286,21 @@ def get_stream(c, stream, run_id):
 
 
 @bp_runs.route("/runs/<uuid:run_id>/stdout", methods=["GET"])
-@flask_permissions_owner
 def run_stdout(run_id):
+    # TODO: check permissions based on project/dataset
     return get_stream(get_db().cursor(), "stdout", run_id)
 
 
 @bp_runs.route("/runs/<uuid:run_id>/stderr", methods=["GET"])
-@flask_permissions_owner
 def run_stderr(run_id):
+    # TODO: check permissions based on project/dataset
     return get_stream(get_db().cursor(), "stderr", run_id)
 
 
 @bp_runs.route("/runs/<uuid:run_id>/cancel", methods=["POST"])
-@flask_permissions_owner
 def run_cancel(run_id):
+    # TODO: check permissions based on project/dataset
+
     # TODO: Check if already completed
     # TODO: Check if run log exists
     # TODO: from celery.task.control import revoke; revoke(celery_id, terminate=True)
@@ -342,8 +350,9 @@ def run_cancel(run_id):
 
 
 @bp_runs.route("/runs/<uuid:run_id>/status", methods=["GET"])
-@flask_permissions_owner
 def run_status(run_id):
+    # TODO: check permissions based on project/dataset
+
     c = get_db().cursor()
 
     c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
