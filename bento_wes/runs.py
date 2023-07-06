@@ -69,175 +69,167 @@ def _check_single_run_permission_and_mark(project_and_dataset: tuple[str, str | 
 
 
 def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
+    assert "workflow_params" in request.form
+    assert "workflow_type" in request.form
+    assert "workflow_type_version" in request.form
+    assert "workflow_engine_parameters" in request.form
+    assert "workflow_url" in request.form
+    assert "tags" in request.form
+
+    workflow_params = json.loads(request.form["workflow_params"])
+    workflow_type = request.form["workflow_type"].upper().strip()
+    workflow_type_version = request.form["workflow_type_version"].strip()
+    workflow_engine_parameters = json.loads(request.form["workflow_engine_parameters"])  # TODO: Unused
+    workflow_url = request.form["workflow_url"].lower()  # TODO: This can refer to an attachment
+    workflow_attachment_list = request.files.getlist("workflow_attachment")  # TODO: Use this fully
+    tags = json.loads(request.form["tags"])
+
+    # TODO: Move CHORD-specific stuff out somehow?
+
+    assert "workflow_id" in tags
+    assert "workflow_metadata" in tags
+    assert "action" in tags["workflow_metadata"]
+
+    workflow_id = tags.get("workflow_id", workflow_url)
+    workflow_metadata = tags.get("workflow_metadata", {})
+    workflow_ingestion_path = tags.get("ingestion_path", None)
+    workflow_ingestion_url = tags.get(
+        "ingestion_url",
+        (f"{current_app.config['CHORD_URL'].rstrip('/')}/{workflow_ingestion_path.lstrip('/')}"
+         if workflow_ingestion_path else None))
+
+    # Check ingest permissions before continuing
+
+    if not _check_single_run_permission_and_mark(
+            _get_project_and_dataset_id_from_tags(tags), PERMISSION_INGEST_DATA):
+        return flask_forbidden_error("Forbidden")
+
+    # We have permission - so continue
+
+    not_ingestion_mode = workflow_metadata.get("action") in ["export", "analysis"]
+
+    # Don't accept anything (ex. CWL) other than WDL
+    assert workflow_type == "WDL"
+    assert workflow_type_version == "1.0"
+
+    assert isinstance(workflow_params, dict)
+    assert isinstance(workflow_engine_parameters, dict)
+    assert isinstance(tags, dict)
+
+    # TODO: Refactor (Gohan)
+    # - Extract filenames from workflow_params and inject them back into workflow_params
+    #  as an array-of-strings alongside the original array-of-files
+    # - Pass workflow ingestion URL in as a parameter to the workflow (used in the .wdl file directly)
+    if workflow_ingestion_url and "gohan" in workflow_ingestion_url:
+        workflow_params["vcf_gz.original_vcf_gz_file_paths"] = workflow_params["vcf_gz.vcf_gz_file_names"]
+        gohan_url = urlparse(workflow_ingestion_url)
+        workflow_params["vcf_gz.gohan_url"] = (f"{gohan_url.scheme}" +
+                                               f"://{gohan_url.netloc}" +
+                                               f"{gohan_url.path.replace('/private/ingest', '')}")
+
+    # Some workflow parameters depend on the WES application configuration
+    # and need to be added from there.
+    # The reserved keyword `FROM_CONFIG` is used to detect those inputs.
+    # All parameters in config are upper case. e.g. drs_url --> DRS_URL
+    for i in workflow_metadata["inputs"]:
+        if i.get("value") != "FROM_CONFIG":
+            continue
+        param_name = i["id"]
+        workflow_params[f"{workflow_id}.{param_name}"] = current_app.config.get(param_name.upper(), "")
+
+    # TODO: Use JSON schemas for workflow params / engine parameters / tags
+
+    # Get list of allowed workflow hosts from configuration for any checks inside the runner
+    # If it's blank, assume that means "any host is allowed" and pass None to the runner
+    workflow_host_allow_list = parse_workflow_host_allow_list(current_app.config["WORKFLOW_HOST_ALLOW_LIST"])
+
+    # Download workflow file, potentially using passed auth headers if they're present
+    # and we're querying our own node.
+
+    # TODO: Move this back to runner, since we'll need to handle the callback anyway with local URLs...
+
+    chord_url = current_app.config["CHORD_URL"]
+
+    wm = WorkflowManager(
+        current_app.config["SERVICE_TEMP"],
+        chord_url,
+        logger=logger,
+        workflow_host_allow_list=workflow_host_allow_list,
+        validate_ssl=current_app.config["BENTO_VALIDATE_SSL"],
+        debug=current_app.config["BENTO_DEBUG"],
+    )
+
+    # Optional Authorization HTTP header to forward to nested requests
+    auth_header = request.headers.get("Authorization")
+    auth_header_dict = {"Authorization": auth_header} if auth_header else {}
+
     try:
-        assert "workflow_params" in request.form
-        assert "workflow_type" in request.form
-        assert "workflow_type_version" in request.form
-        assert "workflow_engine_parameters" in request.form
-        assert "workflow_url" in request.form
-        assert "tags" in request.form
+        wm.download_or_copy_workflow(
+            workflow_url,
+            WorkflowType(workflow_type),
+            auth_headers=auth_header_dict)
+    except UnsupportedWorkflowType:
+        return flask_bad_request_error(f"Unsupported workflow type: {workflow_type}")
+    except (WorkflowDownloadError, requests.exceptions.ConnectionError) as e:
+        return flask_bad_request_error(f"Could not access workflow file: {workflow_url} (Python error: {e})")
 
-        workflow_params = json.loads(request.form["workflow_params"])
-        workflow_type = request.form["workflow_type"].upper().strip()
-        workflow_type_version = request.form["workflow_type_version"].strip()
-        workflow_engine_parameters = json.loads(request.form["workflow_engine_parameters"])  # TODO: Unused
-        workflow_url = request.form["workflow_url"].lower()  # TODO: This can refer to an attachment
-        workflow_attachment_list = request.files.getlist("workflow_attachment")  # TODO: Use this fully
-        tags = json.loads(request.form["tags"])
+    # ---
 
-        # TODO: Move CHORD-specific stuff out somehow?
+    # Begin creating the job after validating the request
+    req_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    log_id = uuid.uuid4()
 
-        assert "workflow_id" in tags
-        assert "workflow_metadata" in tags
-        assert "action" in tags["workflow_metadata"]
+    # Create run directory
 
-        workflow_id = tags.get("workflow_id", workflow_url)
-        workflow_metadata = tags.get("workflow_metadata", {})
-        workflow_ingestion_path = tags.get("ingestion_path", None)
-        workflow_ingestion_url = tags.get(
-            "ingestion_url",
-            (f"{current_app.config['CHORD_URL'].rstrip('/')}/{workflow_ingestion_path.lstrip('/')}"
-             if workflow_ingestion_path else None))
+    run_dir = os.path.join(current_app.config["SERVICE_TEMP"], str(run_id))
 
-        # Check ingest permissions before continuing
+    if os.path.exists(run_dir):
+        return flask_internal_server_error("UUID collision")
 
-        if not _check_single_run_permission_and_mark(
-                _get_project_and_dataset_id_from_tags(tags), PERMISSION_INGEST_DATA):
-            return flask_forbidden_error("Forbidden")
+    os.makedirs(run_dir, exist_ok=True)
+    # TODO: Delete run dir if something goes wrong...
 
-        # We have permission - so continue
+    # In export/analysis mode, as we rely on services located in different containers
+    # there is a need to have designated folders on shared volumes between
+    # WES and the other services, to write files to.
+    # This is possible because /wes/tmp is a volume mounted with the same
+    # path in each data service (except Gohan which mounts the dropbox
+    # data-x directory directly instead, to avoid massive duplicates).
+    # Also, the Toil library creates directories in the generic /tmp/
+    # directory instead of the one that is configured for the job execution,
+    # to create the current working directories where tasks are executed.
+    # These files are inaccessible to other containers in the context of a
+    # task unless they are written arbitrarily to run_dir
+    if not_ingestion_mode:
+        workflow_params[f"{workflow_id}.run_dir"] = run_dir
 
-        not_ingestion_mode = workflow_metadata.get("action") in ["export", "analysis"]
+    # Move workflow attachments to run directory
 
-        # Don't accept anything (ex. CWL) other than WDL
-        assert workflow_type == "WDL"
-        assert workflow_type_version == "1.0"
+    for attachment in workflow_attachment_list:
+        # TODO: Check and fix input if filename is non-secure
+        # TODO: Do we put these in a subdirectory?
+        # TODO: Support WDL uploads for workflows
+        attachment.save(os.path.join(run_dir, secure_filename(attachment.filename)))
 
-        assert isinstance(workflow_params, dict)
-        assert isinstance(workflow_engine_parameters, dict)
-        assert isinstance(tags, dict)
+    # Will be updated to STATE_ QUEUED once submitted
+    c.execute("INSERT INTO run_requests (id, workflow_params, workflow_type, workflow_type_version, "
+              "workflow_engine_parameters, workflow_url, tags) VALUES (?, ?, ?, ?, ?, ?, ?)",
+              (str(req_id), json.dumps(workflow_params), workflow_type, workflow_type_version,
+               json.dumps(workflow_engine_parameters), workflow_url, json.dumps(tags)))
+    c.execute("INSERT INTO run_logs (id, name) VALUES (?, ?)", (str(log_id), workflow_id))
+    c.execute("INSERT INTO runs (id, request, state, run_log, outputs) VALUES (?, ?, ?, ?, ?)",
+              (str(run_id), str(req_id), states.STATE_UNKNOWN, str(log_id), json.dumps({})))
+    db.commit()
 
-        # TODO: Refactor (Gohan)
-        # - Extract filenames from workflow_params and inject them back into workflow_params
-        #  as an array-of-strings alongside the original array-of-files
-        # - Pass workflow ingestion URL in as a parameter to the workflow (used in the .wdl file directly)
-        if workflow_ingestion_url and "gohan" in workflow_ingestion_url:
-            workflow_params["vcf_gz.original_vcf_gz_file_paths"] = workflow_params["vcf_gz.vcf_gz_file_names"]
-            gohan_url = urlparse(workflow_ingestion_url)
-            workflow_params["vcf_gz.gohan_url"] = (f"{gohan_url.scheme}" +
-                                                   f"://{gohan_url.netloc}" +
-                                                   f"{gohan_url.path.replace('/private/ingest', '')}")
+    # TODO: figure out timeout
+    # TODO: retry policy
+    c.execute("UPDATE runs SET state = ? WHERE id = ?", (states.STATE_QUEUED, str(run_id)))
+    db.commit()
 
-        # Some workflow parameters depend on the WES application configuration
-        # and need to be added from there.
-        # The reserved keyword `FROM_CONFIG` is used to detect those inputs.
-        # All parameters in config are upper case. e.g. drs_url --> DRS_URL
-        for i in workflow_metadata["inputs"]:
-            if i.get("value") != "FROM_CONFIG":
-                continue
-            param_name = i["id"]
-            workflow_params[f"{workflow_id}.{param_name}"] = current_app.config.get(param_name.upper(), "")
+    run_workflow.delay(run_id)
 
-        # TODO: Use JSON schemas for workflow params / engine parameters / tags
-
-        # Get list of allowed workflow hosts from configuration for any checks inside the runner
-        # If it's blank, assume that means "any host is allowed" and pass None to the runner
-        workflow_host_allow_list = parse_workflow_host_allow_list(current_app.config["WORKFLOW_HOST_ALLOW_LIST"])
-
-        # Download workflow file, potentially using passed auth headers if they're present
-        # and we're querying our own node.
-
-        # TODO: Move this back to runner, since we'll need to handle the callback anyway with local URLs...
-
-        chord_url = current_app.config["CHORD_URL"]
-
-        wm = WorkflowManager(
-            current_app.config["SERVICE_TEMP"],
-            chord_url,
-            logger=logger,
-            workflow_host_allow_list=workflow_host_allow_list,
-            validate_ssl=current_app.config["BENTO_VALIDATE_SSL"],
-            debug=current_app.config["BENTO_DEBUG"],
-        )
-
-        # Optional Authorization HTTP header to forward to nested requests
-        auth_header = request.headers.get("Authorization")
-        auth_header_dict = {"Authorization": auth_header} if auth_header else {}
-
-        try:
-            wm.download_or_copy_workflow(
-                workflow_url,
-                WorkflowType(workflow_type),
-                auth_headers=auth_header_dict)
-        except UnsupportedWorkflowType:
-            return flask_bad_request_error(f"Unsupported workflow type: {workflow_type}")
-        except (WorkflowDownloadError, requests.exceptions.ConnectionError) as e:
-            return flask_bad_request_error(f"Could not access workflow file: {workflow_url} (Python error: {e})")
-
-        # ---
-
-        # Begin creating the job after validating the request
-        req_id = uuid.uuid4()
-        run_id = uuid.uuid4()
-        log_id = uuid.uuid4()
-
-        # Create run directory
-
-        run_dir = os.path.join(current_app.config["SERVICE_TEMP"], str(run_id))
-
-        if os.path.exists(run_dir):
-            return flask_internal_server_error("UUID collision")
-
-        os.makedirs(run_dir, exist_ok=True)
-        # TODO: Delete run dir if something goes wrong...
-
-        # In export/analysis mode, as we rely on services located in different containers
-        # there is a need to have designated folders on shared volumes between
-        # WES and the other services, to write files to.
-        # This is possible because /wes/tmp is a volume mounted with the same
-        # path in each data service (except Gohan which mounts the dropbox
-        # data-x directory directly instead, to avoid massive duplicates).
-        # Also, the Toil library creates directories in the generic /tmp/
-        # directory instead of the one that is configured for the job execution,
-        # to create the current working directories where tasks are executed.
-        # These files are inaccessible to other containers in the context of a
-        # task unless they are written arbitrarily to run_dir
-        if not_ingestion_mode:
-            workflow_params[f"{workflow_id}.run_dir"] = run_dir
-
-        # Move workflow attachments to run directory
-
-        for attachment in workflow_attachment_list:
-            # TODO: Check and fix input if filename is non-secure
-            # TODO: Do we put these in a subdirectory?
-            # TODO: Support WDL uploads for workflows
-            attachment.save(os.path.join(run_dir, secure_filename(attachment.filename)))
-
-        # Will be updated to STATE_ QUEUED once submitted
-        c.execute("INSERT INTO run_requests (id, workflow_params, workflow_type, workflow_type_version, "
-                  "workflow_engine_parameters, workflow_url, tags) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                  (str(req_id), json.dumps(workflow_params), workflow_type, workflow_type_version,
-                   json.dumps(workflow_engine_parameters), workflow_url, json.dumps(tags)))
-        c.execute("INSERT INTO run_logs (id, name) VALUES (?, ?)", (str(log_id), workflow_id))
-        c.execute("INSERT INTO runs (id, request, state, run_log, outputs) VALUES (?, ?, ?, ?, ?)",
-                  (str(run_id), str(req_id), states.STATE_UNKNOWN, str(log_id), json.dumps({})))
-        db.commit()
-
-        # TODO: figure out timeout
-        # TODO: retry policy
-        c.execute("UPDATE runs SET state = ? WHERE id = ?", (states.STATE_QUEUED, str(run_id)))
-        db.commit()
-
-        run_workflow.delay(run_id)
-
-        return jsonify({"run_id": str(run_id)})
-
-    except ValueError:
-        return flask_bad_request_error("Value error")
-
-    except AssertionError:  # TODO: Better error messages
-        logger.error(f"Encountered assertion error: {traceback.format_exc()}")
-        return flask_bad_request_error("Assertion error: bad run request format")
+    return jsonify({"run_id": str(run_id)})
 
 
 @bp_runs.route("/runs", methods=["GET", "POST"])
@@ -246,7 +238,13 @@ def run_list():
     c = db.cursor()
 
     if request.method == "POST":
-        return _create_run(db, c)
+        try:
+            return _create_run(db, c)
+        except ValueError:
+            return flask_bad_request_error("Value error")
+        except AssertionError:  # TODO: Better error messages
+            logger.error(f"Encountered assertion error: {traceback.format_exc()}")
+            return flask_bad_request_error("Assertion error: bad run request format")
 
     # GET
     # CHORD Extension: Include run details with /runs request
