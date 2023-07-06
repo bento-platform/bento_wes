@@ -51,8 +51,13 @@ def _get_project_and_dataset_id_from_run_request(run_request: dict) -> tuple[str
 
 
 def _check_runs_permission(runs_project_datasets: list[tuple[str, str]], permission: str) -> tuple[bool, ...]:
-    # TODO: post to authz
-    pass
+    return authz_middleware.authz_post(request, "/policy/evaluate", body={
+        "requested_resource": [{
+            "project": project_id,
+            "dataset": dataset_id,
+        } for project_id, dataset_id in runs_project_datasets],
+        "required_permissions": [permission],
+    }).json()["result"]
 
 
 def _check_single_run_permission_and_mark(project_and_dataset: tuple[str | None, str | None], permission: str) -> bool:
