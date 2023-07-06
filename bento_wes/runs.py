@@ -15,7 +15,6 @@ from bento_lib.responses.flask_errors import (
 )
 from flask import Blueprint, Response, current_app, jsonify, request
 from typing import Callable, Literal
-from urllib.parse import urlparse
 from werkzeug.utils import secure_filename
 
 from . import states
@@ -86,17 +85,13 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
 
     # TODO: Move CHORD-specific stuff out somehow?
 
+    # Bento-specific required tags
     assert "workflow_id" in tags
     assert "workflow_metadata" in tags
-    assert "action" in tags["workflow_metadata"]
+    workflow_metadata = tags["workflow_metadata"]
+    assert "action" in workflow_metadata
 
     workflow_id = tags.get("workflow_id", workflow_url)
-    workflow_metadata = tags.get("workflow_metadata", {})
-    workflow_ingestion_path = tags.get("ingestion_path", None)
-    workflow_ingestion_url = tags.get(
-        "ingestion_url",
-        (f"{current_app.config['CHORD_URL'].rstrip('/')}/{workflow_ingestion_path.lstrip('/')}"
-         if workflow_ingestion_path else None))
 
     # Check ingest permissions before continuing
 
@@ -104,9 +99,7 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
             _get_project_and_dataset_id_from_tags(tags), PERMISSION_INGEST_DATA):
         return flask_forbidden_error("Forbidden")
 
-    # We have permission - so continue
-
-    not_ingestion_mode = workflow_metadata.get("action") in ["export", "analysis"]
+    # We have permission - so continue ---------
 
     # Don't accept anything (ex. CWL) other than WDL
     assert workflow_type == "WDL"
@@ -115,17 +108,6 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
     assert isinstance(workflow_params, dict)
     assert isinstance(workflow_engine_parameters, dict)
     assert isinstance(tags, dict)
-
-    # TODO: Refactor (Gohan)
-    # - Extract filenames from workflow_params and inject them back into workflow_params
-    #  as an array-of-strings alongside the original array-of-files
-    # - Pass workflow ingestion URL in as a parameter to the workflow (used in the .wdl file directly)
-    if workflow_ingestion_url and "gohan" in workflow_ingestion_url:
-        workflow_params["vcf_gz.original_vcf_gz_file_paths"] = workflow_params["vcf_gz.vcf_gz_file_names"]
-        gohan_url = urlparse(workflow_ingestion_url)
-        workflow_params["vcf_gz.gohan_url"] = (f"{gohan_url.scheme}" +
-                                               f"://{gohan_url.netloc}" +
-                                               f"{gohan_url.path.replace('/private/ingest', '')}")
 
     # Some workflow parameters depend on the WES application configuration
     # and need to be added from there.
@@ -201,8 +183,7 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
     # to create the current working directories where tasks are executed.
     # These files are inaccessible to other containers in the context of a
     # task unless they are written arbitrarily to run_dir
-    if not_ingestion_mode:
-        workflow_params[f"{workflow_id}.run_dir"] = run_dir
+    workflow_params[f"{workflow_id}.run_dir"] = run_dir
 
     # Move workflow attachments to run directory
 
