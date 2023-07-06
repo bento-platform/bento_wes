@@ -1,10 +1,12 @@
+import logging
+
 import bento_lib.workflows as w
 import os
 import shutil
 import requests
 
 from base64 import urlsafe_b64encode
-from typing import Dict, NewType, Optional, Set
+from typing import NewType
 from urllib.parse import urlparse
 
 from bento_wes import states
@@ -28,7 +30,7 @@ WES_WORKFLOW_TYPE_CWL = WorkflowType("CWL")
 # Currently, only WDL is supported
 WES_SUPPORTED_WORKFLOW_TYPES = frozenset({WES_WORKFLOW_TYPE_WDL})
 
-WORKFLOW_EXTENSIONS: Dict[WorkflowType, str] = {
+WORKFLOW_EXTENSIONS: dict[WorkflowType, str] = {
     WES_WORKFLOW_TYPE_WDL: "wdl",
     WES_WORKFLOW_TYPE_CWL: "cwl",
 }
@@ -40,7 +42,7 @@ MAX_WORKFLOW_FILE_BYTES = 50000  # 50 KB
 
 
 # TODO: Types for params/metadata
-def count_bento_workflow_file_outputs(workflow_id, workflow_params: dict, workflow_metadata: dict) -> int:
+def count_bento_workflow_file_outputs(workflow_id: str, workflow_params: dict, workflow_metadata: dict) -> int:
     """
     Given a workflow run's parameters and workflow metadata, returns the number
     of files being output for the purposes of generating one-time ingest tokens
@@ -66,7 +68,7 @@ def count_bento_workflow_file_outputs(workflow_id, workflow_params: dict, workfl
     return n_file_outputs
 
 
-def parse_workflow_host_allow_list(allow_list: Optional[str]) -> Optional[Set[str]]:
+def parse_workflow_host_allow_list(allow_list: str | None) -> set[str] | None:
     """
     Get set of allowed workflow hosts from a configuration string for any
     checks while downloading workflows. If it's blank, assume that means
@@ -87,8 +89,15 @@ class WorkflowDownloadError(Exception):
 
 
 class WorkflowManager:
-    def __init__(self, tmp_dir: str, chord_url: Optional[str] = None, logger: Optional = None,
-                 workflow_host_allow_list: Optional[set] = None, validate_ssl: bool = True, debug: bool = False):
+    def __init__(
+        self,
+        tmp_dir: str,
+        chord_url: str | None = None,
+        logger: logging.Logger | None = None,
+        workflow_host_allow_list: str | None = None,
+        validate_ssl: bool = True,
+        debug: bool = False,
+    ):
         self.tmp_dir = tmp_dir
         self.chord_url = chord_url
         self.logger = logger
@@ -121,7 +130,7 @@ class WorkflowManager:
         return os.path.join(self.tmp_dir, f"workflow_{workflow_name}.{WORKFLOW_EXTENSIONS[workflow_type]}")
 
     def download_or_copy_workflow(self, workflow_uri: str, workflow_type: WorkflowType, auth_headers: dict) \
-            -> Optional[str]:
+            -> str | None:
         """
         Given a URI, downloads the specified workflow via its URI, or copies it over if it's on the local
         file system. # TODO: Local file system = security issue?

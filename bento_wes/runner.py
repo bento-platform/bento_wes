@@ -20,7 +20,7 @@ from .workflows import parse_workflow_host_allow_list
 logger = get_task_logger(__name__)
 
 
-def build_workflow_outputs(run_dir, workflow_id, workflow_params: dict, c_workflow_metadata: dict):
+def build_workflow_outputs(run_dir, workflow_id: str, workflow_params: dict, c_workflow_metadata: dict):
     logger.info(f"Building workflow outputs for workflow ID {workflow_id} "
                 f"(WRITE_OUTPUT_TO_DRS={current_app.config['WRITE_OUTPUT_TO_DRS']})")
     output_params = w.make_output_params(workflow_id, workflow_params, c_workflow_metadata["inputs"])

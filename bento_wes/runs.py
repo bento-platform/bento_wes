@@ -68,7 +68,7 @@ def _check_single_run_permission_and_mark(project_and_dataset: tuple[str | None,
     return p_res and p_res[0]
 
 
-def _create_run(db, c):
+def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
     try:
         assert "workflow_params" in request.form
         assert "workflow_type" in request.form
@@ -299,7 +299,7 @@ def run_list():
 
 
 @bp_runs.route("/runs/<uuid:run_id>", methods=["GET"])
-def run_detail(run_id):
+def run_detail(run_id: uuid.UUID):
     run_details, err = get_run_details(get_db().cursor(), run_id)
 
     if not _check_single_run_permission_and_mark(
@@ -354,13 +354,13 @@ def run_stdout(run_id: uuid.UUID):
 
 
 @bp_runs.route("/runs/<uuid:run_id>/stderr", methods=["GET"])
-def run_stderr(run_id):
+def run_stderr(run_id: uuid.UUID):
     c = get_db().cursor()
     return check_run_authz_then_return_response(c, run_id, lambda: get_stream(c, "stderr", run_id))
 
 
 @bp_runs.route("/runs/<uuid:run_id>/cancel", methods=["POST"])
-def run_cancel(run_id):
+def run_cancel(run_id: uuid.UUID):
     # TODO: Check if already completed
     # TODO: Check if run log exists
     # TODO: from celery.task.control import revoke; revoke(celery_id, terminate=True)
@@ -414,7 +414,7 @@ def run_cancel(run_id):
 
 
 @bp_runs.route("/runs/<uuid:run_id>/status", methods=["GET"])
-def run_status(run_id):
+def run_status(run_id: uuid.UUID):
     # TODO: check permissions based on project/dataset
 
     c = get_db().cursor()

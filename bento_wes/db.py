@@ -7,7 +7,6 @@ from bento_lib.events import EventBus
 from bento_lib.events.notifications import format_notification
 from bento_lib.events.types import EVENT_CREATE_NOTIFICATION, EVENT_WES_RUN_UPDATED
 from flask import current_app, g
-from typing import Optional, Tuple, Union
 from urllib.parse import urljoin
 
 from . import states
@@ -66,7 +65,7 @@ def finish_run(
     event_bus: EventBus,
     run: dict,
     state: str,
-    logger: Optional[logging.Logger] = None,
+    logger: logging.Logger | None = None,
 ) -> None:
     """
     Updates a run's state, sets the run log's end time, and publishes an event corresponding with a run failure
@@ -169,14 +168,14 @@ def _strip_first_slash(string: str):
     return string[1:] if len(string) > 0 and string[0] == "/" else string
 
 
-def _stream_url(run_id: Union[uuid.UUID, str], stream: str):
+def _stream_url(run_id: uuid.UUID | str, stream: str):
     return urljoin(
         urljoin(current_app.config["CHORD_URL"], _strip_first_slash(current_app.config["SERVICE_URL_BASE_PATH"]) + "/"),
         f"runs/{str(run_id)}/{stream}"
     )
 
 
-def run_log_dict(run_id: Union[uuid.UUID, str], run_log: sqlite3.Row) -> dict:
+def run_log_dict(run_id: uuid.UUID | str, run_log: sqlite3.Row) -> dict:
     return {
         "id": run_log["id"],  # TODO: This is non-WES-compliant
         "name": run_log["name"],
@@ -201,12 +200,12 @@ def task_log_dict(task_log: sqlite3.Row) -> dict:
     }
 
 
-def get_task_logs(c: sqlite3.Cursor, run_id: Union[uuid.UUID, str]) -> list:
+def get_task_logs(c: sqlite3.Cursor, run_id: uuid.UUID | str) -> list:
     c.execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
     return [task_log_dict(task_log) for task_log in c.fetchall()]
 
 
-def get_run_details(c: sqlite3.Cursor, run_id: Union[uuid.UUID, str]) -> tuple[None, str] | tuple[dict, None]:
+def get_run_details(c: sqlite3.Cursor, run_id: uuid.UUID | str) -> tuple[None, str] | tuple[dict, None]:
     # Runs, run requests, and run logs are created at the same time, so if any of them is missing return None.
 
     c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
@@ -240,9 +239,9 @@ def update_run_state_and_commit(
     db: sqlite3.Connection,
     c: sqlite3.Cursor,
     event_bus: EventBus,
-    run_id: Union[uuid.UUID, str],
+    run_id: uuid.UUID | str,
     state: str,
-    logger: Optional[logging.Logger] = None,
+    logger: logging.Logger | None = None,
 ):
     if logger:
         logger.info(f"Updating run state of {run_id} to {state}")
