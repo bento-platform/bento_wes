@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 import sqlite3
 
@@ -23,6 +22,7 @@ from . import states
 from .authz import authz_middleware, PERMISSION_INGEST_DATA, PERMISSION_VIEW_RUNS
 from .celery import celery
 from .events import get_flask_event_bus
+from .logger import logger
 from .runner import run_workflow
 from .workflows import (
     WorkflowType,
@@ -36,8 +36,6 @@ from .db import get_db, run_request_dict, run_log_dict, get_task_logs, get_run_d
 
 
 bp_runs = Blueprint("runs", __name__)
-
-logger = logging.getLogger(__name__)
 
 
 def _get_project_and_dataset_id_from_tags(tags: dict) -> tuple[str | None, str | None]:
@@ -167,7 +165,7 @@ def _create_run(db, c):
         wm = WorkflowManager(
             current_app.config["SERVICE_TEMP"],
             chord_url,
-            logger=current_app.logger,
+            logger=logger,
             workflow_host_allow_list=workflow_host_allow_list,
             validate_ssl=current_app.config["BENTO_VALIDATE_SSL"],
             debug=current_app.config["BENTO_DEBUG"],
