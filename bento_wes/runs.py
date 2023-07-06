@@ -52,10 +52,13 @@ def _get_project_and_dataset_id_from_run_request(run_request: dict) -> tuple[str
 
 def _check_runs_permission(runs_project_datasets: list[tuple[str, str]], permission: str) -> tuple[bool, ...]:
     return authz_middleware.authz_post(request, "/policy/evaluate", body={
-        "requested_resource": [{
-            "project": project_id,
-            "dataset": dataset_id,
-        } for project_id, dataset_id in runs_project_datasets],
+        "requested_resource": [
+            {
+                **({"project": project_id} if project_id else {}),
+                **({"dataset": dataset_id} if dataset_id else {}),
+            }
+            for project_id, dataset_id in runs_project_datasets
+        ],
         "required_permissions": [permission],
     }).json()["result"]
 
@@ -276,11 +279,6 @@ def run_list():
         run_req = run_request_dict(r)
 
         project_id, dataset_id = _get_project_and_dataset_id_from_run_request(run_req)
-
-        if project_id is None or dataset_id is None:
-            logger.error(f"Invalid run encountered (missing project_id or dataset_id in request tags): {r['id']}")
-            continue
-
         perms_list.append((project_id, dataset_id))
 
         if with_details:
