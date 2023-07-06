@@ -224,8 +224,10 @@ def run_list():
         try:
             return _create_run(db, c)
         except ValueError:
+            authz_middleware.mark_authz_done(request)
             return flask_bad_request_error("Value error")
         except AssertionError:  # TODO: Better error messages
+            authz_middleware.mark_authz_done(request)
             logger.error(f"Encountered assertion error: {traceback.format_exc()}")
             return flask_bad_request_error("Assertion error: bad run request format")
 
