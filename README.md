@@ -162,13 +162,6 @@ WORKFLOW_HOST_ALLOW_LIST=
 # DRS configuration options:
 # - Where the DRS instance to use is located. 
 DRS_URL=https://portal.bentov2.local/api/drs
-# - Whether to redirect file outputs to the DRS instance specified above
-WRITE_OUTPUT_TO_DRS=False
-# - Whether to de-duplicate / consolidate identical files within DRS
-DRS_DEDUPLICATE=True
-# - File extensions to skip when ingesting into DRS - this is a SUPER HACKY way
-#   of not ingesting JSON into DRS used for stuff like katsu
-DRS_SKIP_TYPES=
 ```
 
 

@@ -348,8 +348,7 @@ class WESBackend(ABC):
         return cmd, workflow_params
 
     def _build_workflow_outputs(self, run_dir, workflow_id: str, workflow_params: dict, c_workflow_metadata: dict):
-        self.logger.info(f"Building workflow outputs for workflow ID {workflow_id} "
-                         f"(WRITE_OUTPUT_TO_DRS={current_app.config['WRITE_OUTPUT_TO_DRS']})")
+        self.logger.info(f"Building workflow outputs for workflow ID {workflow_id}")
         output_params = w.make_output_params(workflow_id, workflow_params, c_workflow_metadata["inputs"])
 
         workflow_outputs = {}

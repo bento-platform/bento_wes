@@ -1,5 +1,3 @@
-import bento_lib.workflows as w
-import os
 import requests
 import uuid
 
@@ -16,34 +14,6 @@ from .workflows import parse_workflow_host_allow_list
 
 
 logger = get_task_logger(__name__)
-
-
-def build_workflow_outputs(run_dir, workflow_id: str, workflow_params: dict, c_workflow_metadata: dict):
-    logger.info(f"Building workflow outputs for workflow ID {workflow_id} "
-                f"(WRITE_OUTPUT_TO_DRS={current_app.config['WRITE_OUTPUT_TO_DRS']})")
-    output_params = w.make_output_params(workflow_id, workflow_params, c_workflow_metadata["inputs"])
-
-    workflow_outputs = {}
-    for output in c_workflow_metadata["outputs"]:
-        fo = w.formatted_output(output, output_params)
-
-        # Skip optional outputs resulting from optional inputs
-        if fo is None:
-            continue
-
-        # Rewrite file outputs to include full path to temporary location
-        if output["type"] == w.WORKFLOW_TYPE_FILE:
-            workflow_outputs[output["id"]] = os.path.abspath(os.path.join(run_dir, "output", fo))
-
-        elif output["type"] == w.WORKFLOW_TYPE_FILE_ARRAY:
-            workflow_outputs[output["id"]] = [os.path.abspath(os.path.join(run_dir, wo)) for wo in fo]
-            logger.info(f"Setting workflow output {output['id']} to [{', '.join(workflow_outputs[output['id']])}]")
-
-        else:
-            workflow_outputs[output["id"]] = fo
-            logger.info(f"Setting workflow output {output['id']} to {workflow_outputs[output['id']]}")
-
-    return workflow_outputs
 
 
 @celery.task(bind=True)
