@@ -164,15 +164,12 @@ def run_request_dict(run_request: sqlite3.Row) -> dict:
     }
 
 
-def _strip_first_slash(string: str):
+def _strip_first_slash(string: str) -> str:
     return string[1:] if len(string) > 0 and string[0] == "/" else string
 
 
-def _stream_url(run_id: uuid.UUID | str, stream: str):
-    return urljoin(
-        urljoin(current_app.config["BENTO_URL"], _strip_first_slash(current_app.config["SERVICE_URL_BASE_PATH"]) + "/"),
-        f"runs/{str(run_id)}/{stream}"
-    )
+def _stream_url(run_id: uuid.UUID | str, stream: str) -> str:
+    return urljoin(current_app.config["SERVICE_BASE_URL"], f"runs/{str(run_id)}/{stream}")
 
 
 def run_log_dict(run_id: uuid.UUID | str, run_log: sqlite3.Row) -> dict:

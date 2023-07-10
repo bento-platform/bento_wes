@@ -146,8 +146,8 @@ SERVICE_ID=
 # - temporary data directory - the service currently does not make this by
 #   itself, so this must be created prior to startup
 SERVICE_TEMP=tmp
-# - base path for service endpoints
-SERVICE_URL_BASE_PATH=/
+# - base url for service endpoints
+SERVICE_BASE_URL=http://localhost:5000/
 
 # Location of WOMtool, used to validate WDL files
 # - If not set, no WDL validation will be done

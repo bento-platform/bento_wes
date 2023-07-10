@@ -43,7 +43,7 @@ class Config:
     DATABASE: str = os.environ.get("DATABASE", "bento_wes.db")
     SERVICE_ID = SERVICE_ID
     SERVICE_TEMP: str = os.environ.get("SERVICE_TEMP", "tmp")
-    SERVICE_URL_BASE_PATH: str = os.environ.get("SERVICE_URL_BASE_PATH", "/")
+    SERVICE_BASE_URL: str = os.environ.get("SERVICE_BASE_URL", "http://127.0.0.1:5000/")
 
     # WDL-file-related configuration
     WOM_TOOL_LOCATION: Optional[str] = os.environ.get("WOM_TOOL_LOCATION")
