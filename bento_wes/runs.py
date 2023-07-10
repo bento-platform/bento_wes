@@ -130,11 +130,11 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
 
     # TODO: Move this back to runner, since we'll need to handle the callback anyway with local URLs...
 
-    chord_url = current_app.config["BENTO_URL"]
+    bento_url = current_app.config["BENTO_URL"]
 
     wm = WorkflowManager(
         current_app.config["SERVICE_TEMP"],
-        chord_url,
+        bento_url,
         logger=logger,
         workflow_host_allow_list=workflow_host_allow_list,
         validate_ssl=current_app.config["BENTO_VALIDATE_SSL"],

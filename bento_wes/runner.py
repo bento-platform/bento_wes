@@ -75,7 +75,7 @@ def run_workflow(self, run_id: uuid.UUID):
         workflow_host_allow_list=parse_workflow_host_allow_list(current_app.config["WORKFLOW_HOST_ALLOW_LIST"]),
 
         # Bento-specific stuff
-        chord_url=(current_app.config["BENTO_URL"] or None),
+        bento_url=(current_app.config["BENTO_URL"] or None),
 
         validate_ssl=current_app.config["BENTO_VALIDATE_SSL"],
         debug=current_app.config["BENTO_DEBUG"],

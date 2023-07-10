@@ -92,14 +92,14 @@ class WorkflowManager:
     def __init__(
         self,
         tmp_dir: str,
-        chord_url: str | None = None,
+        bento_url: str | None = None,
         logger: logging.Logger | None = None,
         workflow_host_allow_list: str | None = None,
         validate_ssl: bool = True,
         debug: bool = False,
     ):
         self.tmp_dir = tmp_dir
-        self.chord_url = chord_url
+        self.bento_url = bento_url
         self.logger = logger
         self.workflow_host_allow_list = workflow_host_allow_list
         self._validate_ssl = validate_ssl
@@ -165,19 +165,19 @@ class WorkflowManager:
                 # workflow's URI before downloading. Only bother doing this if BENTO_URL
                 # is actually set.
                 use_auth_headers: bool = False
-                if self.chord_url:
-                    parsed_chord_url = urlparse(self.chord_url)
+                if self.bento_url:
+                    parsed_bento_url = urlparse(self.bento_url)
                     use_auth_headers = all((
-                        self.chord_url,
-                        parsed_chord_url.scheme == parsed_workflow_uri.scheme,
-                        parsed_chord_url.netloc == parsed_workflow_uri.netloc,
-                        parsed_workflow_uri.path.startswith(parsed_chord_url.path),
+                        self.bento_url,
+                        parsed_bento_url.scheme == parsed_workflow_uri.scheme,
+                        parsed_bento_url.netloc == parsed_workflow_uri.netloc,
+                        parsed_workflow_uri.path.startswith(parsed_bento_url.path),
                     ))
 
                 wr = requests.get(
                     workflow_uri,
                     headers={
-                        "Host": urlparse(self.chord_url or "").netloc or "",
+                        "Host": urlparse(self.bento_url or "").netloc or "",
                         **(auth_headers if use_auth_headers else {}),
                     },
                     verify=self._validate_ssl,

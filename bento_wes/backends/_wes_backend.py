@@ -40,7 +40,7 @@ class WESBackend(ABC):
         logger=None,
         event_bus: Optional[EventBus] = None,
         workflow_host_allow_list: Optional[set] = None,
-        chord_url: Optional[str] = None,
+        bento_url: Optional[str] = None,
         validate_ssl: bool = True,
         debug: bool = False,
     ):
@@ -59,14 +59,14 @@ class WESBackend(ABC):
         self.workflow_host_allow_list = workflow_host_allow_list
 
         # Bento-specific parameters
-        self.chord_url: str = chord_url
+        self.bento_url: str = bento_url
 
         self.validate_ssl: bool = validate_ssl
         self.debug: bool = debug
 
         self._workflow_manager: WorkflowManager = WorkflowManager(
             self.tmp_dir,
-            self.chord_url,
+            self.bento_url,
             self.logger,
             self.workflow_host_allow_list,
             validate_ssl=validate_ssl,
