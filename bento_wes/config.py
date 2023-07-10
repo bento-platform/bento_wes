@@ -51,6 +51,9 @@ class Config:
     # Backend configuration
     CROMWELL_LOCATION: str = os.environ.get("CROMWELL_LOCATION", "/cromwell.jar")
 
+    # Authz-related configuration
+    BENTO_AUTHZ_SERVICE_URL: str = BENTO_AUTHZ_SERVICE_URL
+
     # DRS-related configuration
     DRS_URL: str = os.environ.get("DRS_URL", f"{BENTO_URL}api/drs").strip().rstrip("/")
 
