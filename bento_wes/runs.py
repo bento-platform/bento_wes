@@ -130,7 +130,7 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
 
     # TODO: Move this back to runner, since we'll need to handle the callback anyway with local URLs...
 
-    chord_url = current_app.config["CHORD_URL"]
+    chord_url = current_app.config["BENTO_URL"]
 
     wm = WorkflowManager(
         current_app.config["SERVICE_TEMP"],

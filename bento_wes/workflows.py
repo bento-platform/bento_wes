@@ -161,8 +161,8 @@ class WorkflowManager:
                 self._info(f"Fetching workflow file from {workflow_uri}")
 
                 # SECURITY: We cannot pass our auth token outside the Bento instance.
-                # Validate that CHORD_URL is a) a valid URL and b) a prefix of our
-                # workflow's URI before downloading. Only bother doing this if CHORD_URL
+                # Validate that BENTO_URL is a) a valid URL and b) a prefix of our
+                # workflow's URI before downloading. Only bother doing this if BENTO_URL
                 # is actually set.
                 use_auth_headers: bool = False
                 if self.chord_url:

@@ -122,7 +122,7 @@ Get run state
 # Bento instance or service base URL, used for generating absolute URLs within
 # the service, for making requests, and for re-writing internal URLS in the case
 # of Singularity-based Bento instances
-CHORD_URL=http://127.0.0.1:5000/
+BENTO_URL=http://127.0.0.1:5000/
 
 # Debug mode for the service - falls back to FLASK_ENV (development = true,
 # any other value = false) if not set

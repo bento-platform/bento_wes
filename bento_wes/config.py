@@ -34,7 +34,7 @@ BENTO_EVENT_REDIS_URL = os.environ.get("BENTO_EVENT_REDIS_URL", "redis://localho
 
 
 class Config:
-    CHORD_URL: str = os.environ.get("CHORD_URL", "http://127.0.0.1:5000/")
+    BENTO_URL: str = os.environ.get("BENTO_URL", "http://127.0.0.1:5000/")
 
     BENTO_DEBUG: bool = BENTO_DEBUG
     BENTO_VALIDATE_SSL: bool = os.environ.get(
@@ -53,10 +53,10 @@ class Config:
     CROMWELL_LOCATION: str = os.environ.get("CROMWELL_LOCATION", "/cromwell.jar")
 
     # DRS-related configuration
-    DRS_URL: str = os.environ.get("DRS_URL", f"{CHORD_URL}api/drs").strip().rstrip("/")
+    DRS_URL: str = os.environ.get("DRS_URL", f"{BENTO_URL}api/drs").strip().rstrip("/")
 
     # Other services, used for interpolating workflow variables
-    METADATA_URL: str = os.environ.get("METADATA_URL", f"{CHORD_URL}api/metadata").strip().rstrip("/")
+    METADATA_URL: str = os.environ.get("METADATA_URL", f"{BENTO_URL}api/metadata").strip().rstrip("/")
 
     # VEP-related configuration
     VEP_CACHE_DIR: Optional[str] = os.environ.get("VEP_CACHE_DIR")

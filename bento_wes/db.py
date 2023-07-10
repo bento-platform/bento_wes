@@ -170,7 +170,7 @@ def _strip_first_slash(string: str):
 
 def _stream_url(run_id: uuid.UUID | str, stream: str):
     return urljoin(
-        urljoin(current_app.config["CHORD_URL"], _strip_first_slash(current_app.config["SERVICE_URL_BASE_PATH"]) + "/"),
+        urljoin(current_app.config["BENTO_URL"], _strip_first_slash(current_app.config["SERVICE_URL_BASE_PATH"]) + "/"),
         f"runs/{str(run_id)}/{stream}"
     )
 
