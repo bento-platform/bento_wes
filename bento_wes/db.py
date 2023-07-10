@@ -72,7 +72,7 @@ def finish_run(
     or a run success, depending on the state.
     :param db: A SQLite database connection
     :param c: An SQLite connection cursor
-    :param event_bus: A chord_lib-defined event bus implementation for sending events
+    :param event_bus: A bento_lib-defined event bus implementation for sending events
     :param run: The run which just finished
     :param state: The terminal state for the finished run
     :param logger: An optionally-provided logger object.

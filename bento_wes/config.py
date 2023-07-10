@@ -25,10 +25,9 @@ if BENTO_AUTHZ_SERVICE_URL == "":
 AUTHZ_ENABLED = os.environ.get("AUTHZ_ENABLED", "true").strip().lower() in TRUTH_VALUES
 
 BENTO_DEBUG: bool = os.environ.get(
-        "BENTO_DEBUG",
-        os.environ.get(
-            "CHORD_DEBUG",
-            os.environ.get("FLASK_DEBUG", "false"))).strip().lower() in TRUTH_VALUES
+    "BENTO_DEBUG",
+    os.environ.get("FLASK_DEBUG", "false")
+).strip().lower() in TRUTH_VALUES
 
 BENTO_EVENT_REDIS_URL = os.environ.get("BENTO_EVENT_REDIS_URL", "redis://localhost:6379")
 

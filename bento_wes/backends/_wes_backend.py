@@ -75,8 +75,6 @@ class WESBackend(ABC):
 
         self._runs = {}
 
-        # Check that CHORD-dependent values are present
-
         self.log_debug(f"Instantiating WESBackend with debug={self.debug}")
 
     def log_debug(self, message: str) -> None:

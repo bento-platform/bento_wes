@@ -14,10 +14,7 @@ celery_log_level="INFO"
 if [[
   "${BENTO_DEBUG}" == "true" ||
   "${BENTO_DEBUG}" == "True" ||
-  "${BENTO_DEBUG}" == "1" ||
-  "${CHORD_DEBUG}" == "true" ||
-  "${CHORD_DEBUG}" == "True" ||
-  "${CHORD_DEBUG}" == "1"
+  "${BENTO_DEBUG}" == "1"
 ]]; then
   celery_log_level="DEBUG"
 fi

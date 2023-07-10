@@ -83,7 +83,7 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
     workflow_attachment_list = request.files.getlist("workflow_attachment")  # TODO: Use this fully
     tags = json.loads(request.form["tags"])
 
-    # TODO: Move CHORD-specific stuff out somehow?
+    # TODO: Move Bento-specific stuff out somehow?
 
     # Bento-specific required tags
     assert "workflow_id" in tags
@@ -232,7 +232,7 @@ def run_list():
             return flask_bad_request_error("Assertion error: bad run request format")
 
     # GET
-    # CHORD Extension: Include run details with /runs request
+    # Bento Extension: Include run details with /runs request
     with_details = request.args.get("with_details", "false").lower() == "true"
 
     res_list = []

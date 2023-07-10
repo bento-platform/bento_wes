@@ -128,7 +128,7 @@ BENTO_URL=http://127.0.0.1:5000/
 # any other value = false) if not set
 # SECURITY NOTE: This SHOULD NOT EVER be enabled in production, as it removes
 # checks for TLS certificate validity!
-CHORD_DEBUG=False
+BENTO_DEBUG=False
 
 # Celery configuration
 CELERY_RESULT_BACKEND=redis://
