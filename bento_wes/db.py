@@ -12,6 +12,7 @@ from urllib.parse import urljoin
 from . import states
 from .constants import SERVICE_ARTIFACT
 from .events import get_flask_event_bus
+from .types import RunStream
 from .utils import iso_now
 
 
@@ -168,7 +169,7 @@ def _strip_first_slash(string: str) -> str:
     return string[1:] if len(string) > 0 and string[0] == "/" else string
 
 
-def _stream_url(run_id: uuid.UUID | str, stream: str) -> str:
+def _stream_url(run_id: uuid.UUID | str, stream: RunStream) -> str:
     return urljoin(current_app.config["SERVICE_BASE_URL"], f"runs/{str(run_id)}/{stream}")
 
 

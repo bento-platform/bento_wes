@@ -14,7 +14,7 @@ from bento_lib.responses.flask_errors import (
     flask_forbidden_error,
 )
 from flask import Blueprint, Response, current_app, jsonify, request
-from typing import Callable, Literal
+from typing import Callable
 from werkzeug.utils import secure_filename
 
 from . import states
@@ -23,6 +23,7 @@ from .celery import celery
 from .events import get_flask_event_bus
 from .logger import logger
 from .runner import run_workflow
+from .types import RunStream
 from .workflows import (
     WorkflowType,
     UnsupportedWorkflowType,
@@ -281,7 +282,7 @@ def run_detail(run_id: uuid.UUID):
     return jsonify(run_details) if run_details is not None else flask_not_found_error(f"Run {run_id} not found ({err})")
 
 
-def get_stream(c: sqlite3.Cursor, stream: Literal["stdout", "stderr"], run_id: uuid.UUID):
+def get_stream(c: sqlite3.Cursor, stream: RunStream, run_id: uuid.UUID):
     c.execute("SELECT * FROM runs AS r, run_logs AS rl WHERE r.id = ? AND r.run_log = rl.id", (str(run_id),))
     run = c.fetchone()
     return (current_app.response_class(
