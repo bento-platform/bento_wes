@@ -94,7 +94,6 @@ def test_run_detail_endpoint(client, mocked_responses):
     assert json.dumps(run["request"], sort_keys=True) == json.dumps(EXAMPLE_RUN, sort_keys=True)
     assert json.dumps(run["task_logs"], sort_keys=True) == json.dumps([], sort_keys=True)  # TODO: Tasks impl
 
-    assert "id" in run["run_log"]
     assert run["run_log"]["name"] == "phenopackets_json"
     assert run["run_log"]["cmd"] == ""
     assert run["run_log"]["start_time"] == ""
