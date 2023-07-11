@@ -287,7 +287,7 @@ def run_detail(run_id: uuid.UUID):
         else:
             return flask_not_found_error(f"Run {run_id} not found ({err})")
 
-    if _check_single_run_permission_and_mark(
+    if not _check_single_run_permission_and_mark(
             _get_project_and_dataset_id_from_run_request(run_details["request"]), PERMISSION_VIEW_RUNS):
         return flask_forbidden_error("Forbidden")
 
