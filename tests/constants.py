@@ -7,6 +7,7 @@ __all__ = [
 ]
 
 
+EXAMPLE_PROJECT_ID = "2b98aae0-d67a-48ae-8419-3f3e2b10629b"
 EXAMPLE_DATASET_ID = "ef9da1da-ef7f-43d6-ace3-456bf8e58431"
 
 EXAMPLE_RUN = {
@@ -41,7 +42,7 @@ EXAMPLE_RUN = {
                 }
             ],
         },
-        "ingestion_url": "http://metadata.local/private/ingest",
+        "project_id": EXAMPLE_PROJECT_ID,
         "dataset_id": EXAMPLE_DATASET_ID,
     },
 }
