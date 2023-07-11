@@ -182,17 +182,17 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
     # Will be updated to STATE_QUEUED once submitted
     c.execute("""
         INSERT INTO runs (
-            id, 
-            state, 
+            id,
+            state,
             outputs,
-            
-            request__workflow_params, 
-            request__workflow_type, 
-            request__workflow_type_version, 
-            request__workflow_engine_parameters, 
-            request__workflow_url, 
+
+            request__workflow_params,
+            request__workflow_type,
+            request__workflow_type_version,
+            request__workflow_engine_parameters,
+            request__workflow_url,
             request__tags,
-            
+
             run_log__name
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
