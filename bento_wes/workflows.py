@@ -115,7 +115,7 @@ class WorkflowManager:
         parsed_workflow_uri = urlparse(workflow_uri)  # TODO: Handle errors, handle references to attachments
 
         workflow_path = self.workflow_path(workflow_uri, workflow_type)
-        
+
         if parsed_workflow_uri.scheme not in ALLOWED_WORKFLOW_REQUEST_SCHEMES:  # file://
             # TODO: Other else cases
             # TODO: Handle exceptions
@@ -181,8 +181,3 @@ class WorkflowManager:
             if not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
                 # Network issues
                 raise e
-
-        else:  # TODO: Other else cases
-            # file://
-            # TODO: Handle exceptions
-            shutil.copyfile(parsed_workflow_uri.path, workflow_path)
