@@ -162,9 +162,7 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
     # ---
 
     # Begin creating the job after validating the request
-    req_id = uuid.uuid4()
     run_id = uuid.uuid4()
-    log_id = uuid.uuid4()
 
     # Create run directory
 
@@ -199,14 +197,36 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
         # TODO: Support WDL uploads for workflows
         attachment.save(os.path.join(run_dir, secure_filename(attachment.filename)))
 
-    # Will be updated to STATE_ QUEUED once submitted
-    c.execute("INSERT INTO run_requests (id, workflow_params, workflow_type, workflow_type_version, "
-              "workflow_engine_parameters, workflow_url, tags) VALUES (?, ?, ?, ?, ?, ?, ?)",
-              (str(req_id), json.dumps(workflow_params), workflow_type, workflow_type_version,
-               json.dumps(workflow_engine_parameters), workflow_url, json.dumps(tags)))
-    c.execute("INSERT INTO run_logs (id, name) VALUES (?, ?)", (str(log_id), workflow_id))
-    c.execute("INSERT INTO runs (id, request, state, run_log, outputs) VALUES (?, ?, ?, ?, ?)",
-              (str(run_id), str(req_id), states.STATE_UNKNOWN, str(log_id), json.dumps({})))
+    # Will be updated to STATE_QUEUED once submitted
+    c.execute("""
+        INSERT INTO runs (
+            id, 
+            state, 
+            outputs,
+            
+            request__workflow_params, 
+            request__workflow_type, 
+            request__workflow_type_version, 
+            request__workflow_engine_parameters, 
+            request__workflow_url, 
+            request__tags,
+            
+            run_log__name
+        ) VALUES (?, ?, ?, ?, ?)
+    """, (
+        str(run_id),
+        states.STATE_UNKNOWN,
+        json.dumps({}),
+
+        json.dumps(workflow_params),
+        workflow_type,
+        workflow_type_version,
+        json.dumps(workflow_engine_parameters),
+        workflow_url,
+        json.dumps(tags),
+
+        workflow_id,
+    ))
     db.commit()
 
     # TODO: figure out timeout
@@ -260,7 +280,7 @@ def run_list():
                 "run_id": r["run_id"],
                 "state": r["state"],
                 "request": run_req,
-                "run_log": run_log_dict(r["run_id"], r),
+                "run_log": run_log_dict(r),
                 "task_logs": get_task_logs(c, r["run_id"])
             }
 
@@ -286,7 +306,7 @@ def run_detail(run_id: uuid.UUID):
 
 
 def get_stream(c: sqlite3.Cursor, stream: RunStream, run_id: uuid.UUID):
-    c.execute("SELECT * FROM runs AS r, run_logs AS rl WHERE r.id = ? AND r.run_log = rl.id", (str(run_id),))
+    c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
     run = c.fetchone()
     return (current_app.response_class(
         headers={
@@ -297,7 +317,7 @@ def get_stream(c: sqlite3.Cursor, stream: RunStream, run_id: uuid.UUID):
                 else "no-cache, no-store, must-revalidate, max-age=0"
             ),
         },
-        response=run[stream],
+        response=run[f"run_log__{stream}"],
         mimetype="text/plain",
         status=200,
     ) if run is not None else flask_not_found_error(f"Stream {stream} not found for run {run_id}"))
@@ -359,13 +379,9 @@ def run_cancel(run_id: uuid.UUID):
         if run["state"] in states.SUCCESS_STATES:
             return flask_bad_request_error("Run already completed")
 
-        c.execute("SELECT * FROM run_logs WHERE id = ?", (run["run_log"],))
-        run_log = c.fetchone()
+        celery_id = run["run_log__celery_id"]
 
-        if run_log is None:
-            return flask_internal_server_error(f"No run log present for run {run_id}")
-
-        if run_log["celery_id"] is None:
+        if celery_id is None:
             # Never made it into the queue, so "cancel" it
             return flask_internal_server_error(f"No Celery ID present for run {run_id}")
 
@@ -373,7 +389,7 @@ def run_cancel(run_id: uuid.UUID):
 
         # TODO: terminate=True might be iffy
         update_run_state_and_commit(db, c, event_bus, run["id"], states.STATE_CANCELING)
-        celery.control.revoke(run_log["celery_id"], terminate=True)  # Remove from queue if there, terminate if running
+        celery.control.revoke(celery_id, terminate=True)  # Remove from queue if there, terminate if running
 
         # TODO: wait for revocation / failure and update status...
 

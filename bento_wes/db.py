@@ -81,11 +81,10 @@ def finish_run(
     """
 
     run_id = run["run_id"]
-    run_log_id = run["run_log"]["id"]
     end_time = iso_now()
 
     # Explicitly don't commit here to sync with state update
-    c.execute("UPDATE run_logs SET end_time = ? WHERE id = ?", (end_time, run_log_id))
+    c.execute("UPDATE runs SET run_log__end_time = ? WHERE id = ?", (end_time, run_id))
     update_run_state_and_commit(db, c, event_bus, run_id, state, logger=logger)
 
     if logger:
@@ -154,14 +153,14 @@ def update_db():
     # TODO: Migrations if needed
 
 
-def run_request_dict(run_request: sqlite3.Row) -> dict:
+def run_request_dict(run: sqlite3.Row) -> dict:
     return {
-        "workflow_params": json.loads(run_request["workflow_params"]),
-        "workflow_type": run_request["workflow_type"],
-        "workflow_type_version": run_request["workflow_type_version"],
-        "workflow_engine_parameters": json.loads(run_request["workflow_engine_parameters"]),  # TODO
-        "workflow_url": run_request["workflow_url"],
-        "tags": json.loads(run_request["tags"])
+        "workflow_params": json.loads(run["request__workflow_params"]),
+        "workflow_type": run["request__workflow_type"],
+        "workflow_type_version": run["request__workflow_type_version"],
+        "workflow_engine_parameters": json.loads(run["request__workflow_engine_parameters"]),  # TODO
+        "workflow_url": run["request__workflow_url"],
+        "tags": json.loads(run["request__tags"])
     }
 
 
@@ -173,16 +172,17 @@ def _stream_url(run_id: uuid.UUID | str, stream: RunStream) -> str:
     return urljoin(current_app.config["SERVICE_BASE_URL"], f"runs/{str(run_id)}/{stream}")
 
 
-def run_log_dict(run_id: uuid.UUID | str, run_log: sqlite3.Row) -> dict:
+def run_log_dict(run: sqlite3.Row) -> dict:
+    run_id = run["id"]
     return {
-        "id": run_log["id"],  # TODO: This is non-WES-compliant
-        "name": run_log["name"],
-        "cmd": run_log["cmd"],
-        "start_time": run_log["start_time"],
-        "end_time": run_log["end_time"],
+        "id": run["run_log__id"],  # TODO: This is non-WES-compliant
+        "name": run["run_log__name"],
+        "cmd": run["run_log__cmd"],
+        "start_time": run["run_log__start_time"],
+        "end_time": run["run_log__end_time"],
         "stdout": _stream_url(run_id, "stdout"),
         "stderr": _stream_url(run_id, "stderr"),
-        "exit_code": run_log["exit_code"]
+        "exit_code": run["run_log__exit_code"]
     }
 
 
@@ -211,23 +211,13 @@ def get_run_details(c: sqlite3.Cursor, run_id: uuid.UUID | str) -> tuple[None, s
     if run is None:
         return None, "Missing entry in table 'runs'"
 
-    c.execute("SELECT * from run_requests WHERE id = ?", (run["request"],))
-    run_request = c.fetchone()
-    if run_request is None:
-        return None, "Missing entry in table 'run_requests'"
-
-    c.execute("SELECT * from run_logs WHERE id = ?", (run["run_log"],))
-    run_log = c.fetchone()
-    if run_log is None:
-        return None, "Missing entry in table 'run_logs'"
-
     c.execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
 
     return {
         "run_id": run["id"],
-        "request": run_request_dict(run_request),
+        "request": run_request_dict(run),
         "state": run["state"],
-        "run_log": run_log_dict(run["id"], run_log),
+        "run_log": run_log_dict(run),
         "task_logs": get_task_logs(c, run["id"]),
         "outputs": json.loads(run["outputs"])
     }, None

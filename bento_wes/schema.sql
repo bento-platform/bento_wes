@@ -5,36 +5,26 @@ DROP TABLE IF EXISTS task_logs;
 
 CREATE TABLE runs (
     id TEXT PRIMARY KEY,    -- UUID
-    request TEXT NOT NULL,  -- Original request message used to initiate execution
     state TEXT NOT NULL,    -- enum
-    run_log TEXT,           -- Foreign key to run log UUID
     outputs TEXT,           -- Outputs from the run  TODO: formal spec for this?
-    FOREIGN KEY (request) REFERENCES run_requests ON DELETE CASCADE,
-    FOREIGN KEY (run_log) REFERENCES run_logs ON DELETE CASCADE
-);
 
-CREATE TABLE run_requests (
-    id TEXT PRIMARY KEY,                                    -- UUID
-    workflow_params TEXT NOT NULL,                          -- JSON
-    workflow_type TEXT NOT NULL DEFAULT 'WDL',              -- CWL or >>WDL<<
-    workflow_type_version TEXT NOT NULL DEFAULT '1.0',      -- Version of workflow language specification
-    workflow_engine_parameters TEXT NOT NULL DEFAULT '{}',  -- JSON
-    workflow_url TEXT NOT NULL,                             -- URL to WDL file
-    tags TEXT NOT NULL DEFAULT '{}'                         -- JSON
-);
+    request__workflow_params TEXT NOT NULL,                          -- JSON
+    request__workflow_type TEXT NOT NULL DEFAULT 'WDL',              -- CWL or >>WDL<<
+    request__workflow_type_version TEXT NOT NULL DEFAULT '1.0',      -- Version of workflow language specification
+    request__workflow_engine_parameters TEXT NOT NULL DEFAULT '{}',  -- JSON
+    request__workflow_url TEXT NOT NULL,                             -- URL to WDL file
+    request__tags TEXT NOT NULL DEFAULT '{}'                         -- JSON
 
-CREATE TABLE run_logs (
-    id TEXT PRIMARY KEY,                  -- UUID
-    name TEXT NOT NULL,                   -- Workflow name
-    cmd TEXT NOT NULL DEFAULT '',         -- Command used to execute the workflow
-    start_time TEXT NOT NULL DEFAULT '',  -- Time started (ISO 8601, UTC)
-    end_time TEXT NOT NULL DEFAULT '',    -- Completed, failed, or canceled  (ISO 8601, UTC)
-    stdout TEXT NOT NULL DEFAULT '',      -- Contents
-    stderr TEXT NOT NULL DEFAULT '',      -- Contents
-    exit_code INTEGER DEFAULT NULL,       -- Exit code
+    run_log__name TEXT NOT NULL,                   -- Workflow name
+    run_log__cmd TEXT NOT NULL DEFAULT '',         -- Command used to execute the workflow
+    run_log__start_time TEXT NOT NULL DEFAULT '',  -- Time started (ISO 8601, UTC)
+    run_log__end_time TEXT NOT NULL DEFAULT '',    -- Completed, failed, or canceled  (ISO 8601, UTC)
+    run_log__stdout TEXT NOT NULL DEFAULT '',      -- Contents
+    run_log__stderr TEXT NOT NULL DEFAULT '',      -- Contents
+    run_log__exit_code INTEGER DEFAULT NULL,       -- Exit code
 
     -- Non-standard columns
-    celery_id INTEGER DEFAULT NULL        -- UUID task ID from Celery
+    run_log__celery_id INTEGER DEFAULT NULL        -- UUID task ID from Celery
 );
 
 CREATE TABLE task_logs (

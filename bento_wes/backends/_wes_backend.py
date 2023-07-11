@@ -300,8 +300,6 @@ class WESBackend(ABC):
 
         self._update_run_state_and_commit(run["run_id"], states.STATE_INITIALIZING)
 
-        run_log_id: str = run["run_log"]["id"]
-
         # -- Check that the run directory exists ------------------------------
         if not os.path.exists(self.run_dir(run)):
             # TODO: Log error in run log
@@ -329,7 +327,7 @@ class WESBackend(ABC):
             return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
 
         # TODO: To avoid having multiple names, we should maybe only set this once?
-        c.execute("UPDATE run_logs SET name = ? WHERE id = ?", (workflow_name, run_log_id))
+        c.execute("UPDATE runs SET run_log__name = ? WHERE id = ?", (workflow_name, run["id"]))
         self.db.commit()
 
         # -- Store input for the workflow in a file in the temporary folder ---
@@ -342,7 +340,9 @@ class WESBackend(ABC):
                                 self.run_dir(run))
 
         # -- Update run log with command and Celery ID ------------------------
-        c.execute("UPDATE run_logs SET cmd = ?, celery_id = ? WHERE id = ?", (" ".join(cmd), celery_id, run_log_id))
+        c.execute(
+            "UPDATE runs SET run_log__cmd = ?, run_log__celery_id = ? WHERE id = ?",
+            (" ".join(cmd), celery_id, run["id"]))
         self.db.commit()
 
         return cmd, workflow_params
@@ -391,7 +391,7 @@ class WESBackend(ABC):
         # -- Start process running the generated command ----------------------
         runner_process = subprocess.Popen(
             cmd, cwd=self.tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
-        c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]["id"]))
+        c.execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run["id"]))
         self._update_run_state_and_commit(run["run_id"], states.STATE_RUNNING)
 
         # -- Wait for and capture output --------------------------------------
@@ -430,8 +430,8 @@ class WESBackend(ABC):
 
         # -- Update run log with stdout/stderr, exit code ---------------------
         #     - Explicitly don't commit here; sync with state update
-        c.execute("UPDATE run_logs SET stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
-                  (stdout, stderr, exit_code, run["run_log"]["id"]))
+        c.execute("UPDATE runs SET run_log__stdout = ?, run_log__stderr = ?, run_log__exit_code = ? WHERE id = ?",
+                  (stdout, stderr, exit_code, run["id"]))
 
         if timed_out:
             # TODO: Report error somehow
