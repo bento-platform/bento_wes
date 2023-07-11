@@ -63,18 +63,20 @@ class WorkflowManager:
     def __init__(
         self,
         tmp_dir: str,
+        service_base_url: str,
         bento_url: str | None = None,
         logger: logging.Logger | None = None,
         workflow_host_allow_list: str | None = None,
         validate_ssl: bool = True,
         debug: bool = False,
     ):
-        self.tmp_dir = tmp_dir
-        self.bento_url = bento_url
-        self.logger = logger
-        self.workflow_host_allow_list = workflow_host_allow_list
-        self._validate_ssl = validate_ssl
-        self._debug_mode = debug
+        self.tmp_dir: str = tmp_dir
+        self.service_base_url: str = service_base_url
+        self.bento_url: str | None = bento_url
+        self.logger: logging.Logger | None = logger
+        self.workflow_host_allow_list: str | None = workflow_host_allow_list
+        self._validate_ssl: bool = validate_ssl
+        self._debug_mode: bool = debug
 
         self._debug(f"Instantiating WorkflowManager with debug_mode={self._debug_mode}")
 
@@ -148,7 +150,7 @@ class WorkflowManager:
                 wr = requests.get(
                     workflow_uri,
                     headers={
-                        "Host": urlparse(self.bento_url or "").netloc or "",
+                        "Host": urlparse(self.service_base_url or "").netloc or "",
                         **(auth_headers if use_auth_headers else {}),
                     },
                     verify=self._validate_ssl,
