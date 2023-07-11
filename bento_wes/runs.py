@@ -212,7 +212,7 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
             request__tags,
             
             run_log__name
-        ) VALUES (?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         str(run_id),
         states.STATE_UNKNOWN,
@@ -277,11 +277,11 @@ def run_list():
 
         if with_details:
             run["details"] = {
-                "run_id": r["run_id"],
+                "run_id": r["id"],
                 "state": r["state"],
                 "request": run_req,
                 "run_log": run_log_dict(r),
-                "task_logs": get_task_logs(c, r["run_id"])
+                "task_logs": get_task_logs(c, r["id"])
             }
 
         res_list.append(run)
@@ -296,13 +296,23 @@ def run_list():
 
 @bp_runs.route("/runs/<uuid:run_id>", methods=["GET"])
 def run_detail(run_id: uuid.UUID):
+    authz_enabled = current_app.config["AUTHZ_ENABLED"]
     run_details, err = get_run_details(get_db().cursor(), run_id)
 
-    if not _check_single_run_permission_and_mark(
+    if run_details is None:
+        if authz_enabled:
+            return flask_forbidden_error("Forbidden")
+        else:
+            return flask_not_found_error(f"Run {run_id} not found ({err})")
+
+    if _check_single_run_permission_and_mark(
             _get_project_and_dataset_id_from_run_request(run_details["request"]), PERMISSION_VIEW_RUNS):
         return flask_forbidden_error("Forbidden")
 
-    return jsonify(run_details) if run_details is not None else flask_not_found_error(f"Run {run_id} not found ({err})")
+    if run_details is None and not authz_enabled:
+        return flask_not_found_error(f"Run {run_id} not found ({err})")
+
+    return jsonify(run_details)
 
 
 def get_stream(c: sqlite3.Cursor, stream: RunStream, run_id: uuid.UUID):
@@ -332,9 +342,12 @@ def check_run_authz_then_return_response(
     run_details, rd_err = get_run_details(c, run_id)
 
     if rd_err:
-        # Without permissions, don't even leak if this run exists - just return forbidden
-        authz_middleware.mark_authz_done(request)
-        return flask_forbidden_error("Forbidden")
+        if current_app.config["AUTHZ_ENABLED"]:
+            # Without the required permissions, don't even leak if this run exists - just return forbidden
+            authz_middleware.mark_authz_done(request)
+            return flask_forbidden_error("Forbidden")
+        else:
+            return flask_not_found_error(rd_err)
 
     if not _check_single_run_permission_and_mark(
             _get_project_and_dataset_id_from_run_request(run_details["request"]), permission):

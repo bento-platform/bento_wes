@@ -175,7 +175,6 @@ def _stream_url(run_id: uuid.UUID | str, stream: RunStream) -> str:
 def run_log_dict(run: sqlite3.Row) -> dict:
     run_id = run["id"]
     return {
-        "id": run["run_log__id"],  # TODO: This is non-WES-compliant
         "name": run["run_log__name"],
         "cmd": run["run_log__cmd"],
         "start_time": run["run_log__start_time"],

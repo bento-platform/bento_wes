@@ -18,17 +18,8 @@ def _add_workflow_response(r):
             content_type="text/plain")
 
 
-def _add_ott_response(r):
-    r.add(
-        responses.POST,
-        "http://auth.local/ott/generate",
-        json=["t1"],
-        status=200)
-
-
 def test_runs_endpoint(client, mocked_responses):
     _add_workflow_response(mocked_responses)
-    _add_ott_response(mocked_responses)
 
     rv = client.get("/runs")
     assert rv.status_code == 200
@@ -86,15 +77,16 @@ def test_run_create_errors(client):
 
 def test_run_detail_endpoint(client, mocked_responses):
     _add_workflow_response(mocked_responses)
-    _add_ott_response(mocked_responses)
 
     rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
+    assert rv.status_code == 200
     cr_data = rv.get_json()
 
     rv = client.get(f"/runs/{uuid.uuid4()}")
     assert rv.status_code == 404
 
     rv = client.get(f"/runs/{cr_data['run_id']}")
+    assert rv.status_code == 200
     run = rv.get_json()
 
     assert run["run_id"] == cr_data["run_id"]
@@ -119,7 +111,6 @@ def test_run_detail_endpoint(client, mocked_responses):
 
 def test_run_status_endpoint(client, mocked_responses):
     _add_workflow_response(mocked_responses)
-    _add_ott_response(mocked_responses)
 
     rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
     cr_data = rv.get_json()
@@ -134,7 +125,6 @@ def test_run_status_endpoint(client, mocked_responses):
 
 def test_run_streams(client, mocked_responses):
     _add_workflow_response(mocked_responses)
-    _add_ott_response(mocked_responses)
 
     rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
     cr_data = rv.get_json()
@@ -156,7 +146,6 @@ def test_run_streams(client, mocked_responses):
 
 def test_run_cancel_endpoint(client, mocked_responses):
     _add_workflow_response(mocked_responses)
-    _add_ott_response(mocked_responses)
 
     rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
     cr_data = rv.get_json()
