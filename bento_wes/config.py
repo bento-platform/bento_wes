@@ -58,6 +58,7 @@ class Config:
 
     # Authn/z-related configuration
     AUTHZ_URL: str = AUTHZ_URL
+    AUTHZ_ENABLED: bool = AUTHZ_ENABLED
     #  - ... for WES itself:
     BENTO_OPENID_CONFIG_URL: str = os.environ.get(
         "BENTO_OPENID_CONFIG_URL", "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration")
