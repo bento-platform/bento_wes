@@ -102,8 +102,12 @@ class WorkflowManager:
         workflow_name = str(urlsafe_b64encode(bytes(workflow_uri, encoding="utf-8")), encoding="utf-8")
         return os.path.join(self.tmp_dir, f"workflow_{workflow_name}.{WORKFLOW_EXTENSIONS[workflow_type]}")
 
-    def download_or_copy_workflow(self, workflow_uri: str, workflow_type: WorkflowType, auth_headers: dict) \
-            -> str | None:
+    def download_or_copy_workflow(
+        self,
+        workflow_uri: str,
+        workflow_type: WorkflowType,
+        auth_headers: dict,
+    ) -> str | None:
         """
         Given a URI, downloads the specified workflow via its URI, or copies it over if it's on the local
         file system. # TODO: Local file system = security issue?
