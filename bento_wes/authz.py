@@ -8,7 +8,7 @@ __all__ = [
 ]
 
 authz_middleware = FlaskAuthMiddleware(
-    config.BENTO_AUTHZ_SERVICE_URL,
+    config.AUTHZ_URL,
     debug_mode=config.BENTO_DEBUG,
     enabled=config.AUTHZ_ENABLED,
 )

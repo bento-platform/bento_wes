@@ -7,20 +7,22 @@ from .logger import logger
 
 
 __all__ = [
-    "BENTO_AUTHZ_SERVICE_URL",
+    "AUTHZ_URL",
     "AUTHZ_ENABLED",
     "BENTO_DEBUG",
     "BENTO_EVENT_REDIS_URL",
     "Config",
 ]
 
+
+def _get_from_environ_or_fail(var: str) -> str:
+    if (val := os.environ.get(var, "")) == "":
+        logger.critical(f"{var} must be set")
+        exit(1)
+    return val
+
+
 TRUTH_VALUES = ("true", "1")
-
-BENTO_AUTHZ_SERVICE_URL = os.environ.get("BENTO_AUTHZ_SERVICE_URL", "")
-
-if BENTO_AUTHZ_SERVICE_URL == "":
-    logger.critical("BENTO_AUTHZ_SERVICE_URL must be set")
-    exit(1)
 
 AUTHZ_ENABLED = os.environ.get("AUTHZ_ENABLED", "true").strip().lower() in TRUTH_VALUES
 
@@ -28,6 +30,9 @@ BENTO_DEBUG: bool = os.environ.get(
     "BENTO_DEBUG",
     os.environ.get("FLASK_DEBUG", "false")
 ).strip().lower() in TRUTH_VALUES
+
+AUTHZ_URL: str = _get_from_environ_or_fail("BENTO_AUTHZ_SERVICE_URL").strip().rstrip("/")
+SERVICE_REGISTRY_URL: str = _get_from_environ_or_fail("SERVICE_REGISTRY_URL").strip().rstrip("/")
 
 BENTO_EVENT_REDIS_URL = os.environ.get("BENTO_EVENT_REDIS_URL", "redis://localhost:6379")
 
@@ -51,14 +56,18 @@ class Config:
     # Backend configuration
     CROMWELL_LOCATION: str = os.environ.get("CROMWELL_LOCATION", "/cromwell.jar")
 
-    # Authz-related configuration
-    BENTO_AUTHZ_SERVICE_URL: str = BENTO_AUTHZ_SERVICE_URL
+    # Authn/z-related configuration
+    AUTHZ_URL: str = AUTHZ_URL
+    #  - ... for WES itself:
+    BENTO_OPENID_CONFIG_URL: str = os.environ.get(
+        "BENTO_OPENID_CONFIG_URL", "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration")
+    WES_CLIENT_ID: str = os.environ.get("WES_CLIENT_ID", "bento_wes")
+    WES_CLIENT_SECRET: str = os.environ.get("WES_CLIENT_SECRET", "")
 
-    # DRS-related configuration
-    DRS_URL: str = os.environ.get("DRS_URL", f"{BENTO_URL}api/drs").strip().rstrip("/")
-
-    # Other services, used for interpolating workflow variables
-    METADATA_URL: str = os.environ.get("METADATA_URL", f"{BENTO_URL}api/metadata").strip().rstrip("/")
+    # Other services, used for interpolating workflow variables and (
+    DRS_URL: str = os.environ.get("DRS_URL", "").strip().rstrip("/")
+    METADATA_URL: str = os.environ.get("METADATA_URL", "").strip().rstrip("/")
+    SERVICE_REGISTRY_URL: str = SERVICE_REGISTRY_URL
 
     # VEP-related configuration
     VEP_CACHE_DIR: Optional[str] = os.environ.get("VEP_CACHE_DIR")
@@ -66,9 +75,3 @@ class Config:
     INGEST_POST_TIMEOUT: int = 60 * 60  # 1 hour
     # Timeout for workflow runs themselves, in seconds - default to 48 hours
     WORKFLOW_TIMEOUT: int = int(os.environ.get("WORKFLOW_TIMEOUT", str(60 * 60 * 48)))
-
-    # Auth-related config for WES itself
-    BENTO_OPENID_CONFIG_URL: str = os.environ.get(
-        "BENTO_OPENID_CONFIG_URL", "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration")
-    WES_CLIENT_ID: str = os.environ.get("WES_CLIENT_ID", "bento_wes")
-    WES_CLIENT_SECRET: str = os.environ.get("WES_CLIENT_SECRET", "")
