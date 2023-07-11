@@ -115,67 +115,72 @@ class WorkflowManager:
         parsed_workflow_uri = urlparse(workflow_uri)  # TODO: Handle errors, handle references to attachments
 
         workflow_path = self.workflow_path(workflow_uri, workflow_type)
+        
+        if parsed_workflow_uri.scheme not in ALLOWED_WORKFLOW_REQUEST_SCHEMES:  # file://
+            # TODO: Other else cases
+            # TODO: Handle exceptions
+            shutil.copyfile(parsed_workflow_uri.path, workflow_path)
+            return
 
         # TODO: Better auth? May only be allowed to access specific workflows
-        if parsed_workflow_uri.scheme in ALLOWED_WORKFLOW_REQUEST_SCHEMES:
-            try:
-                if self.workflow_host_allow_list is not None:
-                    # We need to check that the workflow in question is from an
-                    # allowed set of workflow hosts
-                    # TODO: Handle parsing errors
-                    parsed_workflow_uri = urlparse(workflow_uri)
-                    if (parsed_workflow_uri.scheme != "file" and
-                            parsed_workflow_uri.netloc not in self.workflow_host_allow_list):
-                        # Dis-allowed workflow URL
-                        self._error(f"Dis-allowed workflow host: {parsed_workflow_uri.netloc} "
-                                    f"(allow list: {self.workflow_host_allow_list})")
-                        return states.STATE_EXECUTOR_ERROR
+        try:
+            if self.workflow_host_allow_list is not None:
+                # We need to check that the workflow in question is from an
+                # allowed set of workflow hosts
+                # TODO: Handle parsing errors
+                parsed_workflow_uri = urlparse(workflow_uri)
+                if (parsed_workflow_uri.scheme != "file" and
+                        parsed_workflow_uri.netloc not in self.workflow_host_allow_list):
+                    # Dis-allowed workflow URL
+                    self._error(f"Dis-allowed workflow host: {parsed_workflow_uri.netloc} "
+                                f"(allow list: {self.workflow_host_allow_list})")
+                    return states.STATE_EXECUTOR_ERROR
 
-                self._info(f"Fetching workflow file from {workflow_uri}")
+            self._info(f"Fetching workflow file from {workflow_uri}")
 
-                # SECURITY: We cannot pass our auth token outside the Bento instance.
-                # Validate that BENTO_URL is a) a valid URL and b) a prefix of our
-                # workflow's URI before downloading. Only bother doing this if BENTO_URL
-                # is actually set.
-                use_auth_headers: bool = False
-                if self.bento_url:
-                    parsed_bento_url = urlparse(self.bento_url)
-                    use_auth_headers = all((
-                        self.bento_url,
-                        parsed_bento_url.scheme == parsed_workflow_uri.scheme,
-                        parsed_bento_url.netloc == parsed_workflow_uri.netloc,
-                        parsed_workflow_uri.path.startswith(parsed_bento_url.path),
-                    ))
+            # SECURITY: We cannot pass our auth token outside the Bento instance.
+            # Validate that BENTO_URL is a) a valid URL and b) a prefix of our
+            # workflow's URI before downloading. Only bother doing this if BENTO_URL
+            # is actually set.
+            use_auth_headers: bool = False
+            if self.bento_url:
+                parsed_bento_url = urlparse(self.bento_url)
+                use_auth_headers = all((
+                    self.bento_url,
+                    parsed_bento_url.scheme == parsed_workflow_uri.scheme,
+                    parsed_bento_url.netloc == parsed_workflow_uri.netloc,
+                    parsed_workflow_uri.path.startswith(parsed_bento_url.path),
+                ))
 
-                wr = requests.get(
-                    workflow_uri,
-                    headers={
-                        "Host": urlparse(self.service_base_url or "").netloc or "",
-                        **(auth_headers if use_auth_headers else {}),
-                    },
-                    verify=self._validate_ssl,
-                )
+            wr = requests.get(
+                workflow_uri,
+                headers={
+                    "Host": urlparse(self.service_base_url or "").netloc or "",
+                    **(auth_headers if use_auth_headers else {}),
+                },
+                verify=self._validate_ssl,
+            )
 
-                if wr.status_code == 200 and len(wr.content) < MAX_WORKFLOW_FILE_BYTES:
-                    if os.path.exists(workflow_path):
-                        os.remove(workflow_path)
+            if wr.status_code == 200 and len(wr.content) < MAX_WORKFLOW_FILE_BYTES:
+                if os.path.exists(workflow_path):
+                    os.remove(workflow_path)
 
-                    with open(workflow_path, "wb") as nwf:
-                        nwf.write(wr.content)
+                with open(workflow_path, "wb") as nwf:
+                    nwf.write(wr.content)
 
-                    self._info("Workflow file downloaded")
+                self._info("Workflow file downloaded")
 
-                elif not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
-                    # Request issues
-                    self._error(f"Error downloading workflow: {workflow_uri} "
-                                f"(use_auth_headers={use_auth_headers}, "
-                                f"wr.status_code={wr.status_code})")
-                    raise WorkflowDownloadError(f"WorkflowDownloadError: {workflow_path} does not exist")
+            elif not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
+                # Request issues
+                self._error(f"Error downloading workflow: {workflow_uri} "
+                            f"(use_auth_headers={use_auth_headers}, "
+                            f"wr.status_code={wr.status_code})")
+                raise WorkflowDownloadError(f"WorkflowDownloadError: {workflow_path} does not exist")
 
-            except requests.exceptions.ConnectionError as e:
-                if not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
-                    # Network issues
-                    raise e
+        except requests.exceptions.ConnectionError as e:
+            if not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
+                # Network issues
+                raise e
 
         else:  # TODO: Other else cases
             # file://
