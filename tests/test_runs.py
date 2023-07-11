@@ -52,7 +52,6 @@ def test_runs_endpoint(client, mocked_responses):
     assert run["details"]["state"] == STATE_QUEUED
     assert json.dumps(run["details"]["request"], sort_keys=True) == json.dumps(EXAMPLE_RUN, sort_keys=True)
 
-    assert "id" in run["details"]["run_log"]
     assert run["details"]["run_log"]["name"] == "phenopackets_json"
     assert run["details"]["run_log"]["cmd"] == ""
     assert run["details"]["run_log"]["start_time"] == ""

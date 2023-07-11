@@ -300,17 +300,36 @@ class WESBackend(ABC):
 
         self._update_run_state_and_commit(run["run_id"], states.STATE_INITIALIZING)
 
+        run_dir = self.run_dir(run)
+
         # -- Check that the run directory exists ------------------------------
-        if not os.path.exists(self.run_dir(run)):
+        if not os.path.exists(run_dir):
             # TODO: Log error in run log
             self.log_error("Run directory not found")
             return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
 
         c = self.db.cursor()
 
+        workflow_id = run["request"]["tags"].get("workflow_id", run["request"]["workflow_url"])
+
         workflow_params: ParamDict = {
             **run["request"]["workflow_params"],
-            f"{PARAM_SECRET_PREFIX}access_token": access_token,
+            f"{workflow_id}.{PARAM_SECRET_PREFIX}access_token": access_token,
+
+            # In export/analysis mode, as we rely on services located in different containers
+            # there is a need to have designated folders on shared volumes between
+            # WES and the other services, to write files to.
+            # This is possible because /wes/tmp is a volume mounted with the same
+            # path in each data service (except Gohan which mounts the dropbox
+            # data-x directory directly instead, to avoid massive duplicates).
+            # Also, the Toil library creates directories in the generic /tmp/
+            # directory instead of the one that is configured for the job execution,
+            # to create the current working directories where tasks are executed.
+            # These files are inaccessible to other containers in the context of a
+            # task unless they are written arbitrarily to run_dir
+            f"{workflow_id}.run_dir": run_dir,
+
+            # TODO: more special parameters: service URLs, system__run_dir...
         }
 
         # -- Validate the workflow --------------------------------------------
@@ -347,7 +366,7 @@ class WESBackend(ABC):
 
         return cmd, workflow_params
 
-    def _build_workflow_outputs(self, run_dir, workflow_id: str, workflow_params: dict, c_workflow_metadata: dict):
+    def _build_workflow_outputs(self, run_dir: str, workflow_id: str, workflow_params: dict, c_workflow_metadata: dict):
         self.logger.info(f"Building workflow outputs for workflow ID {workflow_id}")
         output_params = w.make_output_params(workflow_id, workflow_params, c_workflow_metadata["inputs"])
 
@@ -374,13 +393,13 @@ class WESBackend(ABC):
 
         return workflow_outputs
 
-    def _perform_run(self, run: dict, cmd: Command, params_with_secrets: ParamDict) -> Optional[ProcessResult]:
+    def _perform_run(self, run: dict, cmd: Command, params_with_extras: ParamDict) -> Optional[ProcessResult]:
         """
         Performs a run based on a provided command and returns stdout, stderr, exit code, and whether the process timed
         out while running.
         :param run: The run to execute
         :param cmd: The command used to execute the run
-        :param params_with_secrets: A dictionary of parameters, including secret values
+        :param params_with_extras: A dictionary of parameters, including secret values
         :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
         """
 
@@ -411,8 +430,8 @@ class WESBackend(ABC):
 
         # -- Censor output in case it includes any secrets
 
-        for k, v in params_with_secrets.items():
-            if not k.startswith(PARAM_SECRET_PREFIX):
+        for k, v in params_with_extras.items():
+            if PARAM_SECRET_PREFIX not in k:
                 continue
             if isinstance(v, str) and len(v) >= 5:  # redacted secrets must be somewhat lengthy
                 stdout = stdout.replace(v, "<redacted>")
@@ -494,7 +513,7 @@ class WESBackend(ABC):
         if init_vals is None:
             return
 
-        cmd, params_with_secrets = init_vals
+        cmd, params_with_extras = init_vals
 
         # Perform, finish, and clean up run -----------------------------------
-        return self._perform_run(run, cmd, params_with_secrets)
+        return self._perform_run(run, cmd, params_with_extras)

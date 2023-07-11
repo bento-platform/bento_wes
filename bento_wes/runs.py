@@ -150,10 +150,7 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
     auth_header_dict = {"Authorization": auth_header} if auth_header else {}
 
     try:
-        wm.download_or_copy_workflow(
-            workflow_url,
-            WorkflowType(workflow_type),
-            auth_headers=auth_header_dict)
+        wm.download_or_copy_workflow(workflow_url, WorkflowType(workflow_type), auth_headers=auth_header_dict)
     except UnsupportedWorkflowType:
         return flask_bad_request_error(f"Unsupported workflow type: {workflow_type}")
     except (WorkflowDownloadError, requests.exceptions.ConnectionError) as e:
@@ -173,21 +170,6 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
 
     os.makedirs(run_dir, exist_ok=True)
     # TODO: Delete run dir if something goes wrong...
-
-    # In export/analysis mode, as we rely on services located in different containers
-    # there is a need to have designated folders on shared volumes between
-    # WES and the other services, to write files to.
-    # This is possible because /wes/tmp is a volume mounted with the same
-    # path in each data service (except Gohan which mounts the dropbox
-    # data-x directory directly instead, to avoid massive duplicates).
-    # Also, the Toil library creates directories in the generic /tmp/
-    # directory instead of the one that is configured for the job execution,
-    # to create the current working directories where tasks are executed.
-    # These files are inaccessible to other containers in the context of a
-    # task unless they are written arbitrarily to run_dir
-    workflow_params[f"{workflow_id}.run_dir"] = run_dir
-
-    # TODO: more special parameters: service URLs, system__run_dir...
 
     # Move workflow attachments to run directory
 
