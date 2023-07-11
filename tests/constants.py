@@ -24,6 +24,7 @@ EXAMPLE_RUN = {
             "name": "Bento Phenopackets-Compatible JSON",
             "description": "This ingestion workflow will validate and import a Phenopackets schema-compatible "
                            "JSON document.",
+            "action": "ingestion",
             "data_type": "phenopacket",
             "file": "phenopackets_json.wdl",
             "inputs": [
