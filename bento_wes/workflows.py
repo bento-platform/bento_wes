@@ -1,6 +1,5 @@
 import logging
 
-import bento_lib.workflows as w
 import os
 import shutil
 import requests
@@ -15,7 +14,6 @@ __all__ = [
     "WorkflowType",
     "WES_WORKFLOW_TYPE_WDL",
     "WES_WORKFLOW_TYPE_CWL",
-    "count_bento_workflow_file_outputs",
     "parse_workflow_host_allow_list",
     "UnsupportedWorkflowType",
     "WorkflowDownloadError",
@@ -39,33 +37,6 @@ ALLOWED_WORKFLOW_URL_SCHEMES = ("http", "https", "file")
 ALLOWED_WORKFLOW_REQUEST_SCHEMES = ("http", "https")
 
 MAX_WORKFLOW_FILE_BYTES = 50000  # 50 KB
-
-
-# TODO: Types for params/metadata
-def count_bento_workflow_file_outputs(workflow_id: str, workflow_params: dict, workflow_metadata: dict) -> int:
-    """
-    Given a workflow run's parameters and workflow metadata, returns the number
-    of files being output for the purposes of generating one-time ingest tokens
-    at submission time, to allow the workflow backend to POST the files without
-    using a likely-expired OIDC token.
-    :param workflow_id: TODO
-    :param workflow_params: TODO
-    :param workflow_metadata: TODO
-    :return: TODO
-    """
-
-    output_params = w.make_output_params(workflow_id, workflow_params, workflow_metadata["inputs"])
-
-    n_file_outputs = 0  # Counter for file outputs
-    for output in workflow_metadata["outputs"]:
-        fo = w.formatted_output(output, output_params)
-        # TODO: py3.10: match
-        if output["type"] == w.WORKFLOW_TYPE_FILE:
-            n_file_outputs += 1  # TODO: Null check?
-        elif output["type"] == w.WORKFLOW_TYPE_FILE_ARRAY:
-            n_file_outputs += len(fo)
-
-    return n_file_outputs
 
 
 def parse_workflow_host_allow_list(allow_list: str | None) -> set[str] | None:
