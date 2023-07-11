@@ -49,6 +49,9 @@ def _get_project_and_dataset_id_from_run_request(run_request: dict) -> tuple[str
 
 
 def _check_runs_permission(runs_project_datasets: list[tuple[str, str | None]], permission: str) -> tuple[bool, ...]:
+    if not current_app.config["AUTHZ_ENABLED"]:
+        return tuple([True] * len(runs_project_datasets))  # Assume we have permission for everything if authz disabled
+
     return authz_middleware.authz_post(request, "/policy/evaluate", body={
         "requested_resource": [
             {
