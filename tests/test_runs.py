@@ -59,8 +59,8 @@ def test_runs_endpoint(client, mocked_responses):
 
     assert run["details"]["run_log"]["name"] == "phenopackets_json"
     assert run["details"]["run_log"]["cmd"] == ""
-    assert run["details"]["run_log"]["start_time"] == ""
-    assert run["details"]["run_log"]["end_time"] == ""
+    assert run["details"]["run_log"]["start_time"] is None
+    assert run["details"]["run_log"]["end_time"] is None
     assert run["details"]["run_log"]["stdout"] == f"http://127.0.0.1:5000/runs/{cr_data['run_id']}/stdout"
     assert run["details"]["run_log"]["stderr"] == f"http://127.0.0.1:5000/runs/{cr_data['run_id']}/stderr"
     assert run["details"]["run_log"]["exit_code"] is None
@@ -99,8 +99,8 @@ def test_run_detail_endpoint(client, mocked_responses):
 
     assert run["run_log"]["name"] == "phenopackets_json"
     assert run["run_log"]["cmd"] == ""
-    assert run["run_log"]["start_time"] == ""
-    assert run["run_log"]["end_time"] == ""
+    assert run["run_log"]["start_time"] is None
+    assert run["run_log"]["end_time"] is None
     assert run["run_log"]["stdout"] == f"http://127.0.0.1:5000/runs/{cr_data['run_id']}/stdout"
     assert run["run_log"]["stderr"] == f"http://127.0.0.1:5000/runs/{cr_data['run_id']}/stderr"
     assert run["run_log"]["exit_code"] is None
