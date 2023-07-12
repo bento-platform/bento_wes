@@ -20,6 +20,7 @@ from werkzeug.utils import secure_filename
 from . import states
 from .authz import authz_middleware, PERMISSION_INGEST_DATA, PERMISSION_VIEW_RUNS
 from .celery import celery
+from .constants import RUN_PARAM_FROM_CONFIG
 from .events import get_flask_event_bus
 from .logger import logger
 from .runner import run_workflow
@@ -118,7 +119,7 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
     # The reserved keyword `FROM_CONFIG` is used to detect those inputs.
     # All parameters in config are upper case. e.g. drs_url --> DRS_URL
     for i in workflow_metadata["inputs"]:
-        if i.get("value") != "FROM_CONFIG":
+        if i.get("value") != RUN_PARAM_FROM_CONFIG:
             continue
         param_name = i["id"]
         workflow_params[f"{workflow_id}.{param_name}"] = current_app.config.get(param_name.upper(), "")
