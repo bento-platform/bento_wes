@@ -5,6 +5,7 @@ from typing import Optional, Tuple
 
 from bento_wes.backends import WESBackend
 from bento_wes.backends.backend_types import Command
+from bento_wes.models import Run, RunWithDetails
 from bento_wes.workflows import WorkflowType, WES_WORKFLOW_TYPE_WDL
 
 
@@ -24,7 +25,7 @@ class CromwellLocalBackend(WESBackend):
         """
         return WES_WORKFLOW_TYPE_WDL,
 
-    def _get_params_file(self, run: dict) -> str:
+    def _get_params_file(self, run: Run) -> str:
         """
         Returns the name of the params file to use for the workflow run.
         :param run: The run description; unused here
@@ -40,7 +41,7 @@ class CromwellLocalBackend(WESBackend):
         """
         return json.dumps(workflow_params)
 
-    def _check_workflow(self, run: dict) -> Optional[Tuple[str, str]]:
+    def _check_workflow(self, run: RunWithDetails) -> Optional[Tuple[str, str]]:
         return self._check_workflow_wdl(run)
 
     def get_workflow_name(self, workflow_path: str) -> Optional[str]:

@@ -12,6 +12,7 @@ from urllib.parse import urljoin
 from . import states
 from .constants import SERVICE_ARTIFACT
 from .events import get_flask_event_bus
+from .models import RunLog, RunRequest, Run, RunWithDetailsAndOutput
 from .types import RunStream
 from .utils import iso_now
 
@@ -23,11 +24,13 @@ __all__ = [
     "finish_run",
     "update_stuck_runs",
     "update_db",
-    "run_request_dict",
-    "run_log_dict",
+    "run_request_from_row",
+    "run_log_from_row",
     "task_log_dict",
     "get_task_logs",
-    "get_run_details",
+    "run_with_details_and_output_from_row",
+    "get_run",
+    "get_run_with_details",
     "update_run_state_and_commit",
 ]
 
@@ -64,7 +67,7 @@ def finish_run(
     db: sqlite3.Connection,
     c: sqlite3.Cursor,
     event_bus: EventBus,
-    run: dict,
+    run: Run,
     state: str,
     logger: logging.Logger | None = None,
 ) -> None:
@@ -80,7 +83,7 @@ def finish_run(
     :return:
     """
 
-    run_id = run["run_id"]
+    run_id = run.run_id
     end_time = iso_now()
 
     # Explicitly don't commit here to sync with state update
@@ -127,13 +130,14 @@ def update_stuck_runs(db: sqlite3.Connection):
     c.execute("SELECT id FROM runs WHERE state = ? OR state = ?", (states.STATE_INITIALIZING, states.STATE_RUNNING))
     stuck_run_ids: list[sqlite3.Row] = c.fetchall()
 
-    for run, err in (get_run_details(c, r["id"]) for r in stuck_run_ids):
-        if err:
-            logger.error(f"Encountered error while updating stuck runs: {err}")
+    for r in stuck_run_ids:
+        run = get_run_with_details(c, r["id"], stream_content=True)
+        if run is None:
+            logger.error(f"Missing run: {r['id']}")
             continue
 
         logger.info(
-            f"Found stuck run: {run['run_id']} at state {run['state']}. Setting state to {states.STATE_SYSTEM_ERROR}")
+            f"Found stuck run: {run.run_id} at state {run.state}. Setting state to {states.STATE_SYSTEM_ERROR}")
         finish_run(db, c, event_bus, run, states.STATE_SYSTEM_ERROR)
 
     db.commit()
@@ -153,15 +157,15 @@ def update_db():
     # TODO: Migrations if needed
 
 
-def run_request_dict(run: sqlite3.Row) -> dict:
-    return {
-        "workflow_params": json.loads(run["request__workflow_params"]),
-        "workflow_type": run["request__workflow_type"],
-        "workflow_type_version": run["request__workflow_type_version"],
-        "workflow_engine_parameters": json.loads(run["request__workflow_engine_parameters"]),  # TODO
-        "workflow_url": run["request__workflow_url"],
-        "tags": json.loads(run["request__tags"])
-    }
+def run_request_from_row(run: sqlite3.Row) -> RunRequest:
+    return RunRequest(
+        workflow_params=run["request__workflow_params"],
+        workflow_type=run["request__workflow_type"],
+        workflow_type_version=run["request__workflow_type_version"],
+        workflow_engine_parameters=run["request__workflow_engine_parameters"],
+        workflow_url=run["request__workflow_url"],
+        tags=run["request__tags"],
+    )
 
 
 def _strip_first_slash(string: str) -> str:
@@ -172,17 +176,17 @@ def _stream_url(run_id: uuid.UUID | str, stream: RunStream) -> str:
     return urljoin(current_app.config["SERVICE_BASE_URL"], f"runs/{str(run_id)}/{stream}")
 
 
-def run_log_dict(run: sqlite3.Row) -> dict:
+def run_log_from_row(run: sqlite3.Row, stream_content: bool) -> RunLog:
     run_id = run["id"]
-    return {
-        "name": run["run_log__name"],
-        "cmd": run["run_log__cmd"],
-        "start_time": run["run_log__start_time"],
-        "end_time": run["run_log__end_time"],
-        "stdout": _stream_url(run_id, "stdout"),
-        "stderr": _stream_url(run_id, "stderr"),
-        "exit_code": run["run_log__exit_code"]
-    }
+    return RunLog(
+        name=run["run_log__name"],
+        cmd=run["run_log__cmd"],
+        start_time=run["run_log__start_time"] or None,
+        end_time=run["run_log__end_time"] or None,
+        stdout=run["run_log__stdout"] if stream_content else _stream_url(run_id, "stdout"),
+        stderr=run["run_log__stderr"] if stream_content else _stream_url(run_id, "stderr"),
+        exit_code=run["run_log__exit_code"],
+    )
 
 
 def task_log_dict(task_log: sqlite3.Row) -> dict:
@@ -202,24 +206,43 @@ def get_task_logs(c: sqlite3.Cursor, run_id: uuid.UUID | str) -> list:
     return [task_log_dict(task_log) for task_log in c.fetchall()]
 
 
-def get_run_details(c: sqlite3.Cursor, run_id: uuid.UUID | str) -> tuple[None, str] | tuple[dict, None]:
-    # Runs, run requests, and run logs are created at the same time, so if any of them is missing return None.
+def run_from_row(run: sqlite3.Row) -> Run:
+    return Run(run_id=run["id"], state=run["state"])
 
-    c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
-    run = c.fetchone()
-    if run is None:
-        return None, "Missing entry in table 'runs'"
 
-    c.execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
+def run_with_details_and_output_from_row(
+    c: sqlite3.Cursor,
+    run: sqlite3.Row,
+    stream_content: bool,
+) -> RunWithDetailsAndOutput:
+    return RunWithDetailsAndOutput(
+        run_id=run["id"],
+        state=run["state"],
+        request=run_request_from_row(run),
+        run_log=run_log_from_row(run, stream_content),
+        task_logs=get_task_logs(c, run["id"]),
+        outputs=json.loads(run["outputs"]),
+    )
 
-    return {
-        "run_id": run["id"],
-        "request": run_request_dict(run),
-        "state": run["state"],
-        "run_log": run_log_dict(run),
-        "task_logs": get_task_logs(c, run["id"]),
-        "outputs": json.loads(run["outputs"])
-    }, None
+
+def _get_run_row(c: sqlite3.Cursor, run_id: uuid.UUID | str) -> sqlite3.Row | None:
+    return c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),)).fetchone()
+
+
+def get_run(c: sqlite3.Cursor, run_id: uuid.UUID | str) -> Run | None:
+    if run := _get_run_row(c, run_id):
+        return run_from_row(run)
+    return None
+
+
+def get_run_with_details(
+    c: sqlite3.Cursor,
+    run_id: uuid.UUID | str,
+    stream_content: bool,
+) -> RunWithDetailsAndOutput | None:
+    if run := _get_run_row(c, run_id):
+        return run_with_details_and_output_from_row(c, run, stream_content)
+    return None
 
 
 def update_run_state_and_commit(
@@ -236,4 +259,8 @@ def update_run_state_and_commit(
     c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
     db.commit()
     if event_bus and publish_event:
-        event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_UPDATED, get_run_details(c, run_id)[0])
+        event_bus.publish_service_event(
+            SERVICE_ARTIFACT,
+            EVENT_WES_RUN_UPDATED,
+            get_run_with_details(c, run_id, stream_content=False).model_dump(),
+        )

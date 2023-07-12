@@ -5,6 +5,7 @@ import shutil
 import requests
 
 from base64 import urlsafe_b64encode
+from pydantic import AnyUrl
 from typing import NewType
 from urllib.parse import urlparse
 
@@ -92,19 +93,19 @@ class WorkflowManager:
         if self.logger:
             self.logger.error(message)
 
-    def workflow_path(self, workflow_uri: str, workflow_type: WorkflowType) -> str:
+    def workflow_path(self, workflow_uri: AnyUrl, workflow_type: WorkflowType) -> str:
         """
         Generates a unique filesystem path name for a specified workflow URI.
         """
         if workflow_type not in WES_SUPPORTED_WORKFLOW_TYPES:
             raise UnsupportedWorkflowType(f"Unsupported workflow type: {workflow_type}")
 
-        workflow_name = str(urlsafe_b64encode(bytes(workflow_uri, encoding="utf-8")), encoding="utf-8")
+        workflow_name = str(urlsafe_b64encode(bytes(str(workflow_uri), encoding="utf-8")), encoding="utf-8")
         return os.path.join(self.tmp_dir, f"workflow_{workflow_name}.{WORKFLOW_EXTENSIONS[workflow_type]}")
 
     def download_or_copy_workflow(
         self,
-        workflow_uri: str,
+        workflow_uri: AnyUrl,
         workflow_type: WorkflowType,
         auth_headers: dict,
     ) -> str | None:
@@ -116,23 +117,23 @@ class WorkflowManager:
         :param auth_headers: Authorization headers to pass while requesting the workflow file.
         """
 
-        parsed_wf_uri = urlparse(workflow_uri)  # TODO: Handle errors, handle references to attachments
+        # TODO: Handle references to attachments
 
         workflow_path = self.workflow_path(workflow_uri, workflow_type)
 
-        if parsed_wf_uri.scheme not in ALLOWED_WORKFLOW_REQUEST_SCHEMES:  # file://
+        if workflow_uri.scheme not in ALLOWED_WORKFLOW_REQUEST_SCHEMES:  # file://
             # TODO: Other else cases
             # TODO: Handle exceptions
-            shutil.copyfile(parsed_wf_uri.path, workflow_path)
+            shutil.copyfile(workflow_uri.path, workflow_path)
             return
 
         if self.workflow_host_allow_list is not None:
             # We need to check that the workflow in question is from an
             # allowed set of workflow hosts
-            if parsed_wf_uri.scheme != "file" and parsed_wf_uri.netloc not in self.workflow_host_allow_list:
+            if workflow_uri.scheme != "file" and workflow_uri.netloc not in self.workflow_host_allow_list:
                 # Dis-allowed workflow URL
                 self._error(
-                    f"Dis-allowed workflow host: {parsed_wf_uri.netloc} (allow list: {self.workflow_host_allow_list})")
+                    f"Dis-allowed workflow host: {workflow_uri.netloc} (allow list: {self.workflow_host_allow_list})")
                 return states.STATE_EXECUTOR_ERROR
 
         self._info(f"Fetching workflow file from {workflow_uri}")
@@ -145,15 +146,15 @@ class WorkflowManager:
             parsed_bento_url = urlparse(self.bento_url)
             use_auth_headers = all((
                 self.bento_url,
-                parsed_bento_url.scheme == parsed_wf_uri.scheme,
-                parsed_bento_url.netloc == parsed_wf_uri.netloc,
-                parsed_wf_uri.path.startswith(parsed_bento_url.path),
+                parsed_bento_url.scheme == workflow_uri.scheme,
+                parsed_bento_url.netloc == workflow_uri.netloc,
+                workflow_uri.path.startswith(parsed_bento_url.path),
             ))
 
         # TODO: Better auth? May only be allowed to access specific workflows
         try:
             wr = requests.get(
-                workflow_uri,
+                str(workflow_uri),
                 headers={
                     "Host": urlparse(self.service_base_url or "").netloc or "",
                     **(auth_headers if use_auth_headers else {}),

@@ -1,7 +1,7 @@
 import json
 import os
 import sqlite3
-
+import pydantic
 import requests
 import shutil
 import traceback
@@ -20,9 +20,16 @@ from werkzeug.utils import secure_filename
 from . import states
 from .authz import authz_middleware, PERMISSION_INGEST_DATA, PERMISSION_VIEW_RUNS
 from .celery import celery
-from .constants import RUN_PARAM_FROM_CONFIG
+from .db import (
+    get_db,
+    run_with_details_and_output_from_row,
+    get_run,
+    get_run_with_details,
+    update_run_state_and_commit,
+)
 from .events import get_flask_event_bus
 from .logger import logger
+from .models import RunRequest, Run, RunWithDetails
 from .runner import run_workflow
 from .types import RunStream
 from .workflows import (
@@ -33,98 +40,47 @@ from .workflows import (
     parse_workflow_host_allow_list,
 )
 
-from .db import get_db, run_request_dict, run_log_dict, get_task_logs, get_run_details, update_run_state_and_commit
-
 
 bp_runs = Blueprint("runs", __name__)
 
 
-def _get_project_and_dataset_id_from_tags(tags: dict) -> tuple[str, str | None]:
-    project_id = tags["project_id"]
-    dataset_id = tags.get("dataset_id", None)
-    return project_id, dataset_id
-
-
-def _get_project_and_dataset_id_from_run_request(run_request: dict) -> tuple[str, str | None]:
-    return _get_project_and_dataset_id_from_tags(run_request["tags"])
-
-
-def _check_runs_permission(runs_project_datasets: list[tuple[str, str | None]], permission: str) -> tuple[bool, ...]:
+def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> tuple[bool, ...]:
     if not current_app.config["AUTHZ_ENABLED"]:
-        return tuple([True] * len(runs_project_datasets))  # Assume we have permission for everything if authz disabled
+        return tuple([True] * len(run_requests))  # Assume we have permission for everything if authz disabled
 
     return authz_middleware.authz_post(request, "/policy/evaluate", body={
         "requested_resource": [
             {
-                "project": project_id,
-                **({"dataset": dataset_id} if dataset_id else {}),
+                "project": run_request.tags.project_id,
+                **({"dataset": run_request.tags.dataset_id} if run_request.tags.dataset_id else {}),
             }
-            for project_id, dataset_id in runs_project_datasets
+            for run_request in run_requests
         ],
         "required_permissions": [permission],
     }).json()["result"]
 
 
-def _check_single_run_permission_and_mark(project_and_dataset: tuple[str, str | None], permission: str) -> bool:
-    p_res = _check_runs_permission([project_and_dataset], permission)
+def _check_single_run_permission_and_mark(run_req: RunRequest, permission: str) -> bool:
+    p_res = _check_runs_permission([run_req], permission)
     # By calling this, the developer indicates that they will have handled permissions adequately:
     authz_middleware.mark_authz_done(request)
     return p_res and p_res[0]
 
 
 def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
-    assert "workflow_params" in request.form
-    assert "workflow_type" in request.form
-    assert "workflow_type_version" in request.form
-    assert "workflow_engine_parameters" in request.form
-    assert "workflow_url" in request.form
-    assert "tags" in request.form
+    run_req = RunRequest(**request.form)
 
-    workflow_params = json.loads(request.form["workflow_params"])
-    workflow_type = request.form["workflow_type"].upper().strip()
-    workflow_type_version = request.form["workflow_type_version"].strip()
-    workflow_engine_parameters = json.loads(request.form["workflow_engine_parameters"])  # TODO: Unused
-    workflow_url = request.form["workflow_url"].lower()  # TODO: This can refer to an attachment
-    workflow_attachment_list = request.files.getlist("workflow_attachment")  # TODO: Use this fully
-    tags = json.loads(request.form["tags"])
-
-    # TODO: Move Bento-specific stuff out somehow?
-
-    # Bento-specific required tags
-    assert "workflow_id" in tags
-    assert "workflow_metadata" in tags
-    workflow_metadata = tags["workflow_metadata"]
-    assert "action" in workflow_metadata
-
-    workflow_id = tags.get("workflow_id", workflow_url)
+    # TODO: Use this fully
+    #  - files inside the workflow
+    #  - workflow_url can refer to an attachment
+    workflow_attachment_list = request.files.getlist("workflow_attachment")
 
     # Check ingest permissions before continuing
 
-    if not _check_single_run_permission_and_mark(
-            _get_project_and_dataset_id_from_tags(tags), PERMISSION_INGEST_DATA):
+    if not _check_single_run_permission_and_mark(run_req, PERMISSION_INGEST_DATA):
         return flask_forbidden_error("Forbidden")
 
     # We have permission - so continue ---------
-
-    # Don't accept anything (ex. CWL) other than WDL
-    assert workflow_type == "WDL"
-    assert workflow_type_version == "1.0"
-
-    assert isinstance(workflow_params, dict)
-    assert isinstance(workflow_engine_parameters, dict)
-    assert isinstance(tags, dict)
-
-    # Some workflow parameters depend on the WES application configuration
-    # and need to be added from there.
-    # The reserved keyword `FROM_CONFIG` is used to detect those inputs.
-    # All parameters in config are upper case. e.g. drs_url --> DRS_URL
-    for i in workflow_metadata["inputs"]:
-        if i.get("value") != RUN_PARAM_FROM_CONFIG:
-            continue
-        param_name = i["id"]
-        workflow_params[f"{workflow_id}.{param_name}"] = current_app.config.get(param_name.upper(), "")
-
-    # TODO: Use JSON schemas for workflow params / engine parameters / tags
 
     # Get list of allowed workflow hosts from configuration for any checks inside the runner
     # If it's blank, assume that means "any host is allowed" and pass None to the runner
@@ -151,11 +107,12 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
     auth_header_dict = {"Authorization": auth_header} if auth_header else {}
 
     try:
-        wm.download_or_copy_workflow(workflow_url, WorkflowType(workflow_type), auth_headers=auth_header_dict)
+        wm.download_or_copy_workflow(
+            run_req.workflow_url, WorkflowType(run_req.workflow_type), auth_headers=auth_header_dict)
     except UnsupportedWorkflowType:
-        return flask_bad_request_error(f"Unsupported workflow type: {workflow_type}")
+        return flask_bad_request_error(f"Unsupported workflow type: {run_req.workflow_type}")
     except (WorkflowDownloadError, requests.exceptions.ConnectionError) as e:
-        return flask_bad_request_error(f"Could not access workflow file: {workflow_url} (Python error: {e})")
+        return flask_bad_request_error(f"Could not access workflow file: {run_req.workflow_url} (Python error: {e})")
 
     # ---
 
@@ -201,14 +158,14 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
         states.STATE_UNKNOWN,
         json.dumps({}),
 
-        json.dumps(workflow_params),
-        workflow_type,
-        workflow_type_version,
-        json.dumps(workflow_engine_parameters),
-        workflow_url,
-        json.dumps(tags),
+        json.dumps(run_req.workflow_params),
+        run_req.workflow_type,
+        run_req.workflow_type_version,
+        json.dumps(run_req.workflow_engine_parameters),
+        str(run_req.workflow_url),
+        run_req.tags.model_dump_json(),
 
-        workflow_id,
+        run_req.tags.workflow_id,
     ))
     db.commit()
 
@@ -230,44 +187,28 @@ def run_list():
     if request.method == "POST":
         try:
             return _create_run(db, c)
+        except pydantic.ValidationError:  # TODO: Better error messages
+            authz_middleware.mark_authz_done(request)
+            logger.error(f"Encountered validation error: {traceback.format_exc()}")
+            return flask_bad_request_error("Validation error: bad run request format")
         except ValueError:
             authz_middleware.mark_authz_done(request)
             return flask_bad_request_error("Value error")
-        except AssertionError:  # TODO: Better error messages
-            authz_middleware.mark_authz_done(request)
-            logger.error(f"Encountered assertion error: {traceback.format_exc()}")
-            return flask_bad_request_error("Assertion error: bad run request format")
 
     # GET
     # Bento Extension: Include run details with /runs request
     with_details = request.args.get("with_details", "false").lower() == "true"
 
     res_list = []
-    perms_list: list[tuple[str, str | None]] = []
+    perms_list: list[RunRequest] = []
 
-    c.execute("SELECT * FROM runs")
-
-    for r in c.fetchall():
-        run = {
-            "run_id": r["id"],
-            "state": r["state"],
-        }
-
-        run_req = run_request_dict(r)
-
-        project_id, dataset_id = _get_project_and_dataset_id_from_run_request(run_req)
-        perms_list.append((project_id, dataset_id))
-
-        if with_details:
-            run["details"] = {
-                "run_id": r["id"],
-                "state": r["state"],
-                "request": run_req,
-                "run_log": run_log_dict(r),
-                "task_logs": get_task_logs(c, r["id"])
-            }
-
-        res_list.append(run)
+    for r in c.execute("SELECT * FROM runs").fetchall():
+        run = run_with_details_and_output_from_row(c, r, stream_content=False)
+        perms_list.append(run.request)
+        res_list.append({
+            **run.model_dump(mode="json", include={"run_id", "state"}),
+            **({"details": run.model_dump(mode="json", exclude={"outputs"})} if with_details else {}),
+        })
 
     p_res = _check_runs_permission(perms_list, PERMISSION_VIEW_RUNS)
     res_list = [v for v, p in zip(res_list, p_res) if p]
@@ -280,37 +221,32 @@ def run_list():
 @bp_runs.route("/runs/<uuid:run_id>", methods=["GET"])
 def run_detail(run_id: uuid.UUID):
     authz_enabled = current_app.config["AUTHZ_ENABLED"]
-    run_details, err = get_run_details(get_db().cursor(), run_id)
+    run_details = get_run_with_details(get_db().cursor(), run_id, stream_content=False)
 
     if run_details is None:
         if authz_enabled:
             return flask_forbidden_error("Forbidden")
         else:
-            return flask_not_found_error(f"Run {run_id} not found ({err})")
+            return flask_not_found_error(f"Run {run_id} not found")
 
-    if not _check_single_run_permission_and_mark(
-            _get_project_and_dataset_id_from_run_request(run_details["request"]), PERMISSION_VIEW_RUNS):
+    if not _check_single_run_permission_and_mark(run_details.request, PERMISSION_VIEW_RUNS):
         return flask_forbidden_error("Forbidden")
 
-    if run_details is None and not authz_enabled:
-        return flask_not_found_error(f"Run {run_id} not found ({err})")
-
-    return jsonify(run_details)
+    return jsonify(run_details.model_dump(mode="json"))
 
 
 def get_stream(c: sqlite3.Cursor, stream: RunStream, run_id: uuid.UUID):
-    c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
-    run = c.fetchone()
+    run = get_run_with_details(c, run_id, stream_content=True)
     return (current_app.response_class(
         headers={
             # If we've finished, we allow long-term (24h) caching of the stdout/stderr responses.
             # Otherwise, no caching allowed!
             "Cache-Control": (
-                "private, max-age=86400" if run["state"] in states.TERMINATED_STATES
+                "private, max-age=86400" if run.state in states.TERMINATED_STATES
                 else "no-cache, no-store, must-revalidate, max-age=0"
             ),
         },
-        response=run[f"run_log__{stream}"],
+        response=run.run_log.stdout if stream == "stdout" else run.run_log.stderr,
         mimetype="text/plain",
         status=200,
     ) if run is not None else flask_not_found_error(f"Stream {stream} not found for run {run_id}"))
@@ -322,18 +258,17 @@ def check_run_authz_then_return_response(
     cb: Callable[[], Response | dict],
     permission: str = PERMISSION_VIEW_RUNS,
 ):
-    run_details, rd_err = get_run_details(c, run_id)
+    run = get_run_with_details(c, run_id, stream_content=False)
 
-    if rd_err:
+    if run is None:
         if current_app.config["AUTHZ_ENABLED"]:
             # Without the required permissions, don't even leak if this run exists - just return forbidden
             authz_middleware.mark_authz_done(request)
             return flask_forbidden_error("Forbidden")
         else:
-            return flask_not_found_error(rd_err)
+            return flask_not_found_error(f"Run {run_id} not found")
 
-    if not _check_single_run_permission_and_mark(
-            _get_project_and_dataset_id_from_run_request(run_details["request"]), permission):
+    if not _check_single_run_permission_and_mark(run.request, permission):
         return flask_forbidden_error("Forbidden")
 
     return cb()
@@ -351,6 +286,13 @@ def run_stderr(run_id: uuid.UUID):
     return check_run_authz_then_return_response(c, run_id, lambda: get_stream(c, "stderr", run_id))
 
 
+RUN_CANCEL_BAD_REQUEST_STATES = (
+    ((states.STATE_CANCELING, states.STATE_CANCELED), "Run already canceled"),
+    (states.FAILURE_STATES, "Run already terminated with error"),
+    (states.SUCCESS_STATES, "Run already completed"),
+)
+
+
 @bp_runs.route("/runs/<uuid:run_id>/cancel", methods=["POST"])
 def run_cancel(run_id: uuid.UUID):
     # TODO: Check if already completed
@@ -359,42 +301,38 @@ def run_cancel(run_id: uuid.UUID):
     db = get_db()
     c = db.cursor()
 
-    def perform_run_cancel():
-        c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
-        run = c.fetchone()
+    run_id_str = str(run_id)
+
+    def perform_run_cancel() -> Response:
+        run = get_run_with_details(c, run_id_str, stream_content=False)
 
         if run is None:
-            return flask_not_found_error(f"Run {run_id} not found")
+            return flask_not_found_error(f"Run {run_id_str} not found")
 
-        if run["state"] in (states.STATE_CANCELING, states.STATE_CANCELED):
-            return flask_bad_request_error("Run already canceled")
+        for bad_req_states, bad_req_err in RUN_CANCEL_BAD_REQUEST_STATES:
+            if run.state in bad_req_states:
+                return flask_bad_request_error(bad_req_err)
 
-        if run["state"] in states.FAILURE_STATES:
-            return flask_bad_request_error("Run already terminated with error")
-
-        if run["state"] in states.SUCCESS_STATES:
-            return flask_bad_request_error("Run already completed")
-
-        celery_id = run["run_log__celery_id"]
+        celery_id = run.run_log.celery_id
 
         if celery_id is None:
             # Never made it into the queue, so "cancel" it
-            return flask_internal_server_error(f"No Celery ID present for run {run_id}")
+            return flask_internal_server_error(f"No Celery ID present for run {run_id_str}")
 
         event_bus = get_flask_event_bus()
 
         # TODO: terminate=True might be iffy
-        update_run_state_and_commit(db, c, run["id"], states.STATE_CANCELING, event_bus=event_bus)
+        update_run_state_and_commit(db, c, run_id_str, states.STATE_CANCELING, event_bus=event_bus)
         celery.control.revoke(celery_id, terminate=True)  # Remove from queue if there, terminate if running
 
         # TODO: wait for revocation / failure and update status...
 
         # TODO: Generalize clean-up code / fetch from back-end
-        run_dir = os.path.join(current_app.config["SERVICE_TEMP"], run["run_id"])
+        run_dir = os.path.join(current_app.config["SERVICE_TEMP"], run_id_str)
         if not current_app.config["BENTO_DEBUG"]:
             shutil.rmtree(run_dir, ignore_errors=True)
 
-        update_run_state_and_commit(db, c, run["id"], states.STATE_CANCELED, event_bus=event_bus)
+        update_run_state_and_commit(db, c, run_id_str, states.STATE_CANCELED, event_bus=event_bus)
 
         return current_app.response_class(status=204)  # TODO: Better response
 
@@ -405,16 +343,9 @@ def run_cancel(run_id: uuid.UUID):
 def run_status(run_id: uuid.UUID):
     c = get_db().cursor()
 
-    def run_status_response():
-        c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
-        run = c.fetchone()
-
-        if run is None:
-            return flask_not_found_error(f"Run {run_id} not found")
-
-        return jsonify({
-            "run_id": run["id"],
-            "state": run["state"]
-        })
+    def run_status_response() -> Response:
+        if run := get_run(c, run_id):
+            return jsonify(run.model_dump())
+        return flask_not_found_error(f"Run {run_id} not found")
 
     return check_run_authz_then_return_response(c, run_id, run_status_response)

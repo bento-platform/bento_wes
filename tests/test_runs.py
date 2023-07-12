@@ -18,6 +18,13 @@ def _add_workflow_response(r):
             content_type="text/plain")
 
 
+def _create_valid_run(client):
+    rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
+    data = rv.get_json()
+    assert rv.status_code == 200  # 200 is WES spec, even though 201 would be better (?)
+    return data
+
+
 def test_runs_endpoint(client, mocked_responses):
     _add_workflow_response(mocked_responses)
 
@@ -26,9 +33,7 @@ def test_runs_endpoint(client, mocked_responses):
     data = rv.get_json()
     assert json.dumps(data) == json.dumps([])
 
-    rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
-    assert rv.status_code == 200  # 200 is WES spec, even though 201 would be better (?)
-    cr_data = rv.get_json()
+    cr_data = _create_valid_run(client)
     assert "run_id" in cr_data
 
     rv = client.get("/runs")
@@ -71,15 +76,13 @@ def test_run_create_errors(client):
     assert rv.status_code == 400
     error = rv.get_json()
     assert len(error["errors"]) == 1
-    assert error["errors"][0]["message"].startswith("Assertion error")
+    assert error["errors"][0]["message"].startswith("Validation error")
 
 
 def test_run_detail_endpoint(client, mocked_responses):
     _add_workflow_response(mocked_responses)
 
-    rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
-    assert rv.status_code == 200
-    cr_data = rv.get_json()
+    cr_data = _create_valid_run(client)
 
     rv = client.get(f"/runs/{uuid.uuid4()}")
     assert rv.status_code == 404
@@ -110,8 +113,7 @@ def test_run_detail_endpoint(client, mocked_responses):
 def test_run_status_endpoint(client, mocked_responses):
     _add_workflow_response(mocked_responses)
 
-    rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
-    cr_data = rv.get_json()
+    cr_data = _create_valid_run(client)
 
     rv = client.get(f"/runs/{uuid.uuid4()}/status")
     assert rv.status_code == 404
@@ -124,8 +126,7 @@ def test_run_status_endpoint(client, mocked_responses):
 def test_run_streams(client, mocked_responses):
     _add_workflow_response(mocked_responses)
 
-    rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
-    cr_data = rv.get_json()
+    cr_data = _create_valid_run(client)
 
     rv = client.get(f"/runs/{uuid.uuid4()}/stdout")
     assert rv.status_code == 404
@@ -145,8 +146,7 @@ def test_run_streams(client, mocked_responses):
 def test_run_cancel_endpoint(client, mocked_responses):
     _add_workflow_response(mocked_responses)
 
-    rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
-    cr_data = rv.get_json()
+    cr_data = _create_valid_run(client)
 
     rv = client.post(f"/runs/{uuid.uuid4()}/cancel")
     assert rv.status_code == 404

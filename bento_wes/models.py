@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, AnyUrl
+from pydantic import BaseModel, ConfigDict, AnyUrl, Json
 from typing import Literal
 
 __all__ = [
@@ -20,7 +20,15 @@ class BentoWorkflowInput(BaseModel):
     type: Literal["string", "string[]", "number", "number[]", "enum", "enum[]", "file", "file[]"]
     required: bool = False,
     extensions: list[str] | None = None
-    value: str | None = None
+
+
+class BentoWorkflowInputWithFileExtensions(BentoWorkflowInput):
+    type: Literal["file", "file[]"]
+    extensions: list[str] | None = None
+
+
+class BentoWorkflowInputWithValue(BentoWorkflowInput):
+    value: Literal["FROM_CONFIG"]
 
 
 class BentoWorkflowOutput(BaseModel):
@@ -33,10 +41,10 @@ class BentoWorkflowOutput(BaseModel):
 class BentoWorkflowMetadata(BaseModel):
     name: str
     description: str
-    action: Literal["BentoWorkflowMetadata", "analysis", "export"]
+    action: Literal["ingestion", "analysis", "export"]
     data_type: str | None = None
     file: str
-    inputs: list[BentoWorkflowInput]
+    inputs: list[BentoWorkflowInputWithValue | BentoWorkflowInputWithFileExtensions | BentoWorkflowInput]
     outputs: list[BentoWorkflowOutput]
 
 
@@ -51,12 +59,12 @@ class BentoRunRequestTags(BaseModel):
 
 
 class RunRequest(BaseModel):
-    workflow_params: dict[str, str | int | float | bool]
+    workflow_params: Json[dict[str, str | int | float | bool]]
     workflow_type: Literal["WDL"]
     workflow_type_version: Literal["1.0"]
-    workflow_engine_parameters: dict[str, str]
+    workflow_engine_parameters: Json[dict[str, str]]
     workflow_url: AnyUrl
-    tags: BentoRunRequestTags
+    tags: Json[BentoRunRequestTags]
 
 
 class RunLog(BaseModel):

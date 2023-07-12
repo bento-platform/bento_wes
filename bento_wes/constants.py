@@ -1,6 +1,8 @@
 import bento_wes
 import os
 
+from typing import Literal
+
 
 __all__ = [
     "BENTO_SERVICE_KIND",
@@ -21,4 +23,4 @@ SERVICE_TYPE = {
 SERVICE_ID = os.environ.get("SERVICE_ID", ":".join(SERVICE_TYPE.values()))
 SERVICE_NAME = "Bento WES"
 
-RUN_PARAM_FROM_CONFIG = "FROM_CONFIG"
+RUN_PARAM_FROM_CONFIG: Literal["FROM_CONFIG"] = "FROM_CONFIG"

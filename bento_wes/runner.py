@@ -8,7 +8,7 @@ from . import states
 from .backends import WESBackend
 from .backends.cromwell_local import CromwellLocalBackend
 from .celery import celery
-from .db import get_db, get_run_details, finish_run
+from .db import get_db, get_run_with_details, finish_run
 from .events import get_new_event_bus
 from .workflows import parse_workflow_host_allow_list
 
@@ -25,7 +25,7 @@ def run_workflow(self, run_id: uuid.UUID):
     # Checks ------------------------------------------------------------------
 
     # Check that the run and its associated objects exist
-    run, err = get_run_details(c, run_id)
+    run, err = get_run_with_details(c, run_id)
     if run is None:
         logger.error(f"Cannot find run {run_id} ({err})")
         return
