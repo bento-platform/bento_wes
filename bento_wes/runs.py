@@ -29,7 +29,7 @@ from .db import (
 )
 from .events import get_flask_event_bus
 from .logger import logger
-from .models import RunRequest, Run, RunWithDetails
+from .models import RunRequest
 from .runner import run_workflow
 from .types import RunStream
 from .workflows import (
