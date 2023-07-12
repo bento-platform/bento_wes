@@ -85,7 +85,7 @@ def finish_run(
 
     # Explicitly don't commit here to sync with state update
     c.execute("UPDATE runs SET run_log__end_time = ? WHERE id = ?", (end_time, run_id))
-    update_run_state_and_commit(db, c, event_bus, run_id, state, logger=logger)
+    update_run_state_and_commit(db, c, run_id, state, event_bus=event_bus, logger=logger)
 
     if logger:
         logger.info(f"Run {run_id} finished with state {state} at {end_time}")
@@ -225,13 +225,15 @@ def get_run_details(c: sqlite3.Cursor, run_id: uuid.UUID | str) -> tuple[None, s
 def update_run_state_and_commit(
     db: sqlite3.Connection,
     c: sqlite3.Cursor,
-    event_bus: EventBus,
     run_id: uuid.UUID | str,
     state: str,
+    event_bus: EventBus | None = None,
     logger: logging.Logger | None = None,
+    publish_event: bool = True,
 ):
     if logger:
         logger.info(f"Updating run state of {run_id} to {state}")
     c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
     db.commit()
-    event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_UPDATED, get_run_details(c, run_id)[0])
+    if event_bus and publish_event:
+        event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_UPDATED, get_run_details(c, run_id)[0])

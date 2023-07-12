@@ -262,7 +262,7 @@ class WESBackend(ABC):
         :param run_id: The ID of the run whose state is getting updated
         :param state: The value to set the run's current state to
         """
-        update_run_state_and_commit(self.db, self.db.cursor(), self.event_bus, run_id, state)
+        update_run_state_and_commit(self.db, self.db.cursor(), run_id, state, event_bus=self.event_bus)
 
     def _finish_run_and_clean_up(self, run: dict, state: str) -> None:
         """

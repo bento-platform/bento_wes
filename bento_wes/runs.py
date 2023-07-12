@@ -213,8 +213,8 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
 
     # TODO: figure out timeout
     # TODO: retry policy
-    c.execute("UPDATE runs SET state = ? WHERE id = ?", (states.STATE_QUEUED, str(run_id)))
-    db.commit()
+
+    update_run_state_and_commit(db, c, run_id, states.STATE_QUEUED, logger=logger, publish_event=False)
 
     run_workflow.delay(run_id)
 
@@ -383,7 +383,7 @@ def run_cancel(run_id: uuid.UUID):
         event_bus = get_flask_event_bus()
 
         # TODO: terminate=True might be iffy
-        update_run_state_and_commit(db, c, event_bus, run["id"], states.STATE_CANCELING)
+        update_run_state_and_commit(db, c, run["id"], states.STATE_CANCELING, event_bus=event_bus)
         celery.control.revoke(celery_id, terminate=True)  # Remove from queue if there, terminate if running
 
         # TODO: wait for revocation / failure and update status...
@@ -393,7 +393,7 @@ def run_cancel(run_id: uuid.UUID):
         if not current_app.config["BENTO_DEBUG"]:
             shutil.rmtree(run_dir, ignore_errors=True)
 
-        update_run_state_and_commit(db, c, event_bus, run["id"], states.STATE_CANCELED)
+        update_run_state_and_commit(db, c, run["id"], states.STATE_CANCELED, event_bus=event_bus)
 
         return current_app.response_class(status=204)  # TODO: Better response
 
