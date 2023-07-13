@@ -62,6 +62,7 @@ with application.app_context():  # pragma: no cover
 
 # TODO: Not compatible with GA4GH WES due to conflict with GA4GH service-info (preferred)
 @application.route("/service-info", methods=["GET"])
+@authz_middleware.deco_public_endpoint
 def service_info():
     info: GA4GHServiceInfo = {
         "id": current_app.config["SERVICE_ID"],
