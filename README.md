@@ -158,9 +158,10 @@ WOM_TOOL_LOCATION=/path/to/womtool.jar
 # from - prevents possibly insecure WDLs from being ran
 WORKFLOW_HOST_ALLOW_LIST=
 
-# DRS configuration options:
-# - Where the DRS instance to use is located. 
+# Service URL configuration:
+BENTO_AUTHZ_SERVICE_URL=
 DRS_URL=https://portal.bentov2.local/api/drs
+SERVICE_REGISTRY_URL=
 
 # CORS
 CORS_ORIGINS='*'
