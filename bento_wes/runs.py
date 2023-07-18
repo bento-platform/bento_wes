@@ -57,7 +57,7 @@ def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> t
             for run_request in run_requests
         ],
         "required_permissions": [permission],
-    }).json()["result"]
+    })["result"]
 
 
 def _check_single_run_permission_and_mark(run_req: RunRequest, permission: str) -> bool:
