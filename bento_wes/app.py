@@ -5,6 +5,7 @@ import subprocess
 from bento_lib.responses import flask_errors
 from bento_lib.types import GA4GHServiceInfo
 from flask import current_app, Flask, jsonify
+from flask_cors import CORS
 from werkzeug.exceptions import BadRequest, NotFound
 
 from .authz import authz_middleware
@@ -17,7 +18,12 @@ from .runs import bp_runs
 
 
 application = Flask(__name__)
+
+# Load configuration from Config class
 application.config.from_object(Config)
+
+# Set up CORS
+CORS(application, origins=Config.CORS_ORIGINS)
 
 # Attach authz middleware to Flask instance
 authz_middleware.attach(application)

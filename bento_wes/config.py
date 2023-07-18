@@ -56,6 +56,9 @@ class Config:
     # Backend configuration
     CROMWELL_LOCATION: str = os.environ.get("CROMWELL_LOCATION", "/cromwell.jar")
 
+    # CORS
+    CORS_ORIGINS: list[str] | str = os.environ.get("CORS_ORIGINS", "").split(";") or "*"
+
     # Authn/z-related configuration
     AUTHZ_URL: str = AUTHZ_URL
     AUTHZ_ENABLED: bool = AUTHZ_ENABLED

@@ -161,6 +161,9 @@ WORKFLOW_HOST_ALLOW_LIST=
 # DRS configuration options:
 # - Where the DRS instance to use is located. 
 DRS_URL=https://portal.bentov2.local/api/drs
+
+# CORS
+CORS_ORIGINS='*'
 ```
 
 
