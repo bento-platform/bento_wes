@@ -512,7 +512,7 @@ class WESBackend(ABC):
 
         return ProcessResult((stdout, stderr, exit_code, timed_out))
 
-    def perform_run(self, run: RunWithDetails, celery_id, access_token: str) -> Optional[ProcessResult]:
+    def perform_run(self, run: RunWithDetails, celery_id: int, access_token: str) -> Optional[ProcessResult]:
         """
         Executes a run from start to finish (initialization, startup, and completion / cleanup.)
         :param run: The run to execute
