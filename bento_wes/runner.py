@@ -72,7 +72,8 @@ def run_workflow(self, run_id: uuid.UUID):
             })
             access_token = token_res.json()["access_token"]
         else:
-            logger.warning("Missing WES credentials: WES_CLIENT_ID and/or WES_CLIENT_SECRET")
+            logger.warning(
+                "Missing WES credentials: WES_CLIENT_ID and/or WES_CLIENT_SECRET; setting job access token to ''")
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while obtaining access token: {type(e).__name__} {e}")
