@@ -305,27 +305,23 @@ def fetch_run_details(c, public_endpoint=False):
         end_time = run_log['end_time']
         state = r['state']
 
-        if public_endpoint:
-            if state == 'COMPLETE':
-                runs.append({
-                    'end_time': end_time,
-                    'state': state,
-                    'request': request,
-                    'run_log': run_log,
-                    'run_id': r['run_id'],
-                })
-        else:
-            runs.append({
+        run_data = {
+            'run_id': r["run_id"],
+            'state': state,
+            'details': {
+                'end_time': end_time if public_endpoint else None,
                 'run_id': r["run_id"],
                 'state': state,
-                'details': {
-                    'run_id': r["run_id"],
-                    'state': state,
-                    'request': request,
-                    'run_log': run_log,
-                    'task_logs': get_task_logs(c, r["run_id"])
-                }
-            })
+                'request': request,
+                'run_log': run_log,
+                'task_logs': None if public_endpoint else get_task_logs(c, r["run_id"]),
+            }
+        }
+        
+        if public_endpoint and state == 'COMPLETE':
+            runs.append(run_data)
+        elif not public_endpoint:
+            runs.append(run_data)
 
     return runs if not public_endpoint else get_latest_runs_by_data_type(runs)
 
@@ -333,11 +329,11 @@ def fetch_run_details(c, public_endpoint=False):
 def get_latest_runs_by_data_type(runs):
     runs_by_data_type = defaultdict(list)
     for run in runs:
-        runs_by_data_type[run['request']['tags']['workflow_metadata']['data_type']].append(run)
+        runs_by_data_type[run['details']['request']['tags']['workflow_metadata']['data_type']].append(run)
 
     latest_runs_by_data_type = {}
     for data_type, runs in runs_by_data_type.items():
-        latest_runs_by_data_type[data_type] = max(runs, key=lambda r: r['end_time'])
+        latest_runs_by_data_type[data_type] = max(runs, key=lambda r: r['details']['end_time'])
 
     return [run for run in latest_runs_by_data_type.values()]
 
@@ -353,6 +349,7 @@ def run_list():
 
     # GET
     # CHORD Extension: Include run details with /runs request
+    public_endpoint = request.args.get("public", "false").lower() == "true"
     with_details = request.args.get("with_details", "false").lower() == "true"
 
     if not with_details:
@@ -363,14 +360,7 @@ def run_list():
             "state": run["state"]
         } for run in c.fetchall()])
 
-    return jsonify(fetch_run_details(c))
-
-
-@bp_runs.route("/runs_public", methods=["GET"])
-def run_list_public():
-    db = get_db()
-    c = db.cursor()
-    return jsonify(fetch_run_details(c, public_endpoint=True))
+    return jsonify(fetch_run_details(c, public_endpoint=public_endpoint))
 
 
 @bp_runs.route("/runs/<uuid:run_id>", methods=["GET"])
