@@ -57,7 +57,7 @@ class Config:
     CROMWELL_LOCATION: str = os.environ.get("CROMWELL_LOCATION", "/cromwell.jar")
 
     # CORS
-    CORS_ORIGINS: list[str] | str = os.environ.get("CORS_ORIGINS", "").split(";") or "*"
+    CORS_ORIGINS: list[str] | str = [x for x in os.environ.get("CORS_ORIGINS", "").split(";") if x] or "*"
 
     # Authn/z-related configuration
     AUTHZ_URL: str = AUTHZ_URL
