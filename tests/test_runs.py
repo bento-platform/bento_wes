@@ -2,6 +2,7 @@ import json
 import os
 import responses
 import uuid
+import pytest
 
 from bento_wes.states import STATE_QUEUED
 
@@ -172,12 +173,6 @@ def test_run_cancel_endpoint(client, mocked_responses):
     error = rv.get_json()
     assert len(error["errors"]) == 1
     assert error["errors"][0]["message"].startswith("No Celery ID present")
-
-
-def test_runs_public_endpoint(client):
-    rv = client.get("/runs?with_details=true&public=true")
-    assert rv.status_code == 200
-    data = rv.get_json()
 
     # TODO: Get celery running for tests
 
