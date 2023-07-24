@@ -177,6 +177,16 @@ def test_run_cancel_endpoint(client, mocked_responses):
 def test_runs_public_endpoint(client):
     rv = client.get("/runs?with_details=true&public=true")
     assert rv.status_code == 200
+    data = rv.get_json()
+
+    run = data[0]
+    assert isinstance(run, dict)
+    
+    assert tuple(sorted(run.keys())) == ("details", "run_id", "state")
+    details = run["details"]
+    assert tuple(sorted(details.keys())) == ("end_time", "request", "run_id",
+                                             "run_log", "state", "task_logs")
+
 
     # TODO: Get celery running for tests
 
