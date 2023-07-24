@@ -48,6 +48,10 @@ def test_runs_endpoint(client, mocked_responses):
         "state": STATE_QUEUED
     }], sort_keys=True)
 
+    rv = client.get("/runs?with_details=true&public=true")
+    assert rv.status_code == 200
+    data = rv.get_json()
+
     rv = client.get("/runs?with_details=true")
     assert rv.status_code == 200
     data = rv.get_json()
