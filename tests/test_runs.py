@@ -179,13 +179,25 @@ def test_runs_public_endpoint(client):
     assert rv.status_code == 200
     data = rv.get_json()
 
-    run = data[0]
-    assert isinstance(run, dict)
+    expected_keys = ["run_id", "state", "details"]
+    expected_details_keys = ["request", "run_id", "run_log", "end_time", "state", "task_logs"]
+    expected_request_keys = ["tags", "workflow_type"]
+    expected_tags_keys = ["table_id", "workflow_id", "workflow_metadata"]
+    expected_metadata_keys = ["data_type", "id"]
+    expected_run_log_keys = ["end_time", "id", "start_time"]
 
-    assert tuple(sorted(run.keys())) == ("details", "run_id", "state")
-    details = run["details"]
-    assert tuple(sorted(details.keys())) == ("end_time", "request", "run_id",
-                                             "run_log", "state", "task_logs")
+    for run in data:
+        assert set(run.keys()) == set(expected_keys)
+        details = run["details"]
+        assert set(details.keys()) == set(expected_details_keys)
+        request = details["request"]
+        assert set(request.keys()) == set(expected_request_keys)
+        tags = request["tags"]
+        assert set(tags.keys()) == set(expected_tags_keys)
+        metadata = tags["workflow_metadata"]
+        assert set(metadata.keys()) == set(expected_metadata_keys)
+        run_log = details["run_log"]
+        assert set(run_log.keys()) == set(expected_run_log_keys)
 
     # TODO: Get celery running for tests
 
