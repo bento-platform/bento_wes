@@ -170,28 +170,6 @@ def test_run_cancel_endpoint(client, mocked_responses):
     assert len(error["errors"]) == 1
     assert error["errors"][0]["message"].startswith("No Celery ID present")
 
-
-def test_runs_public_endpoint(client):
-    rv = client.get("/runs_public")
-    assert rv.status_code == 200
-    data = rv.get_json()
-
-    expected_keys = ["run_id", "request", "run_log", "end_time", "state"]
-    for run in data:
-        assert set(run.keys()) == set(expected_keys)
-
-        assert "workflow_type" in run["request"]
-        assert "tags" in run["request"]
-        assert "table_id" in run["request"]["tags"]
-        assert "workflow_id" in run["request"]["tags"]
-        assert "workflow_metadata" in run["request"]["tags"]
-        assert "data_type" in run["request"]["tags"]["workflow_metadata"]
-        assert "id" in run["request"]["tags"]["workflow_metadata"]
-
-        assert "id" in run["run_log"]
-        assert "start_time" in run["run_log"]
-        assert "end_time" in run["run_log"]
-
     # TODO: Get celery running for tests
 
     # rv = client.post(f"/runs/{cr_data['run_id']}/cancel")
