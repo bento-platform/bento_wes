@@ -317,7 +317,7 @@ def fetch_run_details(c, public_endpoint=False):
                 'task_logs': None if public_endpoint else get_task_logs(c, r["run_id"]),
             }
         }
-        
+
         if public_endpoint and state == 'COMPLETE':
             runs.append(run_data)
         elif not public_endpoint:
