@@ -181,12 +181,11 @@ def test_runs_public_endpoint(client):
 
     run = data[0]
     assert isinstance(run, dict)
-    
+
     assert tuple(sorted(run.keys())) == ("details", "run_id", "state")
     details = run["details"]
     assert tuple(sorted(details.keys())) == ("end_time", "request", "run_id",
                                              "run_log", "state", "task_logs")
-
 
     # TODO: Get celery running for tests
 
