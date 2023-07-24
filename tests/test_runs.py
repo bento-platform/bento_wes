@@ -177,7 +177,6 @@ def test_run_cancel_endpoint(client, mocked_responses):
 def test_runs_public_endpoint(client):
     rv = client.get("/runs?with_details=true&public=true")
     assert rv.status_code == 200
-    data = rv.get_json()
 
     # TODO: Get celery running for tests
 
