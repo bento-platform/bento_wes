@@ -33,9 +33,6 @@ def test_runs_endpoint(client, mocked_responses):
     rv = client.get("/runs")
     assert rv.status_code == 200
     data = rv.get_json()
-    print("xxx")
-    print("y", data, flush=True)
-    print("xxx")
     assert json.dumps(data) == json.dumps([])
 
     rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
