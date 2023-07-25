@@ -31,8 +31,16 @@ from .workflows import (
     count_bento_workflow_file_outputs,
 )
 
-from .db import get_db, run_request_dict, run_request_dict_public, run_log_dict, \
-                run_log_dict_public, get_task_logs, get_run_details, update_run_state_and_commit
+from .db import (
+    get_db,
+    run_request_dict,
+    run_request_dict_public,
+    run_log_dict,
+    run_log_dict_public,
+    get_task_logs,
+    get_run_details,
+    update_run_state_and_commit
+)
 
 
 bp_runs = Blueprint("runs", __name__)
