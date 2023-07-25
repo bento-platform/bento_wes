@@ -180,7 +180,7 @@ def test_runs_public_endpoint(client):
     data = rv.get_json()
 
     expected_keys = ["run_id", "state", "details"]
-    expected_details_keys = ["request", "run_id", "run_log", "end_time", "state", "task_logs"]
+    expected_details_keys = ["request", "run_id", "run_log", "state", "task_logs"]
     expected_request_keys = ["tags", "workflow_type"]
     expected_tags_keys = ["table_id", "workflow_id", "workflow_metadata"]
     expected_metadata_keys = ["data_type", "id"]
