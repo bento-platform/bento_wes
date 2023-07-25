@@ -16,8 +16,6 @@ from flask import Blueprint, current_app, jsonify, request
 from urllib.parse import urljoin, urlparse
 from werkzeug.utils import secure_filename
 
-from collections import defaultdict
-
 from . import states
 from .celery import celery
 from .events import get_flask_event_bus
