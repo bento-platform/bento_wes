@@ -308,42 +308,26 @@ def fetch_run_details(c, public_endpoint=False):
 
     runs = []
     for r in c.fetchall():
-        request = run_request_dict(r) if not public_endpoint else run_request_dict_public(r)
-        run_log = run_log_dict(r["run_id"], r) if not public_endpoint else run_log_dict_public(r["run_id"], r)
-        end_time = run_log['end_time']
-        state = r['state']
+        request = run_request_dict_public(r) if public_endpoint else run_request_dict(r)
+        run_log = run_log_dict_public(r["run_id"], r) if public_endpoint else run_log_dict(r["run_id"], r)
+        state = r["state"]
 
         run_data = {
             'run_id': r["run_id"],
             'state': state,
             'details': {
-                'end_time': end_time if public_endpoint else None,
                 'run_id': r["run_id"],
                 'state': state,
                 'request': request,
                 'run_log': run_log,
-                'task_logs': None if public_endpoint else get_task_logs(c, r["run_id"]),
+                'task_logs': get_task_logs(c, r["run_id"]) if not public_endpoint else None,
             }
         }
 
-        if public_endpoint and state == 'COMPLETE':
-            runs.append(run_data)
-        elif not public_endpoint:
+        if not public_endpoint or (public_endpoint and state == "COMPLETE"):
             runs.append(run_data)
 
-    return runs if not public_endpoint else get_latest_runs_by_data_type(runs)
-
-
-def get_latest_runs_by_data_type(runs):
-    runs_by_data_type = defaultdict(list)
-    for run in runs:
-        runs_by_data_type[run['details']['request']['tags']['workflow_metadata']['data_type']].append(run)
-
-    latest_runs_by_data_type = {}
-    for data_type, runs in runs_by_data_type.items():
-        latest_runs_by_data_type[data_type] = max(runs, key=lambda r: r['details']['end_time'])
-
-    return [run for run in latest_runs_by_data_type.values()]
+    return runs
 
 
 @bp_runs.route("/runs", methods=["GET", "POST"])
@@ -356,8 +340,9 @@ def run_list():
         return _create_run(db, c)
 
     # GET
-    # CHORD Extension: Include run details with /runs request
+    # CHORD Extension: Include run public details with /runs request
     public_endpoint = request.args.get("public", "false").lower() == "true"
+    # CHORD Extension: Include run details with /runs request
     with_details = request.args.get("with_details", "false").lower() == "true"
 
     if not with_details:
