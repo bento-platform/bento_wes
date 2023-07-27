@@ -24,6 +24,7 @@ __all__ = [
     "update_stuck_runs",
     "update_db",
     "run_request_dict",
+    "run_request_dict_public",
     "run_log_dict",
     "task_log_dict",
     "get_task_logs",
