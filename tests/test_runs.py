@@ -7,6 +7,7 @@ from bento_wes.states import STATE_QUEUED
 
 from .constants import EXAMPLE_RUN, EXAMPLE_RUN_BODY
 
+from bento_wes.db import run_request_dict_public
 
 def _add_workflow_response(r):
     with open(os.path.join(os.path.dirname(__file__), "phenopackets_json.wdl"), "r") as wf:
@@ -195,6 +196,14 @@ def test_runs_public_endpoint(client):
         assert set(metadata.keys()) == set(expected_metadata_keys)
         run_log = details["run_log"]
         assert set(run_log.keys()) == set(expected_run_log_keys)
+
+        # Testing run_request_dict_public function
+        mock_run_request = {
+            "workflow_type": request["workflow_type"],
+            "tags": json.dumps(tags)
+        }
+        expected_request = run_request_dict_public(mock_run_request)
+        assert request == expected_request
 
     # TODO: Get celery running for tests
 
