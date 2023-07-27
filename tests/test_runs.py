@@ -9,6 +9,7 @@ from .constants import EXAMPLE_RUN, EXAMPLE_RUN_BODY
 
 from bento_wes.db import run_request_dict_public
 
+
 def _add_workflow_response(r):
     with open(os.path.join(os.path.dirname(__file__), "phenopackets_json.wdl"), "r") as wf:
         r.add(
