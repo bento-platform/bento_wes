@@ -3,11 +3,12 @@ import os
 import responses
 import uuid
 
-from bento_wes.states import STATE_QUEUED
+from bento_lib.events import EventBus
 
 from .constants import EXAMPLE_RUN, EXAMPLE_RUN_BODY
 
-from bento_wes.db import run_request_dict_public
+from bento_wes.db import get_db, run_request_dict_public, update_run_state_and_commit
+from bento_wes.states import STATE_QUEUED, STATE_COMPLETE
 
 
 def _add_workflow_response(r):
@@ -173,7 +174,23 @@ def test_run_cancel_endpoint(client, mocked_responses):
     assert error["errors"][0]["message"].startswith("No Celery ID present")
 
 
-def test_runs_public_endpoint(client):
+event_bus = EventBus(allow_fake=True)  # mock event bus
+
+
+def test_runs_public_endpoint(client, mocked_responses):
+    _add_workflow_response(mocked_responses)
+    _add_ott_response(mocked_responses)
+
+    # first, create a run, so we have something to fetch
+    rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
+    assert rv.status_code == 200  # 200 is WES spec, even though 201 would be better (?)
+
+    # make sure the run is complete, otherwise the public endpoint won't list it
+    db = get_db()
+    c = db.cursor()
+    update_run_state_and_commit(db, c, event_bus, rv.get_json()["run_id"], STATE_COMPLETE)
+
+    # validate the public runs endpoint
     rv = client.get("/runs?with_details=true&public=true")
     assert rv.status_code == 200
     data = rv.get_json()
