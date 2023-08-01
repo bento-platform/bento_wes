@@ -130,10 +130,10 @@ class WorkflowManager:
         if self.workflow_host_allow_list is not None:
             # We need to check that the workflow in question is from an
             # allowed set of workflow hosts
-            if workflow_uri.scheme != "file" and workflow_uri.netloc not in self.workflow_host_allow_list:
+            if workflow_uri.scheme != "file" and workflow_uri.host not in self.workflow_host_allow_list:
                 # Dis-allowed workflow URL
                 self._error(
-                    f"Dis-allowed workflow host: {workflow_uri.netloc} (allow list: {self.workflow_host_allow_list})")
+                    f"Dis-allowed workflow host: {workflow_uri.host} (allow list: {self.workflow_host_allow_list})")
                 return states.STATE_EXECUTOR_ERROR
 
         self._info(f"Fetching workflow file from {workflow_uri}")
@@ -147,7 +147,7 @@ class WorkflowManager:
             use_auth_headers = all((
                 self.bento_url,
                 parsed_bento_url.scheme == workflow_uri.scheme,
-                parsed_bento_url.netloc == workflow_uri.netloc,
+                parsed_bento_url.netloc == workflow_uri.host,
                 workflow_uri.path.startswith(parsed_bento_url.path),
             ))
 

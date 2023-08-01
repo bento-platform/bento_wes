@@ -47,8 +47,8 @@ bp_runs = Blueprint("runs", __name__)
 def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> tuple[bool, ...]:
     if not current_app.config["AUTHZ_ENABLED"]:
         return tuple([True] * len(run_requests))  # Assume we have permission for everything if authz disabled
-
-    return authz_middleware.authz_post(request, "/policy/evaluate", body={
+    
+    authz_response = authz_middleware.authz_post(request, "/policy/evaluate", body={
         "requested_resource": [
             {
                 "project": run_request.tags.project_id,
@@ -58,6 +58,7 @@ def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> t
         ],
         "required_permissions": [permission],
     })["result"]
+    return tuple([authz_response] * len(run_requests))
 
 
 def _check_single_run_permission_and_mark(run_req: RunRequest, permission: str) -> bool:
@@ -95,7 +96,8 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
 
     wm = WorkflowManager(
         current_app.config["SERVICE_TEMP"],
-        bento_url,
+        service_base_url=current_app.config["SERVICE_BASE_URL"],
+        bento_url=bento_url,
         logger=logger,
         workflow_host_allow_list=workflow_host_allow_list,
         validate_ssl=current_app.config["BENTO_VALIDATE_SSL"],
