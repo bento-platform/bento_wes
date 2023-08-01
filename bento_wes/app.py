@@ -6,7 +6,7 @@ from bento_lib.responses import flask_errors
 from bento_lib.types import GA4GHServiceInfo
 from flask import current_app, Flask, jsonify
 from flask_cors import CORS
-from werkzeug.exceptions import BadRequest, NotFound
+from werkzeug.exceptions import BadRequest, Forbidden, NotFound
 
 from .authz import authz_middleware
 from .celery import celery
@@ -35,10 +35,18 @@ application.register_blueprint(bp_runs)
 #  - generic catch-all:
 application.register_error_handler(
     Exception,
-    flask_errors.flask_error_wrap_with_traceback(flask_errors.flask_internal_server_error, service_name=SERVICE_NAME)
+    flask_errors.flask_error_wrap_with_traceback(
+        flask_errors.flask_internal_server_error,
+        service_name=SERVICE_NAME,
+        authz=authz_middleware,
+    ),
 )
-application.register_error_handler(BadRequest, flask_errors.flask_error_wrap(flask_errors.flask_bad_request_error))
-application.register_error_handler(NotFound, flask_errors.flask_error_wrap(flask_errors.flask_not_found_error))
+application.register_error_handler(
+    BadRequest, flask_errors.flask_error_wrap(flask_errors.flask_bad_request_error, authz=authz_middleware))
+application.register_error_handler(
+    Forbidden, flask_errors.flask_error_wrap(flask_errors.flask_forbidden_error, authz=authz_middleware))
+application.register_error_handler(
+    NotFound, flask_errors.flask_error_wrap(flask_errors.flask_not_found_error, authz=authz_middleware))
 
 
 def configure_celery(app):
