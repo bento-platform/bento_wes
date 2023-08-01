@@ -24,6 +24,7 @@ __all__ = [
     "update_stuck_runs",
     "update_db",
     "run_request_dict",
+    "run_request_dict_public",
     "run_log_dict",
     "task_log_dict",
     "get_task_logs",
@@ -165,6 +166,23 @@ def run_request_dict(run_request: sqlite3.Row) -> dict:
     }
 
 
+def run_request_dict_public(run_request: sqlite3.Row) -> dict:
+    tags = json.loads(run_request["tags"])
+    workflow_metadata = tags["workflow_metadata"]
+
+    return {
+        "workflow_type": run_request["workflow_type"],
+        "tags": {
+            "table_id": tags["table_id"],
+            "workflow_id": tags["workflow_id"],
+            "workflow_metadata": {
+                "data_type": workflow_metadata["data_type"],
+                "id": workflow_metadata["id"],
+            }
+        }
+    }
+
+
 def _strip_first_slash(string: str):
     return string[1:] if len(string) > 0 and string[0] == "/" else string
 
@@ -186,6 +204,14 @@ def run_log_dict(run_id: Union[uuid.UUID, str], run_log: sqlite3.Row) -> dict:
         "stdout": _stream_url(run_id, "stdout"),
         "stderr": _stream_url(run_id, "stderr"),
         "exit_code": run_log["exit_code"]
+    }
+
+
+def run_log_dict_public(run_id: Union[uuid.UUID, str], run_log: sqlite3.Row) -> dict:
+    return {
+        "id": run_log["id"],
+        "start_time": run_log["start_time"],
+        "end_time": run_log["end_time"],
     }
 
 

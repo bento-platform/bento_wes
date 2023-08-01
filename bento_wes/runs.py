@@ -29,7 +29,16 @@ from .workflows import (
     count_bento_workflow_file_outputs,
 )
 
-from .db import get_db, run_request_dict, run_log_dict, get_task_logs, get_run_details, update_run_state_and_commit
+from .db import (
+    get_db,
+    run_request_dict,
+    run_request_dict_public,
+    run_log_dict,
+    run_log_dict_public,
+    get_task_logs,
+    get_run_details,
+    update_run_state_and_commit
+)
 
 
 bp_runs = Blueprint("runs", __name__)
@@ -288,6 +297,37 @@ def _create_run(db, c):
         return flask_bad_request_error("Assertion error: bad run request format")
 
 
+def fetch_run_details(c, public_endpoint=False):
+    c.execute(
+        "SELECT r.id AS run_id, r.state AS state, rr.*, rl.* "
+        "FROM runs AS r, run_requests AS rr, run_logs AS rl "
+        "WHERE r.request = rr.id AND r.run_log = rl.id"
+    )
+
+    runs = []
+    for r in c.fetchall():
+        request = run_request_dict_public(r) if public_endpoint else run_request_dict(r)
+        run_log = run_log_dict_public(r["run_id"], r) if public_endpoint else run_log_dict(r["run_id"], r)
+        state = r["state"]
+
+        run_data = {
+            'run_id': r["run_id"],
+            'state': state,
+            'details': {
+                'run_id': r["run_id"],
+                'state': state,
+                'request': request,
+                'run_log': run_log,
+                'task_logs': get_task_logs(c, r["run_id"]) if not public_endpoint else None,
+            }
+        }
+
+        if not public_endpoint or (public_endpoint and state == "COMPLETE"):
+            runs.append(run_data)
+
+    return runs
+
+
 @bp_runs.route("/runs", methods=["GET", "POST"])
 @flask_permissions_owner  # TODO: Allow others to submit analysis runs?
 def run_list():
@@ -298,6 +338,8 @@ def run_list():
         return _create_run(db, c)
 
     # GET
+    # CHORD Extension: Include run public details with /runs request
+    public_endpoint = request.args.get("public", "false").lower() == "true"
     # CHORD Extension: Include run details with /runs request
     with_details = request.args.get("with_details", "false").lower() == "true"
 
@@ -309,21 +351,7 @@ def run_list():
             "state": run["state"]
         } for run in c.fetchall()])
 
-    c.execute("SELECT r.id AS run_id, r.state AS state, rr.*, rl.* "
-              "FROM runs AS r, run_requests AS rr, run_logs AS rl "
-              "WHERE r.request = rr.id AND r.run_log = rl.id")
-
-    return jsonify([{
-        "run_id": r["run_id"],
-        "state": r["state"],
-        "details": {
-            "run_id": r["run_id"],
-            "state": r["state"],
-            "request": run_request_dict(r),
-            "run_log": run_log_dict(r["run_id"], r),
-            "task_logs": get_task_logs(c, r["run_id"])
-        }
-    } for r in c.fetchall()])
+    return jsonify(fetch_run_details(c, public_endpoint=public_endpoint))
 
 
 @bp_runs.route("/runs/<uuid:run_id>", methods=["GET"])

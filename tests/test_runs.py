@@ -3,9 +3,12 @@ import os
 import responses
 import uuid
 
-from bento_wes.states import STATE_QUEUED
+from bento_lib.events import EventBus
 
 from .constants import EXAMPLE_RUN, EXAMPLE_RUN_BODY
+
+from bento_wes.db import get_db, run_request_dict_public, update_run_state_and_commit
+from bento_wes.states import STATE_QUEUED, STATE_COMPLETE
 
 
 def _add_workflow_response(r):
@@ -169,6 +172,56 @@ def test_run_cancel_endpoint(client, mocked_responses):
     error = rv.get_json()
     assert len(error["errors"]) == 1
     assert error["errors"][0]["message"].startswith("No Celery ID present")
+
+
+event_bus = EventBus(allow_fake=True)  # mock event bus
+
+
+def test_runs_public_endpoint(client, mocked_responses):
+    _add_workflow_response(mocked_responses)
+    _add_ott_response(mocked_responses)
+
+    # first, create a run, so we have something to fetch
+    rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
+    assert rv.status_code == 200  # 200 is WES spec, even though 201 would be better (?)
+
+    # make sure the run is complete, otherwise the public endpoint won't list it
+    db = get_db()
+    c = db.cursor()
+    update_run_state_and_commit(db, c, event_bus, rv.get_json()["run_id"], STATE_COMPLETE)
+
+    # validate the public runs endpoint
+    rv = client.get("/runs?with_details=true&public=true")
+    assert rv.status_code == 200
+    data = rv.get_json()
+
+    expected_keys = ["run_id", "state", "details"]
+    expected_details_keys = ["request", "run_id", "run_log", "state", "task_logs"]
+    expected_request_keys = ["tags", "workflow_type"]
+    expected_tags_keys = ["table_id", "workflow_id", "workflow_metadata"]
+    expected_metadata_keys = ["data_type", "id"]
+    expected_run_log_keys = ["end_time", "id", "start_time"]
+
+    for run in data:
+        assert set(run.keys()) == set(expected_keys)
+        details = run["details"]
+        assert set(details.keys()) == set(expected_details_keys)
+        request = details["request"]
+        assert set(request.keys()) == set(expected_request_keys)
+        tags = request["tags"]
+        assert set(tags.keys()) == set(expected_tags_keys)
+        metadata = tags["workflow_metadata"]
+        assert set(metadata.keys()) == set(expected_metadata_keys)
+        run_log = details["run_log"]
+        assert set(run_log.keys()) == set(expected_run_log_keys)
+
+        # Testing run_request_dict_public function
+        mock_run_request = {
+            "workflow_type": request["workflow_type"],
+            "tags": json.dumps(tags)
+        }
+        expected_request = run_request_dict_public(mock_run_request)
+        assert request == expected_request
 
     # TODO: Get celery running for tests
 
