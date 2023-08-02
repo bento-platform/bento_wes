@@ -262,5 +262,5 @@ def update_run_state_and_commit(
         event_bus.publish_service_event(
             SERVICE_ARTIFACT,
             EVENT_WES_RUN_UPDATED,
-            get_run_with_details(c, run_id, stream_content=False).model_dump(),
+            get_run_with_details(c, run_id, stream_content=False).model_dump(mode="json"),
         )

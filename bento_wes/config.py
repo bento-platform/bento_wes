@@ -31,6 +31,10 @@ BENTO_DEBUG: bool = os.environ.get(
     os.environ.get("FLASK_DEBUG", "false")
 ).strip().lower() in TRUTH_VALUES
 
+CELERY_DEBUG: bool = os.environ.get(
+    "CELERY_DEBUG", ""
+).strip().lower() in TRUTH_VALUES
+
 AUTHZ_URL: str = _get_from_environ_or_fail("BENTO_AUTHZ_SERVICE_URL").strip().rstrip("/")
 SERVICE_REGISTRY_URL: str = _get_from_environ_or_fail("SERVICE_REGISTRY_URL").strip().rstrip("/")
 
@@ -79,3 +83,6 @@ class Config:
     INGEST_POST_TIMEOUT: int = 60 * 60  # 1 hour
     # Timeout for workflow runs themselves, in seconds - default to 48 hours
     WORKFLOW_TIMEOUT: int = int(os.environ.get("WORKFLOW_TIMEOUT", str(60 * 60 * 48)))
+
+    # Enables interactive debug of Celery tasks locally, not possible with worker threads otherwise
+    CELERY_ALWAYS_EAGER: bool = CELERY_DEBUG

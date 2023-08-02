@@ -17,7 +17,7 @@ from typing import Optional, Tuple, Union
 from bento_wes import states
 from bento_wes.constants import SERVICE_ARTIFACT, RUN_PARAM_FROM_CONFIG
 from bento_wes.db import get_db, finish_run, update_run_state_and_commit
-from bento_wes.models import Run, RunWithDetails, BentoWorkflowMetadata
+from bento_wes.models import Run, RunWithDetails, BentoWorkflowMetadata, BentoWorkflowInputWithValue
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
 from bento_wes.utils import iso_now
 from bento_wes.workflows import WorkflowType, WorkflowManager
@@ -67,9 +67,10 @@ class WESBackend(ABC):
 
         self._workflow_manager: WorkflowManager = WorkflowManager(
             self.tmp_dir,
-            self.bento_url,
-            self.logger,
-            self.workflow_host_allow_list,
+            service_base_url=current_app.config["SERVICE_BASE_URL"],
+            bento_url=self.bento_url,
+            logger=self.logger,
+            workflow_host_allow_list=self.workflow_host_allow_list,
             validate_ssl=validate_ssl,
             debug=self.debug,
         )
@@ -278,7 +279,7 @@ class WESBackend(ABC):
 
         # Clean up ------------------------------------------------------------
 
-        del self._runs[run["run_id"]]
+        del self._runs[run.run_id]
 
         # -- Clean up any run files at the end, after they've been either -----
         #    copied or "rejected" due to some failure.
@@ -347,7 +348,7 @@ class WESBackend(ABC):
         # The reserved keyword `FROM_CONFIG` is used to detect those inputs.
         # All parameters in config are upper case. e.g. drs_url --> DRS_URL
         for i in run.request.tags.workflow_metadata.inputs:
-            if i.value != RUN_PARAM_FROM_CONFIG:
+            if not isinstance(i, BentoWorkflowInputWithValue) or i.value != RUN_PARAM_FROM_CONFIG:
                 continue
             workflow_params[f"{workflow_id}.{i.id}"] = current_app.config.get(i.id, "")
 
@@ -365,7 +366,7 @@ class WESBackend(ABC):
             return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
 
         # TODO: To avoid having multiple names, we should maybe only set this once?
-        c.execute("UPDATE runs SET run_log__name = ? WHERE id = ?", (workflow_name, run["id"]))
+        c.execute("UPDATE runs SET run_log__name = ? WHERE id = ?", (workflow_name, run.run_id))
         self.db.commit()
 
         # -- Store input for the workflow in a file in the temporary folder ---
@@ -378,7 +379,7 @@ class WESBackend(ABC):
         # -- Update run log with command and Celery ID ------------------------
         c.execute(
             "UPDATE runs SET run_log__cmd = ?, run_log__celery_id = ? WHERE id = ?",
-            (" ".join(cmd), celery_id, run["id"]))
+            (" ".join(cmd), celery_id, run.run_id))
         self.db.commit()
 
         return cmd, workflow_params
@@ -434,7 +435,7 @@ class WESBackend(ABC):
         # -- Start process running the generated command ----------------------
         runner_process = subprocess.Popen(
             cmd, cwd=self.tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
-        c.execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run.id))
+        c.execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run.run_id))
         self._update_run_state_and_commit(run.run_id, states.STATE_RUNNING)
 
         # -- Wait for and capture output --------------------------------------
@@ -497,7 +498,7 @@ class WESBackend(ABC):
         workflow_outputs = self._build_workflow_outputs(run_dir, workflow_name, workflow_params, workflow_metadata)
 
         # Explicitly don't commit here; sync with state update
-        c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run["run_id"])))
+        c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run.run_id)))
 
         # Run result object
         run_results = {
@@ -505,7 +506,7 @@ class WESBackend(ABC):
             **({"dataset_id": dataset_id} if dataset_id else {}),
 
             "workflow_id": workflow_name,
-            "workflow_metadata": workflow_metadata,
+            "workflow_metadata": workflow_metadata.model_dump_json(),
             "workflow_outputs": workflow_outputs,
             "workflow_params": workflow_params
         }
@@ -527,10 +528,10 @@ class WESBackend(ABC):
         :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
         """
 
-        if run["run_id"] in self._runs:
+        if run.run_id in self._runs:
             raise ValueError("Run has already been registered")
 
-        self._runs[run["run_id"]] = run
+        self._runs[run.run_id] = run
 
         # Initialization (loading / downloading files) ------------------------
         init_vals = self._initialize_run_and_get_command(run, celery_id, access_token)

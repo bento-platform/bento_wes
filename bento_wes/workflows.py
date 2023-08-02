@@ -153,10 +153,11 @@ class WorkflowManager:
 
         # TODO: Better auth? May only be allowed to access specific workflows
         try:
+            url = str(workflow_uri)
             wr = requests.get(
-                str(workflow_uri),
+                url,
                 headers={
-                    "Host": urlparse(self.service_base_url or "").netloc or "",
+                    "Host": urlparse(url or "").netloc or "",
                     **(auth_headers if use_auth_headers else {}),
                 },
                 verify=self._validate_ssl,
