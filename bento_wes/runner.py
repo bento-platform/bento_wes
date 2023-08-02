@@ -25,9 +25,9 @@ def run_workflow(self, run_id: uuid.UUID):
     # Checks ------------------------------------------------------------------
 
     # Check that the run and its associated objects exist
-    run, err = get_run_with_details(c, run_id, stream_content=False)
+    run = get_run_with_details(c, run_id, stream_content=False)
     if run is None:
-        logger.error(f"Cannot find run {run_id} ({err})")
+        logger.error(f"Cannot find run {run_id}")
         return
 
     # Pass to workflow execution backend---------------------------------------
