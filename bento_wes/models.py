@@ -56,6 +56,7 @@ class BentoRunRequestTags(BaseModel):
 
     project_id: str
     dataset_id: str | None = None
+    service_url: str
 
 
 class RunRequest(BaseModel):
