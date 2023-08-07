@@ -3,11 +3,8 @@ import os
 import responses
 import uuid
 
-from bento_lib.events import EventBus
-
 from .constants import EXAMPLE_RUN, EXAMPLE_RUN_BODY
 
-from bento_wes.db import get_db, run_request_dict_public, update_run_state_and_commit
 from bento_wes.states import STATE_QUEUED, STATE_COMPLETE
 
 
@@ -160,13 +157,26 @@ def test_run_cancel_endpoint(client, mocked_responses):
     assert len(error["errors"]) == 1
     assert error["errors"][0]["message"].startswith("No Celery ID present")
 
+    # TODO: Get celery running for tests
 
-event_bus = EventBus(allow_fake=True)  # mock event bus
+    # rv = client.post(f"/runs/{cr_data['run_id']}/cancel")
+    # print(rv.get_json(), flush=True)
+    # assert rv.status_code == 204
+    #
+    # rv = client.post(f"/runs/{cr_data['run_id']}/cancel")
+    # assert rv.status_code == 400
+    # error = rv.get_json()
+    # assert len(error["errors"]) == 1
+    # assert error["errors"][0]["message"] == "Run already canceled"
 
 
 def test_runs_public_endpoint(client, mocked_responses):
+    from bento_wes.db import get_db, update_run_state_and_commit
+    from bento_lib.events import EventBus
+
+    event_bus = EventBus(allow_fake=True)  # mock event bus
+
     _add_workflow_response(mocked_responses)
-    _add_ott_response(mocked_responses)
 
     # first, create a run, so we have something to fetch
     rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
@@ -175,7 +185,7 @@ def test_runs_public_endpoint(client, mocked_responses):
     # make sure the run is complete, otherwise the public endpoint won't list it
     db = get_db()
     c = db.cursor()
-    update_run_state_and_commit(db, c, event_bus, rv.get_json()["run_id"], STATE_COMPLETE)
+    update_run_state_and_commit(db, c, rv.get_json()["run_id"], STATE_COMPLETE, event_bus)
 
     # validate the public runs endpoint
     rv = client.get("/runs?with_details=true&public=true")
@@ -183,11 +193,11 @@ def test_runs_public_endpoint(client, mocked_responses):
     data = rv.get_json()
 
     expected_keys = ["run_id", "state", "details"]
-    expected_details_keys = ["request", "run_id", "run_log", "state", "task_logs"]
+    expected_details_keys = ["request", "run_id", "run_log", "state"]
     expected_request_keys = ["tags", "workflow_type"]
-    expected_tags_keys = ["table_id", "workflow_id", "workflow_metadata"]
-    expected_metadata_keys = ["data_type", "id"]
-    expected_run_log_keys = ["end_time", "id", "start_time"]
+    expected_tags_keys = ["workflow_id", "workflow_metadata", "project_id", "dataset_id"]
+    expected_metadata_keys = ["data_type"]
+    expected_run_log_keys = ["end_time", "start_time"]
 
     for run in data:
         assert set(run.keys()) == set(expected_keys)
@@ -201,23 +211,3 @@ def test_runs_public_endpoint(client, mocked_responses):
         assert set(metadata.keys()) == set(expected_metadata_keys)
         run_log = details["run_log"]
         assert set(run_log.keys()) == set(expected_run_log_keys)
-
-        # Testing run_request_dict_public function
-        mock_run_request = {
-            "workflow_type": request["workflow_type"],
-            "tags": json.dumps(tags)
-        }
-        expected_request = run_request_dict_public(mock_run_request)
-        assert request == expected_request
-
-    # TODO: Get celery running for tests
-
-    # rv = client.post(f"/runs/{cr_data['run_id']}/cancel")
-    # print(rv.get_json(), flush=True)
-    # assert rv.status_code == 204
-    #
-    # rv = client.post(f"/runs/{cr_data['run_id']}/cancel")
-    # assert rv.status_code == 400
-    # error = rv.get_json()
-    # assert len(error["errors"]) == 1
-    # assert error["errors"][0]["message"] == "Run already canceled"

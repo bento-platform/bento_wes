@@ -21,7 +21,6 @@ EXAMPLE_RUN = {
     "tags": {
         "workflow_id": "phenopackets_json",
         "workflow_metadata": {
-            "id": "phenopackets_json",
             "name": "Bento Phenopackets-Compatible JSON",
             "description": "This ingestion workflow will validate and import a Phenopackets schema-compatible "
                            "JSON document.",
@@ -46,6 +45,7 @@ EXAMPLE_RUN = {
         },
         "project_id": EXAMPLE_PROJECT_ID,
         "dataset_id": EXAMPLE_DATASET_ID,
+        "service_url": "http://metadata.local",
     },
 }
 
