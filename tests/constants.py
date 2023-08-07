@@ -21,6 +21,7 @@ EXAMPLE_RUN = {
     "tags": {
         "workflow_id": "phenopackets_json",
         "workflow_metadata": {
+            "id": "phenopackets_json",
             "name": "Bento Phenopackets-Compatible JSON",
             "description": "This ingestion workflow will validate and import a Phenopackets schema-compatible "
                            "JSON document.",
