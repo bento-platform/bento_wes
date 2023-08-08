@@ -339,7 +339,7 @@ class WESBackend(ABC):
             f"{workflow_id}.project_id": run.request.tags.project_id,
             f"{workflow_id}.dataset_id": run.request.tags.dataset_id,
             # Don't use data_type from workflow metadata here - instead, workflows can say what they're ingesting
-            
+
             f"{workflow_id}.service_url": run.request.tags.service_url,
             # TODO: more special parameters: service URLs, system__run_dir...
         }

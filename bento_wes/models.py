@@ -4,6 +4,7 @@ from typing import Literal
 
 __all__ = [
     "BentoWorkflowInput",
+    "BentoWorkflowInputWithValue",
     "BentoWorkflowOutput",
     "BentoWorkflowMetadata",
     "BentoRunRequestTags",

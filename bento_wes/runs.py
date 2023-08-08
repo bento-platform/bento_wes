@@ -48,7 +48,7 @@ bp_runs = Blueprint("runs", __name__)
 def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> tuple[bool, ...]:
     if not current_app.config["AUTHZ_ENABLED"]:
         return tuple([True] * len(run_requests))  # Assume we have permission for everything if authz disabled
-    
+
     authz_response = authz_middleware.authz_post(request, "/policy/evaluate", body={
         "requested_resource": [
             {
