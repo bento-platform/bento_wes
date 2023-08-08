@@ -17,7 +17,7 @@ logger = get_task_logger(__name__)
 
 
 @celery.task(bind=True)
-def run_workflow(self, run_id: uuid.UUID):
+def run_workflow(self, run_id: uuid.UUID, access_token: str):
     db = get_db()
     c = db.cursor()
     event_bus = get_new_event_bus()
@@ -51,7 +51,7 @@ def run_workflow(self, run_id: uuid.UUID):
         debug=current_app.config["BENTO_DEBUG"],
     )
 
-    access_token: str = ""
+    # access_token: str = ""
     # If we have credentials, obtain access token for use inside workflow to ingest data
     try:
         if (client_id := current_app.config["WES_CLIENT_ID"]) and \

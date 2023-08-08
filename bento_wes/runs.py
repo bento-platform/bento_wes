@@ -177,7 +177,9 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
 
     update_run_state_and_commit(db, c, run_id, states.STATE_QUEUED, logger=logger, publish_event=False)
 
-    run_workflow.delay(run_id)
+    # TODO: remove, temp authz workaround until we setup a OIDC wes client/credentials
+    access_token = request.headers["Authorization"]
+    run_workflow.delay(run_id, access_token)
 
     return jsonify({"run_id": str(run_id)})
 
