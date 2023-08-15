@@ -60,7 +60,7 @@ class BentoRunRequestTags(BaseModel):
 
 
 class RunRequest(BaseModel):
-    workflow_params: Json[dict[str, str | int | float | bool]]
+    workflow_params: Json[dict[str, str | int | float | bool | list[str]]]
     workflow_type: Literal["WDL"]
     workflow_type_version: Literal["1.0"]
     workflow_engine_parameters: Json[dict[str, str]]
