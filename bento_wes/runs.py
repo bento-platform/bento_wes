@@ -31,6 +31,7 @@ from .events import get_flask_event_bus
 from .logger import logger
 from .models import RunRequest
 from .runner import run_workflow
+from .states import STATE_COMPLETE
 from .types import RunStream
 from .workflows import (
     WorkflowType,
@@ -47,7 +48,7 @@ bp_runs = Blueprint("runs", __name__)
 def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> tuple[bool, ...]:
     if not current_app.config["AUTHZ_ENABLED"]:
         return tuple([True] * len(run_requests))  # Assume we have permission for everything if authz disabled
-    
+
     authz_response = authz_middleware.authz_post(request, "/policy/evaluate", body={
         "requested_resource": [
             {
@@ -183,6 +184,31 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
     return jsonify({"run_id": str(run_id)})
 
 
+PUBLIC_RUN_DETAILS_SHAPE = {
+    "request": {
+        "workflow_type": True,
+        "tags": {
+            "workflow_id": True,
+            "workflow_metadata": {
+                "data_type": True,
+            },
+            "project_id": True,
+            "dataset_id": True,
+        },
+    },
+    "run_log": {
+        "start_time": True,
+        "end_time": True,
+    },
+}
+
+PRIVATE_RUN_DETAILS_SHAPE = {
+    "request": True,
+    "run_log": True,
+    "task_logs": True,
+}
+
+
 @bp_runs.route("/runs", methods=["GET", "POST"])
 def run_list():
     db = get_db()
@@ -200,6 +226,8 @@ def run_list():
             return flask_bad_request_error("Value error")
 
     # GET
+    # Bento Extension: Include run public details with /runs request
+    public_endpoint = request.args.get("public", "false").lower() == "true"
     # Bento Extension: Include run details with /runs request
     with_details = request.args.get("with_details", "false").lower() == "true"
 
@@ -209,13 +237,26 @@ def run_list():
     for r in c.execute("SELECT * FROM runs").fetchall():
         run = run_with_details_and_output_from_row(c, r, stream_content=False)
         perms_list.append(run.request)
-        res_list.append({
-            **run.model_dump(mode="json", include={"run_id", "state"}),
-            **({"details": run.model_dump(mode="json", exclude={"outputs"})} if with_details else {}),
-        })
 
-    p_res = _check_runs_permission(perms_list, PERMISSION_VIEW_RUNS)
-    res_list = [v for v, p in zip(res_list, p_res) if p]
+        if not public_endpoint or run.state == STATE_COMPLETE:
+            res_list.append({
+                **run.model_dump(mode="json", include={"run_id", "state"}),
+                **(
+                    {
+                        "details": run.model_dump(mode="json", include={
+                            "run_id": True,
+                            "state": True,
+                            **(PUBLIC_RUN_DETAILS_SHAPE if public_endpoint else PRIVATE_RUN_DETAILS_SHAPE),
+                        }),
+                    }
+                    if with_details else {}
+                ),
+            })
+
+    if not public_endpoint:
+        # Filter runs to just those which we have permission to view
+        p_res = _check_runs_permission(perms_list, PERMISSION_VIEW_RUNS)
+        res_list = [v for v, p in zip(res_list, p_res) if p]
 
     authz_middleware.mark_authz_done(request)
 

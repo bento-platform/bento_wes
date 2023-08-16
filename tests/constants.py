@@ -45,6 +45,7 @@ EXAMPLE_RUN = {
         },
         "project_id": EXAMPLE_PROJECT_ID,
         "dataset_id": EXAMPLE_DATASET_ID,
+        "service_url": "http://metadata.local",
     },
 }
 
