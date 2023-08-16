@@ -17,7 +17,7 @@ logger = get_task_logger(__name__)
 
 
 @celery.task(bind=True)
-def run_workflow(self, run_id: uuid.UUID, access_token: str):
+def run_workflow(self, run_id: uuid.UUID):
     db = get_db()
     c = db.cursor()
     event_bus = get_new_event_bus()
@@ -35,6 +35,7 @@ def run_workflow(self, run_id: uuid.UUID, access_token: str):
     # TODO: Change based on workflow type / what's supported - get first runner
     #  'enabled' (somehow) which supports the type
     logger.info("Initializing backend")
+    validate_ssl = current_app.config["BENTO_VALIDATE_SSL"]
     backend: WESBackend = CromwellLocalBackend(
         tmp_dir=current_app.config["SERVICE_TEMP"],
         workflow_timeout=current_app.config["WORKFLOW_TIMEOUT"],
@@ -47,11 +48,11 @@ def run_workflow(self, run_id: uuid.UUID, access_token: str):
         # Bento-specific stuff
         bento_url=(current_app.config["BENTO_URL"] or None),
 
-        validate_ssl=current_app.config["BENTO_VALIDATE_SSL"],
+        validate_ssl=validate_ssl,
         debug=current_app.config["BENTO_DEBUG"],
     )
 
-    # access_token: str = ""
+    access_token: str = ""
     # If we have credentials, obtain access token for use inside workflow to ingest data
     try:
         if (client_id := current_app.config["WES_CLIENT_ID"]) and \
@@ -64,8 +65,8 @@ def run_workflow(self, run_id: uuid.UUID, access_token: str):
             #  - perhaps exchange the user's token for some type of limited-scope token (ingest only) which lasts
             #    48 hours, given out by the authorization service?
 
-            openid_config = requests.get(current_app.config["BENTO_OPENID_CONFIG_URL"]).json()
-            token_res = requests.post(openid_config["token_endpoint"], data={
+            openid_config = requests.get(current_app.config["BENTO_OPENID_CONFIG_URL"], verify=validate_ssl).json()
+            token_res = requests.post(openid_config["token_endpoint"], verify=validate_ssl, data={
                 "grant_type": "client_credentials",
                 "client_id": client_id,
                 "client_secret": client_secret,
