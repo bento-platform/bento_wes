@@ -32,6 +32,10 @@ WDL_WORKSPACE_NAME_REGEX = re.compile(r"workflow\s+([a-zA-Z][a-zA-Z0-9_]+)")
 PARAM_SECRET_PREFIX = "secret__"
 ParamDict = dict[str, str | int | float | bool]
 
+FORBIDDEN_FROM_CONFIG_PARAMS = (
+    "WES_CLIENT_SECRET",
+)
+
 
 class WESBackend(ABC):
     def __init__(
@@ -350,6 +354,8 @@ class WESBackend(ABC):
         # All parameters in config are upper case. e.g. drs_url --> DRS_URL
         for i in run.request.tags.workflow_metadata.inputs:
             if not isinstance(i, BentoWorkflowInputWithValue) or i.value != RUN_PARAM_FROM_CONFIG:
+                continue
+            if i.id.lower() in FORBIDDEN_FROM_CONFIG_PARAMS:  # Cannot grab WES client secret, for example
                 continue
             workflow_params[f"{workflow_id}.{i.id}"] = current_app.config.get(i.id, "")
 
