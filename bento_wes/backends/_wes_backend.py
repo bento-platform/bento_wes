@@ -99,6 +99,14 @@ class WESBackend(ABC):
         if self.logger:
             self.logger.info(message)
 
+    def log_warning(self, warning: str) -> None:
+        """
+        Given a warning string, logs the warning.
+        :param warning: A warning string
+        """
+        if self.logger:
+            self.logger.warning(warning)
+
     def log_error(self, error: str) -> None:
         """
         Given an error string, logs the error.
@@ -354,8 +362,10 @@ class WESBackend(ABC):
         for i in run.request.tags.workflow_metadata.inputs:
             if not isinstance(i, BentoWorkflowInputWithValue) or i.value != RUN_PARAM_FROM_CONFIG:
                 continue
-            if i.id.lower() in FORBIDDEN_FROM_CONFIG_PARAMS:  # Cannot grab WES client secret, for example
+            if i.id.upper() in FORBIDDEN_FROM_CONFIG_PARAMS:  # Cannot grab WES client secret, for example
+                self.log_warning(f"Cannot inject forbidden WES config item: {i.id}")
                 continue
+            self.log_debug(f"Injecting FROM_CONFIG param to {workflow_id}: {i.id}")
             workflow_params[f"{workflow_id}.{i.id}"] = current_app.config.get(i.id, "")
 
         # -- Validate the workflow --------------------------------------------
