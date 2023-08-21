@@ -40,6 +40,10 @@ SERVICE_REGISTRY_URL: str = _get_from_environ_or_fail("SERVICE_REGISTRY_URL").st
 
 BENTO_EVENT_REDIS_URL = os.environ.get("BENTO_EVENT_REDIS_URL", "redis://localhost:6379")
 
+SERVICE_BASE_URL: str = os.environ.get("SERVICE_BASE_URL", "http://127.0.0.1:5000/")
+if not SERVICE_BASE_URL.endswith("/"):
+    SERVICE_BASE_URL += "/"
+
 
 class Config:
     BENTO_URL: str = os.environ.get("BENTO_URL", "http://127.0.0.1:5000/")
@@ -51,7 +55,7 @@ class Config:
     DATABASE: str = os.environ.get("DATABASE", "bento_wes.db")
     SERVICE_ID = SERVICE_ID
     SERVICE_TEMP: str = os.environ.get("SERVICE_TEMP", "tmp")
-    SERVICE_BASE_URL: str = os.environ.get("SERVICE_BASE_URL", "http://127.0.0.1:5000/")
+    SERVICE_BASE_URL: str = SERVICE_BASE_URL
 
     # WDL-file-related configuration
     WOM_TOOL_LOCATION: Optional[str] = os.environ.get("WOM_TOOL_LOCATION")
