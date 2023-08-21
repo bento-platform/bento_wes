@@ -301,13 +301,13 @@ Another extension to the workflow metadata inputs is used to get values from the
 configuration variables. The special value `FROM_CONFIG` causes the interpolation
 to the Flask app.config property matching the `id` in uppercase.
 In the following example, the value for this variable will come from the config
-property `METADATA_URL`.
+property `KATSU_URL`.
 ```json5
 {
   // ...,
   "inputs": [
     {
-      "id": "metadata_url",
+      "id": "katsu_url",
       "type": "string",
       "required": true,
       "value": "FROM_CONFIG",
