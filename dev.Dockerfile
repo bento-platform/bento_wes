@@ -34,13 +34,13 @@ RUN mkdir -p /wes/tmp && mkdir -p /data
 WORKDIR /wes
 
 COPY pyproject.toml .
-COPY poetry.toml .
 COPY poetry.lock .
 
 # Install production + development dependencies
 # Without --no-root, we get errors related to the code not being copied in yet.
 # But we don't want the code here, otherwise Docker cache doesn't work well.
-RUN poetry --no-cache install --no-root
+RUN poetry config virtualenvs.create false && \
+    poetry --no-cache install --no-root
 
 # Copy in the entrypoint & run script so we have somewhere to start
 COPY entrypoint.bash .
