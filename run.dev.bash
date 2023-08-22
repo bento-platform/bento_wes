@@ -8,23 +8,13 @@ export FLASK_APP="bento_wes.app:application"
 # Create temporary directory if needed
 mkdir -p /wes/tmp
 
-# Clean up after any crashed previous container runs
-job_store_path="${SERVICE_TEMP:-tmp}/toil_job_store"
-if [[ -d "${job_store_path}" ]]; then
-  echo "[bento_wes] [entrypoint] Cleaning Toil job store"
-  toil clean "file:${SERVICE_TEMP:-tmp}/toil_job_store"
-fi
-
 # Start Celery worker with log level dependent on BENTO_DEBUG
 echo "[bento_wes] [entrypoint] Starting celery worker"
 celery_log_level="INFO"
 if [[
   "${BENTO_DEBUG}" == "true" ||
   "${BENTO_DEBUG}" == "True" ||
-  "${BENTO_DEBUG}" == "1" ||
-  "${CHORD_DEBUG}" == "true" ||
-  "${CHORD_DEBUG}" == "True" ||
-  "${CHORD_DEBUG}" == "1"
+  "${BENTO_DEBUG}" == "1"
 ]]; then
   celery_log_level="DEBUG"
 fi

@@ -5,8 +5,10 @@ import subprocess
 from bento_lib.responses import flask_errors
 from bento_lib.types import GA4GHServiceInfo
 from flask import current_app, Flask, jsonify
-from werkzeug.exceptions import BadRequest, NotFound
+from flask_cors import CORS
+from werkzeug.exceptions import BadRequest, Forbidden, NotFound
 
+from .authz import authz_middleware
 from .celery import celery
 from .config import Config
 from .constants import BENTO_SERVICE_KIND, SERVICE_NAME, SERVICE_TYPE
@@ -16,17 +18,35 @@ from .runs import bp_runs
 
 
 application = Flask(__name__)
+
+# Load configuration from Config class
 application.config.from_object(Config)
 
+# Set up CORS
+CORS(application, origins=Config.CORS_ORIGINS)
+
+# Attach authz middleware to Flask instance
+authz_middleware.attach(application)
+
+# Mount API routes
 application.register_blueprint(bp_runs)
 
-# Generic catch-all
+# Register error handlers
+#  - generic catch-all:
 application.register_error_handler(
     Exception,
-    flask_errors.flask_error_wrap_with_traceback(flask_errors.flask_internal_server_error, service_name=SERVICE_NAME)
+    flask_errors.flask_error_wrap_with_traceback(
+        flask_errors.flask_internal_server_error,
+        service_name=SERVICE_NAME,
+        authz=authz_middleware,
+    ),
 )
-application.register_error_handler(BadRequest, flask_errors.flask_error_wrap(flask_errors.flask_bad_request_error))
-application.register_error_handler(NotFound, flask_errors.flask_error_wrap(flask_errors.flask_not_found_error))
+application.register_error_handler(
+    BadRequest, flask_errors.flask_error_wrap(flask_errors.flask_bad_request_error, authz=authz_middleware))
+application.register_error_handler(
+    Forbidden, flask_errors.flask_error_wrap(flask_errors.flask_forbidden_error, authz=authz_middleware))
+application.register_error_handler(
+    NotFound, flask_errors.flask_error_wrap(flask_errors.flask_not_found_error, authz=authz_middleware))
 
 
 def configure_celery(app):
@@ -56,6 +76,7 @@ with application.app_context():  # pragma: no cover
 
 # TODO: Not compatible with GA4GH WES due to conflict with GA4GH service-info (preferred)
 @application.route("/service-info", methods=["GET"])
+@authz_middleware.deco_public_endpoint
 def service_info():
     info: GA4GHServiceInfo = {
         "id": current_app.config["SERVICE_ID"],
@@ -75,7 +96,7 @@ def service_info():
         },
     }
 
-    if not current_app.config["IS_RUNNING_DEV"]:
+    if not current_app.config["BENTO_DEBUG"]:
         return jsonify(info)
 
     info["environment"] = "dev"
@@ -83,17 +104,12 @@ def service_info():
     try:
         if res_tag := subprocess.check_output(["git", "describe", "--tags", "--abbrev=0"]):
             res_tag_str = res_tag.decode().rstrip()
-            info["git_tag"] = res_tag_str
-            # noinspection PyTypeChecker
             info["bento"]["gitTag"] = res_tag_str
         if res_branch := subprocess.check_output(["git", "branch", "--show-current"]):
             res_branch_str = res_branch.decode().rstrip()
-            info["git_branch"] = res_branch_str
-            # noinspection PyTypeChecker
             info["bento"]["gitBranch"] = res_branch_str
         if res_commit := subprocess.check_output(["git", "rev-parse", "HEAD"]):
             res_commit_str = res_commit.decode().rstrip()
-            # noinspection PyTypeChecker
             info["bento"]["gitCommit"] = res_commit_str
     except Exception as e:
         except_name = type(e).__name__

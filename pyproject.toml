@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "bento_wes"
-version = "0.9.0"
+version = "0.10.0"
 description = "Workflow execution service for the Bento platform."
 authors = [
     "David Lougheed <david.lougheed@mail.mcgill.ca>",
@@ -23,16 +23,18 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.8.1"
-bento-lib = {extras = ["flask"], version = "^5.4.0"}
+python = "^3.10.0"
+bento-lib = {extras = ["flask"], version = "^7.2.0"}
 celery = {extras = ["redis"], version = "^5.2.7"}
-toil = "~5.8"
 requests = "^2.28.1"
-Flask = "^2.2.2"
+Flask = "~2.2.2"
 # Don't actually need boto3/boto, but Toil errors without it... >:(
 # Related: https://github.com/DataBiosphere/toil/issues/4314
 boto3 = "^1.26.50"
 boto = "^2.49.0"
+pydantic = "^2.0.2"
+flask-cors = "^4.0.0"
+werkzeug = "~2.2.3"  # debugpy is broken with werkzeug 2.3.x so pin this manually
 
 [tool.poetry.group.dev.dependencies]
 coverage = "^7.2.2"

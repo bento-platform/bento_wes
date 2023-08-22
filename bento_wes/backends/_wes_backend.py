@@ -1,3 +1,5 @@
+import bento_lib.workflows as w
+import json
 import pathlib
 import os
 import re
@@ -8,11 +10,14 @@ import uuid
 
 from abc import ABC, abstractmethod
 from bento_lib.events import EventBus
+from bento_lib.events.types import EVENT_WES_RUN_FINISHED
 from flask import current_app
-from typing import Callable, Optional, Tuple, Union
+from typing import Optional, Tuple, Union
 
 from bento_wes import states
+from bento_wes.constants import SERVICE_ARTIFACT, RUN_PARAM_FROM_CONFIG
 from bento_wes.db import get_db, finish_run, update_run_state_and_commit
+from bento_wes.models import Run, RunWithDetails, BentoWorkflowMetadata, BentoWorkflowInputWithValue
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
 from bento_wes.utils import iso_now
 from bento_wes.workflows import WorkflowType, WorkflowManager
@@ -24,6 +29,13 @@ __all__ = ["WESBackend"]
 # Spec: https://software.broadinstitute.org/wdl/documentation/spec#whitespace-strings-identifiers-constants
 WDL_WORKSPACE_NAME_REGEX = re.compile(r"workflow\s+([a-zA-Z][a-zA-Z0-9_]+)")
 
+PARAM_SECRET_PREFIX = "secret__"
+ParamDict = dict[str, str | int | float | bool]
+
+FORBIDDEN_FROM_CONFIG_PARAMS = (
+    "WES_CLIENT_SECRET",
+)
+
 
 class WESBackend(ABC):
     def __init__(
@@ -33,9 +45,7 @@ class WESBackend(ABC):
         logger=None,
         event_bus: Optional[EventBus] = None,
         workflow_host_allow_list: Optional[set] = None,
-        chord_mode: bool = False,
-        chord_callback: Optional[Callable[["WESBackend"], str]] = None,
-        chord_url: Optional[str] = None,
+        bento_url: Optional[str] = None,
         validate_ssl: bool = True,
         debug: bool = False,
     ):
@@ -54,31 +64,22 @@ class WESBackend(ABC):
         self.workflow_host_allow_list = workflow_host_allow_list
 
         # Bento-specific parameters
-        self.chord_mode: bool = chord_mode
-        self.chord_callback: Optional[Callable[["WESBackend"], str]] = chord_callback
-        self.chord_url: str = chord_url
+        self.bento_url: str = bento_url
 
         self.validate_ssl: bool = validate_ssl
         self.debug: bool = debug
 
         self._workflow_manager: WorkflowManager = WorkflowManager(
             self.tmp_dir,
-            self.chord_url,
-            self.logger,
-            self.workflow_host_allow_list,
+            service_base_url=current_app.config["SERVICE_BASE_URL"],
+            bento_url=self.bento_url,
+            logger=self.logger,
+            workflow_host_allow_list=self.workflow_host_allow_list,
             validate_ssl=validate_ssl,
             debug=self.debug,
         )
 
         self._runs = {}
-
-        # Check that CHORD-dependent values are present
-
-        if chord_mode and not chord_callback:
-            raise ValueError("Missing chord_callback for chord_mode backend run")
-
-        if chord_mode and not chord_url:
-            raise ValueError("Missing chord_url for chord_mode backend run")
 
         self.log_debug(f"Instantiating WESBackend with debug={self.debug}")
 
@@ -98,6 +99,14 @@ class WESBackend(ABC):
         if self.logger:
             self.logger.info(message)
 
+    def log_warning(self, warning: str) -> None:
+        """
+        Given a warning string, logs the warning.
+        :param warning: A warning string
+        """
+        if self.logger:
+            self.logger.warning(warning)
+
     def log_error(self, error: str) -> None:
         """
         Given an error string, logs the error.
@@ -114,7 +123,7 @@ class WESBackend(ABC):
         pass
 
     @abstractmethod
-    def _get_params_file(self, run: dict) -> str:
+    def _get_params_file(self, run: Run) -> str:
         """
          Returns the name of the params file to use for the workflow run.
         :param run: The run description
@@ -123,7 +132,7 @@ class WESBackend(ABC):
         pass
 
     @abstractmethod
-    def _serialize_params(self, workflow_params: dict) -> str:
+    def _serialize_params(self, workflow_params: ParamDict) -> str:
         """
         Serializes parameters for a particular workflow run into the format expected by the backend's runner.
         :param workflow_params: A dictionary of key-value pairs representing the workflow parameters
@@ -131,27 +140,26 @@ class WESBackend(ABC):
         """
         pass
 
-    def workflow_path(self, run: dict) -> str:
+    def workflow_path(self, run: RunWithDetails) -> str:
         """
         Gets the local filesystem path to the workflow file specified by a run's workflow URI.
         """
-        return self._workflow_manager.workflow_path(run["request"]["workflow_url"],
-                                                    WorkflowType(run["request"]["workflow_type"]))
+        return self._workflow_manager.workflow_path(run.request.workflow_url, WorkflowType(run.request.workflow_type))
 
-    def run_dir(self, run: dict) -> str:
+    def run_dir(self, run: Run) -> str:
         """
         Returns a path to the work directory for executing a run.
         """
-        return os.path.join(self.tmp_dir, run["run_id"])
+        return os.path.join(self.tmp_dir, run.run_id)
 
-    def _params_path(self, run: dict) -> str:
+    def _params_path(self, run: Run) -> str:
         """
         Returns a path to the workflow parameters file for a run.
         """
         return os.path.join(self.run_dir(run), self._get_params_file(run))
 
     @abstractmethod
-    def _check_workflow(self, run: dict) -> Optional[Tuple[str, str]]:
+    def _check_workflow(self, run: Run) -> Optional[Tuple[str, str]]:
         """
         Checks that a workflow can be executed by the backend via the workflow's URI.
         :param run: The run, including a request with the workflow URI
@@ -159,7 +167,7 @@ class WESBackend(ABC):
         """
         pass
 
-    def _check_workflow_wdl(self, run: dict) -> Optional[Tuple[str, str]]:
+    def _check_workflow_wdl(self, run: RunWithDetails) -> Optional[Tuple[str, str]]:
         """
         Checks that a particular WDL workflow is valid.
         :param run: The run whose workflow is being checked
@@ -212,14 +220,14 @@ class WESBackend(ABC):
                 STATE_EXECUTOR_ERROR
             )
 
-    def _check_workflow_and_type(self, run: dict) -> Optional[Tuple[str, str]]:
+    def _check_workflow_and_type(self, run: RunWithDetails) -> Optional[Tuple[str, str]]:
         """
         Checks a workflow file's validity.
         :param run: The run specifying the workflow in question
         :return: None if the workflow is valid; a tuple of an error message and an error state otherwise
         """
 
-        workflow_type: WorkflowType = WorkflowType(run["request"]["workflow_type"])
+        workflow_type: WorkflowType = WorkflowType(run.request.workflow_type)
         if workflow_type not in self._get_supported_types():
             raise NotImplementedError(f"The specified WES backend cannot execute workflows of type {workflow_type}")
 
@@ -267,9 +275,10 @@ class WESBackend(ABC):
         :param run_id: The ID of the run whose state is getting updated
         :param state: The value to set the run's current state to
         """
-        update_run_state_and_commit(self.db, self.db.cursor(), self.event_bus, run_id, state)
+        self.log_debug(f"Setting state of run {run_id} to {state}")
+        update_run_state_and_commit(self.db, self.db.cursor(), run_id, state, event_bus=self.event_bus)
 
-    def _finish_run_and_clean_up(self, run: dict, state: str) -> None:
+    def _finish_run_and_clean_up(self, run: Run, state: str) -> None:
         """
         Performs standard run-finishing operations (updating state, setting end time, etc.) as well as deleting the run
         folder if it exists.
@@ -283,7 +292,7 @@ class WESBackend(ABC):
 
         # Clean up ------------------------------------------------------------
 
-        del self._runs[run["run_id"]]
+        del self._runs[run.run_id]
 
         # -- Clean up any run files at the end, after they've been either -----
         #    copied or "rejected" due to some failure.
@@ -293,28 +302,75 @@ class WESBackend(ABC):
         if not self.debug:
             shutil.rmtree(self.run_dir(run), ignore_errors=True)
 
-    def _initialize_run_and_get_command(self, run: dict, celery_id) -> Optional[Command]:
+    def _initialize_run_and_get_command(
+        self,
+        run: RunWithDetails,
+        celery_id: int,
+        access_token: str,
+    ) -> tuple[Command, dict] | None:
         """
         Performs "initialization" operations on the run, including setting states, downloading and validating the
         workflow file, and generating and logging the workflow-running command.
         :param run: The run to initialize
         :param celery_id: The Celery ID of the Celery task responsible for executing the run
+        :param access_token: An access token for talking with this Bento instance's services
         :return: The command to execute, if no errors occurred; None otherwise
         """
 
-        self._update_run_state_and_commit(run["run_id"], states.STATE_INITIALIZING)
+        self._update_run_state_and_commit(run.run_id, states.STATE_INITIALIZING)
 
-        run_log_id: str = run["run_log"]["id"]
+        run_dir = self.run_dir(run)
 
         # -- Check that the run directory exists ------------------------------
-        if not os.path.exists(self.run_dir(run)):
+        if not os.path.exists(run_dir):
             # TODO: Log error in run log
             self.log_error("Run directory not found")
             return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
 
         c = self.db.cursor()
 
-        workflow_params: dict = run["request"]["workflow_params"]
+        workflow_id = run.request.tags.workflow_id
+        workflow_params: ParamDict = {
+            **run.request.workflow_params,
+            f"{workflow_id}.{PARAM_SECRET_PREFIX}access_token": access_token,
+
+            # In export/analysis mode, as we rely on services located in different containers
+            # there is a need to have designated folders on shared volumes between
+            # WES and the other services, to write files to.
+            # This is possible because /wes/tmp is a volume mounted with the same
+            # path in each data service (except Gohan which mounts the dropbox
+            # data-x directory directly instead, to avoid massive duplicates).
+            # Also, the Toil library creates directories in the generic /tmp/
+            # directory instead of the one that is configured for the job execution,
+            # to create the current working directories where tasks are executed.
+            # These files are inaccessible to other containers in the context of a
+            # task unless they are written arbitrarily to run_dir
+            f"{workflow_id}.run_dir": run_dir,
+
+            # TODO: in the long run, we shouldn't tie workflow runs to a specific dataset ID inherently, necessarily
+            #  - instead, they can be special input parameters that get translated to strings
+            f"{workflow_id}.project_id": run.request.tags.project_id,
+            f"{workflow_id}.dataset_id": run.request.tags.dataset_id,
+            # Don't use data_type from workflow metadata here - instead, workflows can say what they're ingesting
+
+            # TODO: more special parameters: service URLs, system__run_dir...
+        }
+
+        # Some workflow parameters depend on the WES application configuration
+        # and need to be added from there.
+        # The reserved keyword `FROM_CONFIG` is used to detect those inputs.
+        # All parameters in config are upper case. e.g. drs_url --> DRS_URL
+        for i in run.request.tags.workflow_metadata.inputs:
+            self.log_debug(f"Found workflow input for run {run.run_id}: {str(i)}")
+            if not isinstance(i, BentoWorkflowInputWithValue) or i.value != RUN_PARAM_FROM_CONFIG:
+                continue
+            input_id_upper = i.id.upper()
+            if input_id_upper in FORBIDDEN_FROM_CONFIG_PARAMS:  # Cannot grab WES client secret, for example
+                self.log_warning(f"Cannot inject forbidden WES config item: {i.id}")
+                continue
+            param_val = current_app.config.get(input_id_upper, "")
+            workflow_params[f"{workflow_id}.{i.id}"] = param_val
+            self.log_debug(f"Injecting FROM_CONFIG param to {workflow_id}: {i.id}={param_val}")
 
         # -- Validate the workflow --------------------------------------------
         error = self._check_workflow_and_type(run)
@@ -330,7 +386,7 @@ class WESBackend(ABC):
             return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
 
         # TODO: To avoid having multiple names, we should maybe only set this once?
-        c.execute("UPDATE run_logs SET name = ? WHERE id = ?", (workflow_name, run_log_id))
+        c.execute("UPDATE runs SET run_log__name = ? WHERE id = ?", (workflow_name, run.run_id))
         self.db.commit()
 
         # -- Store input for the workflow in a file in the temporary folder ---
@@ -338,22 +394,57 @@ class WESBackend(ABC):
             pf.write(self._serialize_params(workflow_params))
 
         # -- Create the runner command based on inputs ------------------------
-        cmd = self._get_command(self.workflow_path(run),
-                                self._params_path(run),
-                                self.run_dir(run))
+        cmd = self._get_command(self.workflow_path(run), self._params_path(run), self.run_dir(run))
 
         # -- Update run log with command and Celery ID ------------------------
-        c.execute("UPDATE run_logs SET cmd = ?, celery_id = ? WHERE id = ?", (" ".join(cmd), celery_id, run_log_id))
+        c.execute(
+            "UPDATE runs SET run_log__cmd = ?, run_log__celery_id = ? WHERE id = ?",
+            (" ".join(cmd), celery_id, run.run_id))
         self.db.commit()
 
-        return cmd
+        return cmd, workflow_params
 
-    def _perform_run(self, run: dict, cmd: Command) -> Optional[ProcessResult]:
+    def _build_workflow_outputs(
+        self,
+        run_dir: str,
+        workflow_id: str,
+        workflow_params: dict,
+        workflow_metadata: BentoWorkflowMetadata,
+    ):
+        self.logger.info(f"Building workflow outputs for workflow ID {workflow_id}")
+        output_params = w.make_output_params(workflow_id, workflow_params, [dict(i) for i in workflow_metadata.inputs])
+
+        workflow_outputs = {}
+        for output in workflow_metadata.outputs:
+            o_id = output.id
+            fo = w.formatted_output(dict(output), output_params)
+
+            # Skip optional outputs resulting from optional inputs
+            if fo is None:
+                continue
+
+            # Rewrite file outputs to include full path to temporary location
+            if output.type == w.WORKFLOW_TYPE_FILE:
+                workflow_outputs[o_id] = os.path.abspath(os.path.join(run_dir, "output", fo))
+
+            elif output.type == w.WORKFLOW_TYPE_FILE_ARRAY:
+                workflow_outputs[o_id] = [os.path.abspath(os.path.join(run_dir, wo)) for wo in fo]
+                self.logger.info(
+                    f"Setting workflow output {o_id} to [{', '.join(workflow_outputs[o_id])}]")
+
+            else:
+                workflow_outputs[o_id] = fo
+                self.logger.info(f"Setting workflow output {o_id} to {workflow_outputs[o_id]}")
+
+        return workflow_outputs
+
+    def _perform_run(self, run: RunWithDetails, cmd: Command, params_with_extras: ParamDict) -> Optional[ProcessResult]:
         """
         Performs a run based on a provided command and returns stdout, stderr, exit code, and whether the process timed
         out while running.
         :param run: The run to execute
         :param cmd: The command used to execute the run
+        :param params_with_extras: A dictionary of parameters, including secret values
         :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
         """
 
@@ -364,8 +455,8 @@ class WESBackend(ABC):
         # -- Start process running the generated command ----------------------
         runner_process = subprocess.Popen(
             cmd, cwd=self.tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
-        c.execute("UPDATE run_logs SET start_time = ? WHERE id = ?", (iso_now(), run["run_log"]["id"]))
-        self._update_run_state_and_commit(run["run_id"], states.STATE_RUNNING)
+        c.execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run.run_id))
+        self._update_run_state_and_commit(run.run_id, states.STATE_RUNNING)
 
         # -- Wait for and capture output --------------------------------------
 
@@ -382,12 +473,29 @@ class WESBackend(ABC):
         finally:
             exit_code = runner_process.returncode
 
+        # -- Censor output in case it includes any secrets
+
+        for k, v in params_with_extras.items():
+            if PARAM_SECRET_PREFIX not in k:
+                continue
+            if isinstance(v, str) and len(v) >= 5:  # redacted secrets must be somewhat lengthy
+                stdout = stdout.replace(v, "<redacted>")
+                stderr = stderr.replace(v, "<redacted>")
+
         # Complete run ========================================================
+
+        # -- Get various Bento-specific data from tags ------------------------
+
+        tags = run.request.tags
+
+        workflow_metadata = tags.workflow_metadata
+        project_id: str = tags.project_id
+        dataset_id: str | None = tags.dataset_id
 
         # -- Update run log with stdout/stderr, exit code ---------------------
         #     - Explicitly don't commit here; sync with state update
-        c.execute("UPDATE run_logs SET stdout = ?, stderr = ?, exit_code = ? WHERE id = ?",
-                  (stdout, stderr, exit_code, run["run_log"]["id"]))
+        c.execute("UPDATE runs SET run_log__stdout = ?, run_log__stderr = ?, run_log__exit_code = ? WHERE id = ?",
+                  (stdout, stderr, exit_code, run.run_id))
 
         if timed_out:
             # TODO: Report error somehow
@@ -401,35 +509,65 @@ class WESBackend(ABC):
             self.log_error("Encountered a non-zero exit code while performing run")
             return self._finish_run_and_clean_up(run, states.STATE_EXECUTOR_ERROR)
 
-        # Exit code is 0 otherwise
+        # Exit code is 0 otherwise; complete the run
 
-        if not self.chord_mode:
-            # TODO: What should be done if this run was not a CHORD routine?
-            self.log_debug("Not in Bento mode; finishing without running the callback")
-            return self._finish_run_and_clean_up(run, states.STATE_COMPLETE)
+        run_dir = self.run_dir(run)
+        workflow_name = self.get_workflow_name(self.workflow_path(run))
 
-        # If in CHORD mode, run the callback and finish the run with whatever state is returned.
-        self._finish_run_and_clean_up(run, self.chord_callback(self))
+        # TODO: re-think output system - we probably don't need to / shouldn't interpolate inputs in this way
+        workflow_outputs = self._build_workflow_outputs(
+            run_dir=run_dir,
+            workflow_id=workflow_name,
+            workflow_params={
+                k: v for k, v in params_with_extras.items() if PARAM_SECRET_PREFIX not in k
+            },
+            workflow_metadata=workflow_metadata,
+        )
+
+        # Explicitly don't commit here; sync with state update
+        c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run.run_id)))
+
+        # Run result object
+        run_results = {
+            "project_id": project_id,
+            **({"dataset_id": dataset_id} if dataset_id else {}),
+
+            "workflow_id": workflow_name,
+            "workflow_metadata": workflow_metadata.model_dump_json(),
+            "workflow_outputs": workflow_outputs,
+            "workflow_params": run.request.workflow_params,
+        }
+
+        # Emit event if possible
+        self.event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_FINISHED, run_results)
+
+        # Finally, set our state to COMPLETE + finish up the run.
+        self._finish_run_and_clean_up(run, states.STATE_COMPLETE)
 
         return ProcessResult((stdout, stderr, exit_code, timed_out))
 
-    def perform_run(self, run: dict, celery_id) -> Optional[ProcessResult]:
+    def perform_run(self, run: RunWithDetails, celery_id: int, access_token: str) -> Optional[ProcessResult]:
         """
         Executes a run from start to finish (initialization, startup, and completion / cleanup.)
         :param run: The run to execute
         :param celery_id: The ID of the Celery task responsible for executing the workflow
+        :param access_token: An access token for talking with this Bento instance's services
         :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
         """
 
-        if run["run_id"] in self._runs:
+        if run.run_id in self._runs:
             raise ValueError("Run has already been registered")
 
-        self._runs[run["run_id"]] = run
+        self.log_debug(f"Performing run with ID {run.run_id} ({celery_id=})")
+
+        self._runs[run.run_id] = run
 
         # Initialization (loading / downloading files) ------------------------
-        cmd = self._initialize_run_and_get_command(run, celery_id)
-        if cmd is None:
+        init_vals = self._initialize_run_and_get_command(run, celery_id, access_token)
+        if init_vals is None:
             return
 
+        cmd, params_with_extras = init_vals
+
         # Perform, finish, and clean up run -----------------------------------
-        return self._perform_run(run, cmd)
+        return self._perform_run(run, cmd, params_with_extras)

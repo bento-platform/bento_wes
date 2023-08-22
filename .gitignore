@@ -11,16 +11,14 @@ toilwdl_compiled.py
 .coverage
 htmlcov/
 celery.log
-chord_services.json
+bento_services.json
 bento_wes/*.json
 
 cromwell-executions
 cromwell-workflow-logs
 
 # IDE stuff
-.idea/workspace.xml
-.idea/dataSources*
-.idea/rSettings.xml
+.idea/*
 *.swp
 *.swo
 .vscode/*

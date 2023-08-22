@@ -1,481 +1,394 @@
 import json
-import logging
 import os
+import sqlite3
+import pydantic
 import requests
 import shutil
 import traceback
 import uuid
 
-from bento_lib.auth.flask_decorators import flask_permissions_owner
 from bento_lib.responses.flask_errors import (
     flask_bad_request_error,
     flask_internal_server_error,
     flask_not_found_error,
+    flask_forbidden_error,
 )
-from flask import Blueprint, current_app, jsonify, request
-from urllib.parse import urljoin, urlparse
+from flask import Blueprint, Response, current_app, jsonify, request
+from typing import Callable
 from werkzeug.utils import secure_filename
 
 from . import states
+from .authz import authz_middleware, PERMISSION_INGEST_DATA, PERMISSION_VIEW_RUNS
 from .celery import celery
+from .db import (
+    get_db,
+    run_with_details_and_output_from_row,
+    get_run,
+    get_run_with_details,
+    update_run_state_and_commit,
+)
 from .events import get_flask_event_bus
+from .logger import logger
+from .models import RunRequest
 from .runner import run_workflow
+from .states import STATE_COMPLETE
+from .types import RunStream
 from .workflows import (
     WorkflowType,
     UnsupportedWorkflowType,
     WorkflowDownloadError,
     WorkflowManager,
     parse_workflow_host_allow_list,
-    count_bento_workflow_file_outputs,
-)
-
-from .db import (
-    get_db,
-    run_request_dict,
-    run_request_dict_public,
-    run_log_dict,
-    run_log_dict_public,
-    get_task_logs,
-    get_run_details,
-    update_run_state_and_commit
 )
 
 
 bp_runs = Blueprint("runs", __name__)
 
-logger = logging.getLogger(__name__)
+
+def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> tuple[bool, ...]:
+    if not current_app.config["AUTHZ_ENABLED"]:
+        return tuple([True] * len(run_requests))  # Assume we have permission for everything if authz disabled
+
+    authz_response = authz_middleware.authz_post(request, "/policy/evaluate", body={
+        "requested_resource": [
+            {
+                "project": run_request.tags.project_id,
+                **({"dataset": run_request.tags.dataset_id} if run_request.tags.dataset_id else {}),
+            }
+            for run_request in run_requests
+        ],
+        "required_permissions": [permission],
+    })["result"]
+    return tuple([authz_response] * len(run_requests))
 
 
-def _create_run(db, c):
-    try:
-        assert "workflow_params" in request.form
-        assert "workflow_type" in request.form
-        assert "workflow_type_version" in request.form
-        assert "workflow_engine_parameters" in request.form
-        assert "workflow_url" in request.form
-        assert "tags" in request.form
-
-        workflow_params = json.loads(request.form["workflow_params"])
-        workflow_type = request.form["workflow_type"].upper().strip()
-        workflow_type_version = request.form["workflow_type_version"].strip()
-        workflow_engine_parameters = json.loads(request.form["workflow_engine_parameters"])  # TODO: Unused
-        workflow_url = request.form["workflow_url"].lower()  # TODO: This can refer to an attachment
-        workflow_attachment_list = request.files.getlist("workflow_attachment")  # TODO: Use this fully
-        tags = json.loads(request.form["tags"])
-
-        # TODO: Move CHORD-specific stuff out somehow?
-
-        # Only "turn on" CHORD-specific features if specific tags are present
-
-        chord_mode = all((
-            "workflow_id" in tags,
-            "workflow_metadata" in tags,
-            tags["workflow_metadata"].get("action", "ingestion") == "ingestion",
-
-            # Allow either a path to be specified for ingestion (for the 'classic'
-            # Bento singularity architecture) or
-            "ingestion_path" in tags or "ingestion_url" in tags,
-
-            "table_id" in tags,
-        ))
-
-        workflow_id = tags.get("workflow_id", workflow_url)
-        workflow_metadata = tags.get("workflow_metadata", {})
-        workflow_ingestion_path = tags.get("ingestion_path", None)
-        workflow_ingestion_url = tags.get(
-            "ingestion_url",
-            (f"{current_app.config['CHORD_URL'].rstrip('/')}/{workflow_ingestion_path.lstrip('/')}"
-             if workflow_ingestion_path else None))
-        table_id = tags.get("table_id", None)
-        if chord_mode:
-            table_id = str(uuid.UUID(table_id))  # Check and standardize table ID
-
-        not_ingestion_mode = workflow_metadata.get("action") in ["export", "analysis"]
-
-        # Don't accept anything (ex. CWL) other than WDL TODO: CWL support
-        assert workflow_type == "WDL"
-        assert workflow_type_version == "1.0"
-
-        assert isinstance(workflow_params, dict)
-        assert isinstance(workflow_engine_parameters, dict)
-        assert isinstance(tags, dict)
-
-        # TODO: Refactor (Gohan)
-        # - Extract filenames from workflow_params and inject them back into workflow_params
-        #  as an array-of-strings alongside the original array-of-files
-        # - Pass workflow ingestion URL in as a parameter to the workflow (used in the .wdl file directly)
-        if workflow_ingestion_url and "gohan" in workflow_ingestion_url:
-            workflow_params["vcf_gz.original_vcf_gz_file_paths"] = workflow_params["vcf_gz.vcf_gz_file_names"]
-            gohan_url = urlparse(workflow_ingestion_url)
-            workflow_params["vcf_gz.gohan_url"] = (f"{gohan_url.scheme}" +
-                                                   f"://{gohan_url.netloc}" +
-                                                   f"{gohan_url.path.replace('/private/ingest', '')}")
-
-        # Some workflow parameters depend on the WES application configuration
-        # and need to be added from there.
-        # The reserved keyword `FROM_CONFIG` is used to detect those inputs.
-        # All parameters in config are upper case. e.g. drs_url --> DRS_URL
-        for i in workflow_metadata["inputs"]:
-            if i.get("value") != "FROM_CONFIG":
-                continue
-            param_name = i["id"]
-            workflow_params[f"{workflow_id}.{param_name}"] = current_app.config.get(param_name.upper(), "")
-
-        # TODO: Use JSON schemas for workflow params / engine parameters / tags
-
-        # Get list of allowed workflow hosts from configuration for any checks inside the runner
-        # If it's blank, assume that means "any host is allowed" and pass None to the runner
-        workflow_host_allow_list = parse_workflow_host_allow_list(current_app.config["WORKFLOW_HOST_ALLOW_LIST"])
-
-        # Download workflow file, potentially using passed auth headers if they're present
-        # and we're querying our own node.
-
-        # TODO: Move this back to runner, since we'll need to handle the callback anyway with local URLs...
-
-        chord_url = current_app.config["CHORD_URL"]
-
-        wm = WorkflowManager(
-            current_app.config["SERVICE_TEMP"],
-            chord_url,
-            logger=current_app.logger,
-            workflow_host_allow_list=workflow_host_allow_list,
-            validate_ssl=current_app.config["BENTO_VALIDATE_SSL"],
-            debug=current_app.config["BENTO_DEBUG"],
-        )
-
-        # Optional Authorization HTTP header to forward to nested requests
-        # TODO: Move X-Auth... constant to bento_lib
-        auth_header = request.headers.get("X-Authorization", request.headers.get("Authorization"))
-        auth_header_dict = {"Authorization": auth_header} if auth_header else {}
-
-        try:
-            wm.download_or_copy_workflow(
-                workflow_url,
-                WorkflowType(workflow_type),
-                auth_headers=auth_header_dict)
-        except UnsupportedWorkflowType:
-            return flask_bad_request_error(f"Unsupported workflow type: {workflow_type}")
-        except (WorkflowDownloadError, requests.exceptions.ConnectionError) as e:
-            return flask_bad_request_error(f"Could not access workflow file: {workflow_url} (Python error: {e})")
-
-        # Generate one-time tokens for ingestion purposes if in Bento mode
-        one_time_tokens = []
-        drs_url: str = current_app.config["DRS_URL"]
-        use_otts_for_drs: bool = chord_url in drs_url and urlparse(drs_url).scheme != "http+unix"
-        ott_endpoint_namespace: str = current_app.config["OTT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
-        tt_endpoint_namespace: str = current_app.config["TT_ENDPOINT_NAMESPACE"]  # TODO: py3.9: walrus operator
-
-        token_host = urlparse(chord_url).netloc
-
-        ott = AuthorizationToken(
-            {**auth_header_dict},  # TODO: Host?
-            ott_endpoint_namespace
-        )
-
-        tt = AuthorizationToken(
-            {**auth_header_dict},
-            tt_endpoint_namespace
-        )
-
-        if chord_mode and ott_endpoint_namespace:
-            # Generate the correct number of one-time tokens for the DRS and ingest scopes
-            # to allow for the callback to ingest files
-            # Skip doing this for DRS if the DRS URL is an internal (container) URL
-            # TODO: Remove this ^ bit
-
-            if use_otts_for_drs:
-                # TODO: This sort of assumes DRS is on the same domain as WES, which isn't necessarily correct
-                #  An error should be thrown if there's a mismatch and we're still trying to do OTT stuff, probably
-                scope = f"/{drs_url.replace(chord_url, '').rstrip('/')}/"
-                nb_tokens = count_bento_workflow_file_outputs(workflow_id, workflow_params, workflow_metadata)
-                try:
-                    one_time_tokens.extend(ott.get(scope, nb_tokens))
-                except Exception as err:
-                    return flask_internal_server_error(err)
-
-            # Request an additional OTT for the service ingest request
-            scope = ("/" if chord_url in workflow_ingestion_url else "") + workflow_ingestion_url.replace(
-                chord_url, "").rsplit("/", 1)[0] + "/"
-            one_time_tokens.extend(ott.get(scope, 1))
-
-        # Generate temporary tokens for polling purposes during ingestion
-        # (Gohan specific)
-        if chord_mode and tt_endpoint_namespace and "gohan" in workflow_ingestion_url:
-
-            scope = ("/" if chord_url in workflow_ingestion_url else "") + workflow_ingestion_url.replace(
-                chord_url, "").rsplit("/", 1)[0] + "/"
-            try:
-                token = tt.get(scope, 1)
-            except Exception as err:
-                return flask_internal_server_error(err)
-
-            # TODO: Refactor (Gohan)
-            # - Pass TT in as a parameter to the workflow (used in the .wdl file directly)
-            #    (current purpose for this is only to get automatic Gohan workflow requests through)
-            workflow_params[f"{workflow_id}.temp_token"] = token[0]
-            workflow_params[f"{workflow_id}.temp_token_host"] = token_host
-
-            # TODO: Refactor (Gohan)
-            # - Include table_id as part of the input parameters so Gohan can affiliate variants with a table
-            workflow_params["vcf_gz.table_id"] = table_id
-
-        if "auth" in workflow_metadata:
-            for tok in workflow_metadata["auth"]:
-                tokenFactory: AuthorizationToken = tt if tok.get("type", "tt") == "tt" else ott
-                scope = tok.get("scope", "//")
-                try:
-                    token = tokenFactory.get(scope, 1)
-                except Exception as err:
-                    return flask_internal_server_error(str(err))
-
-                workflow_params[f"{workflow_id}.{tok['id']}"] = token[0]
-                workflow_params[f"{workflow_id}.auth_host"] = token_host
-        # ---
-
-        # Begin creating the job after validating the request
-        req_id = uuid.uuid4()
-        run_id = uuid.uuid4()
-        log_id = uuid.uuid4()
-
-        # Create run directory
-
-        run_dir = os.path.join(current_app.config["SERVICE_TEMP"], str(run_id))
-
-        if os.path.exists(run_dir):
-            return flask_internal_server_error("UUID collision")
-
-        os.makedirs(run_dir, exist_ok=True)
-        # TODO: Delete run dir if something goes wrong...
-
-        # In export/analysis mode, as we rely on services located in different containers
-        # there is a need to have designated folders on shared volumes between
-        # WES and the other services, to write files to.
-        # This is possible because /wes/tmp is a volume mounted with the same
-        # path in each data service (except Gohan which mounts the dropbox
-        # data-x directory directly instead, to avoid massive duplicates).
-        # Also, the Toil library creates directories in the generic /tmp/
-        # directory instead of the one that is configured for the job execution,
-        # to create the current working directories where tasks are executed.
-        # These files are inaccessible to other containers in the context of a
-        # task unless they are written arbitrarily to run_dir
-        if not_ingestion_mode:
-            workflow_params[f"{workflow_id}.run_dir"] = run_dir
-
-        # Move workflow attachments to run directory
-
-        for attachment in workflow_attachment_list:
-            # TODO: Check and fix input if filename is non-secure
-            # TODO: Do we put these in a subdirectory?
-            # TODO: Support WDL uploads for workflows
-            attachment.save(os.path.join(run_dir, secure_filename(attachment.filename)))
-
-        # Will be updated to STATE_ QUEUED once submitted
-        c.execute("INSERT INTO run_requests (id, workflow_params, workflow_type, workflow_type_version, "
-                  "workflow_engine_parameters, workflow_url, tags) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                  (str(req_id), json.dumps(workflow_params), workflow_type, workflow_type_version,
-                   json.dumps(workflow_engine_parameters), workflow_url, json.dumps(tags)))
-        c.execute("INSERT INTO run_logs (id, name) VALUES (?, ?)", (str(log_id), workflow_id))
-        c.execute("INSERT INTO runs (id, request, state, run_log, outputs) VALUES (?, ?, ?, ?, ?)",
-                  (str(run_id), str(req_id), states.STATE_UNKNOWN, str(log_id), json.dumps({})))
-        db.commit()
-
-        # TODO: figure out timeout
-        # TODO: retry policy
-        c.execute("UPDATE runs SET state = ? WHERE id = ?", (states.STATE_QUEUED, str(run_id)))
-        db.commit()
-
-        run_workflow.delay(run_id, chord_mode, workflow_metadata, workflow_ingestion_url, table_id, one_time_tokens,
-                           use_otts_for_drs)
-
-        return jsonify({"run_id": str(run_id)})
-
-    except ValueError:
-        return flask_bad_request_error("Value error")
-
-    except AssertionError:  # TODO: Better error messages
-        logger.error(f"Encountered assertion error: {traceback.format_exc()}")
-        return flask_bad_request_error("Assertion error: bad run request format")
+def _check_single_run_permission_and_mark(run_req: RunRequest, permission: str) -> bool:
+    p_res = _check_runs_permission([run_req], permission)
+    # By calling this, the developer indicates that they will have handled permissions adequately:
+    authz_middleware.mark_authz_done(request)
+    return p_res and p_res[0]
 
 
-def fetch_run_details(c, public_endpoint=False):
-    c.execute(
-        "SELECT r.id AS run_id, r.state AS state, rr.*, rl.* "
-        "FROM runs AS r, run_requests AS rr, run_logs AS rl "
-        "WHERE r.request = rr.id AND r.run_log = rl.id"
+def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
+    run_req = RunRequest(**request.form)
+
+    # TODO: Use this fully
+    #  - files inside the workflow
+    #  - workflow_url can refer to an attachment
+    workflow_attachment_list = request.files.getlist("workflow_attachment")
+
+    # Check ingest permissions before continuing
+
+    if not _check_single_run_permission_and_mark(run_req, PERMISSION_INGEST_DATA):
+        return flask_forbidden_error("Forbidden")
+
+    # We have permission - so continue ---------
+
+    # Get list of allowed workflow hosts from configuration for any checks inside the runner
+    # If it's blank, assume that means "any host is allowed" and pass None to the runner
+    workflow_host_allow_list = parse_workflow_host_allow_list(current_app.config["WORKFLOW_HOST_ALLOW_LIST"])
+
+    # Download workflow file, potentially using passed auth headers if they're present
+    # and we're querying our own node.
+
+    # TODO: Move this back to runner, since we'll need to handle the callback anyway with local URLs...
+
+    bento_url = current_app.config["BENTO_URL"]
+
+    wm = WorkflowManager(
+        current_app.config["SERVICE_TEMP"],
+        service_base_url=current_app.config["SERVICE_BASE_URL"],
+        bento_url=bento_url,
+        logger=logger,
+        workflow_host_allow_list=workflow_host_allow_list,
+        validate_ssl=current_app.config["BENTO_VALIDATE_SSL"],
+        debug=current_app.config["BENTO_DEBUG"],
     )
 
-    runs = []
-    for r in c.fetchall():
-        request = run_request_dict_public(r) if public_endpoint else run_request_dict(r)
-        run_log = run_log_dict_public(r["run_id"], r) if public_endpoint else run_log_dict(r["run_id"], r)
-        state = r["state"]
+    # Optional Authorization HTTP header to forward to nested requests
+    auth_header = request.headers.get("Authorization")
+    auth_header_dict = {"Authorization": auth_header} if auth_header else {}
 
-        run_data = {
-            'run_id': r["run_id"],
-            'state': state,
-            'details': {
-                'run_id': r["run_id"],
-                'state': state,
-                'request': request,
-                'run_log': run_log,
-                'task_logs': get_task_logs(c, r["run_id"]) if not public_endpoint else None,
-            }
-        }
+    try:
+        wm.download_or_copy_workflow(
+            run_req.workflow_url, WorkflowType(run_req.workflow_type), auth_headers=auth_header_dict)
+    except UnsupportedWorkflowType:
+        return flask_bad_request_error(f"Unsupported workflow type: {run_req.workflow_type}")
+    except (WorkflowDownloadError, requests.exceptions.ConnectionError) as e:
+        return flask_bad_request_error(f"Could not access workflow file: {run_req.workflow_url} (Python error: {e})")
 
-        if not public_endpoint or (public_endpoint and state == "COMPLETE"):
-            runs.append(run_data)
+    # ---
 
-    return runs
+    # Begin creating the job after validating the request
+    run_id = uuid.uuid4()
+
+    # Create run directory
+
+    run_dir = os.path.join(current_app.config["SERVICE_TEMP"], str(run_id))
+
+    if os.path.exists(run_dir):
+        return flask_internal_server_error("UUID collision")
+
+    os.makedirs(run_dir, exist_ok=True)
+    # TODO: Delete run dir if something goes wrong...
+
+    # Move workflow attachments to run directory
+
+    for attachment in workflow_attachment_list:
+        # TODO: Check and fix input if filename is non-secure
+        # TODO: Do we put these in a subdirectory?
+        # TODO: Support WDL uploads for workflows
+        attachment.save(os.path.join(run_dir, secure_filename(attachment.filename)))
+
+    # Will be updated to STATE_QUEUED once submitted
+    c.execute("""
+        INSERT INTO runs (
+            id,
+            state,
+            outputs,
+
+            request__workflow_params,
+            request__workflow_type,
+            request__workflow_type_version,
+            request__workflow_engine_parameters,
+            request__workflow_url,
+            request__tags,
+
+            run_log__name
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        str(run_id),
+        states.STATE_UNKNOWN,
+        json.dumps({}),
+
+        json.dumps(run_req.workflow_params),
+        run_req.workflow_type,
+        run_req.workflow_type_version,
+        json.dumps(run_req.workflow_engine_parameters),
+        str(run_req.workflow_url),
+        run_req.tags.model_dump_json(),
+
+        run_req.tags.workflow_id,
+    ))
+    db.commit()
+
+    # TODO: figure out timeout
+    # TODO: retry policy
+
+    update_run_state_and_commit(db, c, run_id, states.STATE_QUEUED, logger=logger, publish_event=False)
+
+    run_workflow.delay(run_id)
+
+    return jsonify({"run_id": str(run_id)})
+
+
+PUBLIC_RUN_DETAILS_SHAPE = {
+    "request": {
+        "workflow_type": True,
+        "tags": {
+            "workflow_id": True,
+            "workflow_metadata": {
+                "data_type": True,
+            },
+            "project_id": True,
+            "dataset_id": True,
+        },
+    },
+    "run_log": {
+        "start_time": True,
+        "end_time": True,
+    },
+}
+
+PRIVATE_RUN_DETAILS_SHAPE = {
+    "request": True,
+    "run_log": True,
+    "task_logs": True,
+}
 
 
 @bp_runs.route("/runs", methods=["GET", "POST"])
-@flask_permissions_owner  # TODO: Allow others to submit analysis runs?
 def run_list():
     db = get_db()
     c = db.cursor()
 
     if request.method == "POST":
-        return _create_run(db, c)
+        try:
+            return _create_run(db, c)
+        except pydantic.ValidationError:  # TODO: Better error messages
+            authz_middleware.mark_authz_done(request)
+            logger.error(f"Encountered validation error: {traceback.format_exc()}")
+            return flask_bad_request_error("Validation error: bad run request format")
+        except ValueError:
+            authz_middleware.mark_authz_done(request)
+            return flask_bad_request_error("Value error")
 
     # GET
-    # CHORD Extension: Include run public details with /runs request
+    # Bento Extension: Include run public details with /runs request
     public_endpoint = request.args.get("public", "false").lower() == "true"
-    # CHORD Extension: Include run details with /runs request
+    # Bento Extension: Include run details with /runs request
     with_details = request.args.get("with_details", "false").lower() == "true"
 
-    if not with_details:
-        c.execute("SELECT * FROM runs")
+    res_list = []
+    perms_list: list[RunRequest] = []
 
-        return jsonify([{
-            "run_id": run["id"],
-            "state": run["state"]
-        } for run in c.fetchall()])
+    for r in c.execute("SELECT * FROM runs").fetchall():
+        run = run_with_details_and_output_from_row(c, r, stream_content=False)
+        perms_list.append(run.request)
 
-    return jsonify(fetch_run_details(c, public_endpoint=public_endpoint))
+        if not public_endpoint or run.state == STATE_COMPLETE:
+            res_list.append({
+                **run.model_dump(mode="json", include={"run_id", "state"}),
+                **(
+                    {
+                        "details": run.model_dump(mode="json", include={
+                            "run_id": True,
+                            "state": True,
+                            **(PUBLIC_RUN_DETAILS_SHAPE if public_endpoint else PRIVATE_RUN_DETAILS_SHAPE),
+                        }),
+                    }
+                    if with_details else {}
+                ),
+            })
+
+    if not public_endpoint:
+        # Filter runs to just those which we have permission to view
+        p_res = _check_runs_permission(perms_list, PERMISSION_VIEW_RUNS)
+        res_list = [v for v, p in zip(res_list, p_res) if p]
+
+    authz_middleware.mark_authz_done(request)
+
+    return jsonify(res_list)
 
 
 @bp_runs.route("/runs/<uuid:run_id>", methods=["GET"])
-@flask_permissions_owner
-def run_detail(run_id):
-    run_details, err = get_run_details(get_db().cursor(), run_id)
-    return jsonify(run_details) if run_details is not None else flask_not_found_error(f"Run {run_id} not found ({err})")
+def run_detail(run_id: uuid.UUID):
+    authz_enabled = current_app.config["AUTHZ_ENABLED"]
+    run_details = get_run_with_details(get_db().cursor(), run_id, stream_content=False)
+
+    if run_details is None:
+        if authz_enabled:
+            return flask_forbidden_error("Forbidden")
+        else:
+            return flask_not_found_error(f"Run {run_id} not found")
+
+    if not _check_single_run_permission_and_mark(run_details.request, PERMISSION_VIEW_RUNS):
+        return flask_forbidden_error("Forbidden")
+
+    return jsonify(run_details.model_dump(mode="json"))
 
 
-def get_stream(c, stream, run_id):
-    c.execute("SELECT * FROM runs AS r, run_logs AS rl WHERE r.id = ? AND r.run_log = rl.id", (str(run_id),))
-    run = c.fetchone()
+def get_stream(c: sqlite3.Cursor, stream: RunStream, run_id: uuid.UUID):
+    run = get_run_with_details(c, run_id, stream_content=True)
     return (current_app.response_class(
         headers={
             # If we've finished, we allow long-term (24h) caching of the stdout/stderr responses.
             # Otherwise, no caching allowed!
             "Cache-Control": (
-                "private, max-age=86400" if run["state"] in states.TERMINATED_STATES
+                "private, max-age=86400" if run.state in states.TERMINATED_STATES
                 else "no-cache, no-store, must-revalidate, max-age=0"
             ),
         },
-        response=run[stream],
+        response=run.run_log.stdout if stream == "stdout" else run.run_log.stderr,
         mimetype="text/plain",
         status=200,
     ) if run is not None else flask_not_found_error(f"Stream {stream} not found for run {run_id}"))
 
 
+def check_run_authz_then_return_response(
+    c: sqlite3.Cursor,
+    run_id: uuid.UUID,
+    cb: Callable[[], Response | dict],
+    permission: str = PERMISSION_VIEW_RUNS,
+):
+    run = get_run_with_details(c, run_id, stream_content=False)
+
+    if run is None:
+        if current_app.config["AUTHZ_ENABLED"]:
+            # Without the required permissions, don't even leak if this run exists - just return forbidden
+            authz_middleware.mark_authz_done(request)
+            return flask_forbidden_error("Forbidden")
+        else:
+            return flask_not_found_error(f"Run {run_id} not found")
+
+    if not _check_single_run_permission_and_mark(run.request, permission):
+        return flask_forbidden_error("Forbidden")
+
+    return cb()
+
+
 @bp_runs.route("/runs/<uuid:run_id>/stdout", methods=["GET"])
-@flask_permissions_owner
-def run_stdout(run_id):
-    return get_stream(get_db().cursor(), "stdout", run_id)
+def run_stdout(run_id: uuid.UUID):
+    c = get_db().cursor()
+    return check_run_authz_then_return_response(c, run_id, lambda: get_stream(c, "stdout", run_id))
 
 
 @bp_runs.route("/runs/<uuid:run_id>/stderr", methods=["GET"])
-@flask_permissions_owner
-def run_stderr(run_id):
-    return get_stream(get_db().cursor(), "stderr", run_id)
+def run_stderr(run_id: uuid.UUID):
+    c = get_db().cursor()
+    return check_run_authz_then_return_response(c, run_id, lambda: get_stream(c, "stderr", run_id))
+
+
+RUN_CANCEL_BAD_REQUEST_STATES = (
+    ((states.STATE_CANCELING, states.STATE_CANCELED), "Run already canceled"),
+    (states.FAILURE_STATES, "Run already terminated with error"),
+    (states.SUCCESS_STATES, "Run already completed"),
+)
 
 
 @bp_runs.route("/runs/<uuid:run_id>/cancel", methods=["POST"])
-@flask_permissions_owner
-def run_cancel(run_id):
+def run_cancel(run_id: uuid.UUID):
     # TODO: Check if already completed
     # TODO: Check if run log exists
     # TODO: from celery.task.control import revoke; revoke(celery_id, terminate=True)
     db = get_db()
     c = db.cursor()
-    event_bus = get_flask_event_bus()
 
-    c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
-    run = c.fetchone()
+    run_id_str = str(run_id)
 
-    if run is None:
-        return flask_not_found_error(f"Run {run_id} not found")
+    def perform_run_cancel() -> Response:
+        run = get_run_with_details(c, run_id_str, stream_content=False)
 
-    if run["state"] in (states.STATE_CANCELING, states.STATE_CANCELED):
-        return flask_bad_request_error("Run already canceled")
+        if run is None:
+            return flask_not_found_error(f"Run {run_id_str} not found")
 
-    if run["state"] in states.FAILURE_STATES:
-        return flask_bad_request_error("Run already terminated with error")
+        for bad_req_states, bad_req_err in RUN_CANCEL_BAD_REQUEST_STATES:
+            if run.state in bad_req_states:
+                return flask_bad_request_error(bad_req_err)
 
-    if run["state"] in states.SUCCESS_STATES:
-        return flask_bad_request_error("Run already completed")
+        celery_id = run.run_log.celery_id
 
-    c.execute("SELECT * FROM run_logs WHERE id = ?", (run["run_log"],))
-    run_log = c.fetchone()
+        if celery_id is None:
+            # Never made it into the queue, so "cancel" it
+            return flask_internal_server_error(f"No Celery ID present for run {run_id_str}")
 
-    if run_log is None:
-        return flask_internal_server_error(f"No run log present for run {run_id}")
+        event_bus = get_flask_event_bus()
 
-    if run_log["celery_id"] is None:
-        # Never made it into the queue, so "cancel" it
-        return flask_internal_server_error(f"No Celery ID present for run {run_id}")
+        # TODO: terminate=True might be iffy
+        update_run_state_and_commit(db, c, run_id_str, states.STATE_CANCELING, event_bus=event_bus)
+        celery.control.revoke(celery_id, terminate=True)  # Remove from queue if there, terminate if running
 
-    # TODO: terminate=True might be iffy
-    update_run_state_and_commit(db, c, event_bus, run["id"], states.STATE_CANCELING)
-    celery.control.revoke(run_log["celery_id"], terminate=True)  # Remove from queue if there, terminate if running
+        # TODO: wait for revocation / failure and update status...
 
-    # TODO: wait for revocation / failure and update status...
+        # TODO: Generalize clean-up code / fetch from back-end
+        run_dir = os.path.join(current_app.config["SERVICE_TEMP"], run_id_str)
+        if not current_app.config["BENTO_DEBUG"]:
+            shutil.rmtree(run_dir, ignore_errors=True)
 
-    # TODO: Generalize clean-up code / fetch from back-end
-    run_dir = os.path.join(current_app.config["SERVICE_TEMP"], run["run_id"])
-    if not current_app.config["BENTO_DEBUG"]:
-        shutil.rmtree(run_dir, ignore_errors=True)
+        update_run_state_and_commit(db, c, run_id_str, states.STATE_CANCELED, event_bus=event_bus)
 
-    update_run_state_and_commit(db, c, event_bus, run["id"], states.STATE_CANCELED)
+        return current_app.response_class(status=204)  # TODO: Better response
 
-    return current_app.response_class(status=204)  # TODO: Better response
+    return check_run_authz_then_return_response(c, run_id, perform_run_cancel)
 
 
 @bp_runs.route("/runs/<uuid:run_id>/status", methods=["GET"])
-@flask_permissions_owner
-def run_status(run_id):
+def run_status(run_id: uuid.UUID):
     c = get_db().cursor()
 
-    c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),))
-    run = c.fetchone()
-
-    if run is None:
+    def run_status_response() -> Response:
+        if run := get_run(c, run_id):
+            return jsonify(run.model_dump())
         return flask_not_found_error(f"Run {run_id} not found")
 
-    return jsonify({
-        "run_id": run["id"],
-        "state": run["state"]
-    })
-
-
-class AuthorizationToken():
-    """Encapsulation of requests for authorization tokens (one time or temp)"""
-
-    def __init__(self, headers, endpoint_namespace):
-        self.headers = headers
-        self.generate_url = urljoin(endpoint_namespace.rstrip("/") + "/", "generate")
-
-    def get(self, scope, number):
-        tr = requests.post(self.generate_url, headers=self.headers, json={
-            "scope": scope,
-            "number": number,
-        }, verify=current_app.config["BENTO_VALIDATE_SSL"])
-
-        if not tr.ok:
-            # An error occurred while requesting authorization token, so we cannot complete the run request
-            raise Exception(
-                f"Got error while requesting authorization tokens: {tr.content} "
-                f"(Scope: {scope}, URL: {self.generate_url}, headers included: {list(self.headers.keys())})")
-
-        return tr.json()
+    return check_run_authz_then_return_response(c, run_id, run_status_response)

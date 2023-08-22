@@ -1,13 +1,14 @@
 import json
 
 __all__ = [
-    "EXAMPLE_TABLE_ID",
+    "EXAMPLE_DATASET_ID",
     "EXAMPLE_RUN",
     "EXAMPLE_RUN_BODY",
 ]
 
 
-EXAMPLE_TABLE_ID = "ef9da1da-ef7f-43d6-ace3-456bf8e58431"
+EXAMPLE_PROJECT_ID = "2b98aae0-d67a-48ae-8419-3f3e2b10629b"
+EXAMPLE_DATASET_ID = "ef9da1da-ef7f-43d6-ace3-456bf8e58431"
 
 EXAMPLE_RUN = {
     "workflow_params": {
@@ -20,10 +21,10 @@ EXAMPLE_RUN = {
     "tags": {
         "workflow_id": "phenopackets_json",
         "workflow_metadata": {
-            "id": "phenopackets_json",
             "name": "Bento Phenopackets-Compatible JSON",
             "description": "This ingestion workflow will validate and import a Phenopackets schema-compatible "
                            "JSON document.",
+            "action": "ingestion",
             "data_type": "phenopacket",
             "file": "phenopackets_json.wdl",
             "inputs": [
@@ -42,8 +43,8 @@ EXAMPLE_RUN = {
                 }
             ],
         },
-        "ingestion_url": "http://metadata.local/private/ingest",
-        "table_id": EXAMPLE_TABLE_ID,
+        "project_id": EXAMPLE_PROJECT_ID,
+        "dataset_id": EXAMPLE_DATASET_ID,
     },
 }
 
