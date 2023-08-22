@@ -275,6 +275,7 @@ class WESBackend(ABC):
         :param run_id: The ID of the run whose state is getting updated
         :param state: The value to set the run's current state to
         """
+        self.log_debug(f"Setting state of run {run_id} to {state}")
         update_run_state_and_commit(self.db, self.db.cursor(), run_id, state, event_bus=self.event_bus)
 
     def _finish_run_and_clean_up(self, run: Run, state: str) -> None:
@@ -360,13 +361,16 @@ class WESBackend(ABC):
         # The reserved keyword `FROM_CONFIG` is used to detect those inputs.
         # All parameters in config are upper case. e.g. drs_url --> DRS_URL
         for i in run.request.tags.workflow_metadata.inputs:
+            self.log_debug(f"Found workflow input for run {run.run_id}: {str(i)}")
             if not isinstance(i, BentoWorkflowInputWithValue) or i.value != RUN_PARAM_FROM_CONFIG:
                 continue
-            if i.id.upper() in FORBIDDEN_FROM_CONFIG_PARAMS:  # Cannot grab WES client secret, for example
+            input_id_upper = i.id.upper()
+            if input_id_upper in FORBIDDEN_FROM_CONFIG_PARAMS:  # Cannot grab WES client secret, for example
                 self.log_warning(f"Cannot inject forbidden WES config item: {i.id}")
                 continue
-            self.log_debug(f"Injecting FROM_CONFIG param to {workflow_id}: {i.id}")
-            workflow_params[f"{workflow_id}.{i.id}"] = current_app.config.get(i.id, "")
+            param_val = current_app.config.get(input_id_upper, "")
+            workflow_params[f"{workflow_id}.{i.id}"] = param_val
+            self.log_debug(f"Injecting FROM_CONFIG param to {workflow_id}: {i.id}={param_val}")
 
         # -- Validate the workflow --------------------------------------------
         error = self._check_workflow_and_type(run)
@@ -546,6 +550,8 @@ class WESBackend(ABC):
 
         if run.run_id in self._runs:
             raise ValueError("Run has already been registered")
+
+        self.log_debug(f"Performing run with ID {run.run_id} ({celery_id=})")
 
         self._runs[run.run_id] = run
 
