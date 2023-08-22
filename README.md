@@ -5,7 +5,7 @@
 [![codecov](https://codecov.io/gh/bento-platform/bento_wes/branch/master/graph/badge.svg)](https://codecov.io/gh/bento-platform/bento_wes)
 
 
-Developing `bento_wes` requires Python 3.10+ and Poetry `>=1.3,<1.4`.
+Developing `bento_wes` requires Python 3.10+ and Poetry `>=1.5.1`.
 
 
 ## Overview
@@ -181,14 +181,12 @@ CORS_ORIGINS='*'
 
 ### Setting up a Virtual Environment
 
-After cloning the repository, set up a virtual environment with Python 3 and
-install the development dependencies:
+After cloning the repository, let Poetry manage the virtual environment and
+install the development dependencies for you:
 
 ```bash
-virtualenv -p python3 ./env
-source env/bin/activate
-pip install "poetry==1.3.2"
-poetry install
+pip install poetry  # if not done so already
+poetry install  # will automatically create a virtual environment
 ```
 
 
@@ -197,7 +195,7 @@ poetry install
 To run all tests and linting, use the following command:
 
 ```bash
-python3 -m tox
+poetry run tox
 ```
 
 
@@ -241,7 +239,7 @@ To run the Celery worker (required to actually run jobs), the following command
 (or similar) can be used:
 
 ```bash
-nohup celery --loglevel=INFO --app bento_wes.app worker &> celery.log &
+nohup poetry run celery --loglevel=INFO --app bento_wes.app worker &> celery.log &
 ```
 
 ## About the implementation
