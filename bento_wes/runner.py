@@ -13,11 +13,10 @@ from .events import get_new_event_bus
 from .workflows import parse_workflow_host_allow_list
 
 
-logger = get_task_logger(__name__)
-
-
 @celery.task(bind=True)
 def run_workflow(self, run_id: uuid.UUID):
+    logger = get_task_logger(__name__)
+
     db = get_db()
     c = db.cursor()
     event_bus = get_new_event_bus()
