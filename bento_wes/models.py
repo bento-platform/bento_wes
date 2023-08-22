@@ -30,6 +30,7 @@ class BentoWorkflowInputWithFileExtensions(BentoWorkflowInput):
 
 class BentoWorkflowInputWithValue(BentoWorkflowInput):
     value: Literal["FROM_CONFIG"]
+    hidden: bool = True
 
 
 class BentoWorkflowOutput(BaseModel):
