@@ -412,7 +412,7 @@ class WESBackend(ABC):
         workflow_metadata: BentoWorkflowMetadata,
     ):
         self.logger.info(f"Building workflow outputs for workflow ID {workflow_id}")
-        output_params = w.make_output_params(workflow_id, workflow_params, [dict(i) for i in workflow_metadata.inputs])
+        output_params = w.make_output_params(workflow_id, workflow_params, [dict(i) for i in workflow_metadata.outputs])
 
         workflow_outputs = {}
         for output in workflow_metadata.outputs:

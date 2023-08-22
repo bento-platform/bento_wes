@@ -10,7 +10,8 @@
             "type": "python",
             "request": "attach",
             "port": 5680,
-            "host": "0.0.0.0"
+            "host": "0.0.0.0",
+            "justMyCode": false
         }
     ]
 }
