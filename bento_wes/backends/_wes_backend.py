@@ -513,9 +513,16 @@ class WESBackend(ABC):
 
         run_dir = self.run_dir(run)
         workflow_name = self.get_workflow_name(self.workflow_path(run))
-        workflow_params: dict = run.request.workflow_params
 
-        workflow_outputs = self._build_workflow_outputs(run_dir, workflow_name, workflow_params, workflow_metadata)
+        # TODO: re-think output system - we probably don't need to / shouldn't interpolate inputs in this way
+        workflow_outputs = self._build_workflow_outputs(
+            run_dir=run_dir,
+            workflow_id=workflow_name,
+            workflow_params={
+                k: v for k, v in params_with_extras.items() if PARAM_SECRET_PREFIX not in k
+            },
+            workflow_metadata=workflow_metadata,
+        )
 
         # Explicitly don't commit here; sync with state update
         c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run.run_id)))
@@ -528,7 +535,7 @@ class WESBackend(ABC):
             "workflow_id": workflow_name,
             "workflow_metadata": workflow_metadata.model_dump_json(),
             "workflow_outputs": workflow_outputs,
-            "workflow_params": workflow_params
+            "workflow_params": run.request.workflow_params,
         }
 
         # Emit event if possible
