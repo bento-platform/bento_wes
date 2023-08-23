@@ -78,6 +78,7 @@ class Config:
 
     # Other services, used for interpolating workflow variables and (
     DRS_URL: str = os.environ.get("DRS_URL", "").strip().rstrip("/")
+    GOHAN_URL: str = os.environ.get("GOHAN_URL", "").strip().rstrip("/")
     KATSU_URL: str = os.environ.get("KATSU_URL", "").strip().rstrip("/")
     SERVICE_REGISTRY_URL: str = SERVICE_REGISTRY_URL
 
