@@ -1,4 +1,4 @@
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.08.16 AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.08.30 AS base-deps
 
 LABEL org.opencontainers.image.description="Local development image for Bento WES."
 LABEL devcontainer.metadata='[{ \

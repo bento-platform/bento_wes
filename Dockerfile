@@ -1,4 +1,4 @@
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.08.16 AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.08.30 AS base-deps
 
 SHELL ["/bin/bash", "-c"]
 
@@ -8,7 +8,7 @@ SHELL ["/bin/bash", "-c"]
 RUN apt-get update -y && \
     apt-get install -y samtools tabix bcftools curl jq openjdk-17-jre && \
     rm -rf /var/lib/apt/lists/* && \
-    pip install --no-cache-dir poetry==1.3.2 gunicorn==21.2.0 "pysam>=0.21.0,<0.22.0"
+    pip install --no-cache-dir gunicorn==21.2.0 "pysam>=0.21.0,<0.22.0"
 
 WORKDIR /
 ENV CROMWELL_VERSION=85
