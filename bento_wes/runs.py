@@ -49,7 +49,9 @@ def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> t
     if not current_app.config["AUTHZ_ENABLED"]:
         return tuple([True] * len(run_requests))  # Assume we have permission for everything if authz disabled
 
-    authz_response = authz_middleware.authz_post(request, "/policy/evaluate", body={
+    # /policy/evaluate returns a LIST of booleans when a LIST of requested_resource[s] is passed. Thus, we can
+    # return this list directly *rather* than wrapping it like the above case where authz was disabled.
+    return authz_middleware.authz_post(request, "/policy/evaluate", body={
         "requested_resource": [
             {
                 "project": run_request.tags.project_id,
@@ -59,7 +61,6 @@ def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> t
         ],
         "required_permissions": [permission],
     })["result"]
-    return tuple([authz_response] * len(run_requests))
 
 
 def _check_single_run_permission_and_mark(run_req: RunRequest, permission: str) -> bool:
