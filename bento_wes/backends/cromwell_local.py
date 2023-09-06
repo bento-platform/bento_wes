@@ -1,7 +1,8 @@
+import os.path
 import re
 
 from flask import current_app, json
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from bento_wes.backends import WESBackend
 from bento_wes.backends.backend_types import Command
@@ -47,6 +48,10 @@ class CromwellLocalBackend(WESBackend):
     def get_workflow_name(self, workflow_path: str) -> Optional[str]:
         return self.get_workflow_name_wdl(workflow_path)
 
+    @staticmethod
+    def get_workflow_metadata_output_json_path(run_dir: str) -> str:
+        return os.path.join(run_dir, "_job_metadata_output.json")
+
     def _get_command(self, workflow_path: str, params_path: str, run_dir: str) -> Command:
         """
         Creates the command which will run Cromwell in CLI mode on the specified WDL workflow, with the specified
@@ -75,6 +80,10 @@ class CromwellLocalBackend(WESBackend):
             "--inputs", params_path,
             "--options", options_file,
             "--workflow-root", run_dir,
-            "--metadata-output", run_dir + "/_job_metadata_output.json",
+            "--metadata-output", self.get_workflow_metadata_output_json_path(run_dir),
             workflow_path,
         ))
+
+    def get_workflow_outputs(self, run_dir: str) -> dict[str, Any]:
+        with open(self.get_workflow_metadata_output_json_path(run_dir), "r") as fh:
+            return json.load(fh).get("outputs", {})

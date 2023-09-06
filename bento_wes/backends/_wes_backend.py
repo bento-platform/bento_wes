@@ -1,4 +1,3 @@
-import bento_lib.workflows as w
 import json
 import pathlib
 import os
@@ -12,12 +11,12 @@ from abc import ABC, abstractmethod
 from bento_lib.events import EventBus
 from bento_lib.events.types import EVENT_WES_RUN_FINISHED
 from flask import current_app
-from typing import Optional, Tuple, Union
+from typing import Any, Optional, Tuple, Union
 
 from bento_wes import states
 from bento_wes.constants import SERVICE_ARTIFACT, RUN_PARAM_FROM_CONFIG
 from bento_wes.db import get_db, finish_run, update_run_state_and_commit
-from bento_wes.models import Run, RunWithDetails, BentoWorkflowMetadata, BentoWorkflowInputWithValue
+from bento_wes.models import Run, RunWithDetails, BentoWorkflowInputWithValue
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
 from bento_wes.utils import iso_now
 from bento_wes.workflows import WorkflowType, WorkflowManager
@@ -404,39 +403,9 @@ class WESBackend(ABC):
 
         return cmd, workflow_params
 
-    def _build_workflow_outputs(
-        self,
-        run_dir: str,
-        workflow_id: str,
-        workflow_params: dict,
-        workflow_metadata: BentoWorkflowMetadata,
-    ):
-        self.logger.info(f"Building workflow outputs for workflow ID {workflow_id}")
-        output_params = w.make_output_params(workflow_id, workflow_params, [dict(i) for i in workflow_metadata.inputs])
-
-        workflow_outputs = {}
-        for output in workflow_metadata.outputs:
-            o_id = output.id
-            fo = w.formatted_output(dict(output), output_params)
-
-            # Skip optional outputs resulting from optional inputs
-            if fo is None:
-                continue
-
-            # Rewrite file outputs to include full path to temporary location
-            if output.type == w.WORKFLOW_TYPE_FILE:
-                workflow_outputs[o_id] = os.path.abspath(os.path.join(run_dir, "output", fo))
-
-            elif output.type == w.WORKFLOW_TYPE_FILE_ARRAY:
-                workflow_outputs[o_id] = [os.path.abspath(os.path.join(run_dir, wo)) for wo in fo]
-                self.logger.info(
-                    f"Setting workflow output {o_id} to [{', '.join(workflow_outputs[o_id])}]")
-
-            else:
-                workflow_outputs[o_id] = fo
-                self.logger.info(f"Setting workflow output {o_id} to {workflow_outputs[o_id]}")
-
-        return workflow_outputs
+    @abstractmethod
+    def get_workflow_outputs(self, run_dir: str) -> dict[str, Any]:
+        pass
 
     def _perform_run(self, run: RunWithDetails, cmd: Command, params_with_extras: ParamDict) -> Optional[ProcessResult]:
         """
@@ -514,15 +483,7 @@ class WESBackend(ABC):
         run_dir = self.run_dir(run)
         workflow_name = self.get_workflow_name(self.workflow_path(run))
 
-        # TODO: re-think output system - we probably don't need to / shouldn't interpolate inputs in this way
-        workflow_outputs = self._build_workflow_outputs(
-            run_dir=run_dir,
-            workflow_id=workflow_name,
-            workflow_params={
-                k: v for k, v in params_with_extras.items() if PARAM_SECRET_PREFIX not in k
-            },
-            workflow_metadata=workflow_metadata,
-        )
+        workflow_outputs = self.get_workflow_outputs(run_dir)
 
         # Explicitly don't commit here; sync with state update
         c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run.run_id)))
