@@ -54,6 +54,7 @@ def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> t
     return authz_middleware.authz_post(request, "/policy/evaluate", body={
         "requested_resource": [
             {
+                # TODO: pull from inputs, or if not found, default to whole node
                 "project": run_request.tags.project_id,
                 **({"dataset": run_request.tags.dataset_id} if run_request.tags.dataset_id else {}),
             }

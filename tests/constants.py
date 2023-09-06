@@ -12,6 +12,7 @@ EXAMPLE_DATASET_ID = "ef9da1da-ef7f-43d6-ace3-456bf8e58431"
 
 EXAMPLE_RUN = {
     "workflow_params": {
+        "phenopackets_json.project_dataset": f"{EXAMPLE_PROJECT_ID}:{EXAMPLE_DATASET_ID}",
         "phenopackets_json.json_document": "http://my-server.local/test.json",
     },
     "workflow_type": "WDL",
@@ -29,22 +30,18 @@ EXAMPLE_RUN = {
             "file": "phenopackets_json.wdl",
             "inputs": [
                 {
+                    "id": "project_dataset",
+                    "type": "project:dataset",
+                    "required": True,
+                },
+                {
                     "id": "json_document",
                     "type": "file",
                     "required": True,
                     "extensions": [".json"]
                 }
             ],
-            "outputs": [
-                {
-                    "id": "json_document",
-                    "type": "file",
-                    "value": "{json_document}"
-                }
-            ],
-        },
-        "project_id": EXAMPLE_PROJECT_ID,
-        "dataset_id": EXAMPLE_DATASET_ID,
+        }
     },
 }
 

@@ -331,6 +331,8 @@ class WESBackend(ABC):
         workflow_id = run.request.tags.workflow_id
         workflow_params: ParamDict = {
             **run.request.workflow_params,
+
+            # TODO: only if requested in inputs
             f"{workflow_id}.{PARAM_SECRET_PREFIX}access_token": access_token,
 
             # In export/analysis mode, as we rely on services located in different containers
@@ -344,13 +346,8 @@ class WESBackend(ABC):
             # to create the current working directories where tasks are executed.
             # These files are inaccessible to other containers in the context of a
             # task unless they are written arbitrarily to run_dir
+            # TODO: only if requested in inputs
             f"{workflow_id}.run_dir": run_dir,
-
-            # TODO: in the long run, we shouldn't tie workflow runs to a specific dataset ID inherently, necessarily
-            #  - instead, they can be special input parameters that get translated to strings
-            f"{workflow_id}.project_id": run.request.tags.project_id,
-            f"{workflow_id}.dataset_id": run.request.tags.dataset_id,
-            # Don't use data_type from workflow metadata here - instead, workflows can say what they're ingesting
 
             # TODO: more special parameters: service URLs, system__run_dir...
         }
@@ -453,14 +450,6 @@ class WESBackend(ABC):
 
         # Complete run ========================================================
 
-        # -- Get various Bento-specific data from tags ------------------------
-
-        tags = run.request.tags
-
-        workflow_metadata = tags.workflow_metadata
-        project_id: str = tags.project_id
-        dataset_id: str | None = tags.dataset_id
-
         # -- Update run log with stdout/stderr, exit code ---------------------
         #     - Explicitly don't commit here; sync with state update
         c.execute("UPDATE runs SET run_log__stdout = ?, run_log__stderr = ?, run_log__exit_code = ? WHERE id = ?",
@@ -488,19 +477,18 @@ class WESBackend(ABC):
         # Explicitly don't commit here; sync with state update
         c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run.run_id)))
 
-        # Run result object
-        run_results = {
-            "project_id": project_id,
-            **({"dataset_id": dataset_id} if dataset_id else {}),
-
-            "workflow_id": workflow_name,
-            "workflow_metadata": workflow_metadata.model_dump_json(),
-            "workflow_outputs": workflow_outputs,
-            "workflow_params": run.request.workflow_params,
-        }
-
         # Emit event if possible
-        self.event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_FINISHED, run_results)
+        self.event_bus.publish_service_event(
+            SERVICE_ARTIFACT,  # TODO: bento_lib: replace with service kind
+            EVENT_WES_RUN_FINISHED,
+            # Run result object:
+            event_data={
+                "workflow_id": workflow_name,
+                "workflow_metadata": run.request.tags.workflow_metadata.model_dump_json(),
+                "workflow_outputs": workflow_outputs,
+                "workflow_params": run.request.workflow_params,
+            },
+        )
 
         # Finally, set our state to COMPLETE + finish up the run.
         self._finish_run_and_clean_up(run, states.STATE_COMPLETE)

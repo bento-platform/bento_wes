@@ -195,7 +195,7 @@ def test_runs_public_endpoint(client, mocked_responses):
     expected_keys = ["run_id", "state", "details"]
     expected_details_keys = ["request", "run_id", "run_log", "state"]
     expected_request_keys = ["tags", "workflow_type"]
-    expected_tags_keys = ["workflow_id", "workflow_metadata", "project_id", "dataset_id"]
+    expected_tags_keys = ["workflow_id", "workflow_metadata"]
     expected_metadata_keys = ["data_type"]
     expected_run_log_keys = ["end_time", "start_time"]
 

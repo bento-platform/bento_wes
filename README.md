@@ -87,11 +87,8 @@ Parameter:
   "tags": {
     "workflow_id": "...",     // must correspond to the worflow_params namespace
     "workflow_metadata": {
-      "inputs": [{}],   // must correspond to the .wdl input section
-      "outputs": [{}]   // must correspond to the .wdl output section
-    },
-    "project_id": "...",
-    "dataset_id": "..."
+      "inputs": [{}]   // Defines setup for injecting values into the .wdl input section. IDs must align.
+    }
   }
 }
 ```
@@ -260,40 +257,10 @@ validity is disabled in Bento (see the corresponding Dockerfile).
 This script contains the routes definitions as [Flask's Blueprints](https://flask.palletsprojects.com/en/2.0.x/blueprints/)
 
 ### runner.py
-This script contains the implementation of the workflows execution.
-Of interest is the code handling the callbacks and
-some service specific routines (i.e. code paths specific to Gohan or Katsu ingestions).
+This script contains the implementation of workflow execution.
 
-The expected output files are
-retrieved using the workflow metadata (Bento-specific) with a possibility
-to map output files names to input files names. In the following example,
-the property `map_from_input` refers to an `id` in the `inputs` section. This
-maps the `value` property to use the input file name for string interpolation.
-```json5
-{
-  "workflow_name": {
-      // ...
-  },
-  "inputs": [
-    {
-      "id": "vcf_files",
-      "type": "file[]",
-      "required": true,
-      "extensions": [".vcf"]
-    },
-    // ...
-  ],
-  "outputs": [
-    {
-      "id": "vcf_gz_files",
-      "type": "file[]",
-      "map_from_input": "vcf_files",
-      "value": "{}.gz"
-    },
-    // ...
-  ]
-}
-```
+The expected inputs come from the workflow metadata (Bento-specific), which
+also define how `bento_web` will render the workflow set-up UI.
 
 Another extension to the workflow metadata inputs is used to get values from the WES
 configuration variables. The special value `FROM_CONFIG` causes the interpolation

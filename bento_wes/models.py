@@ -5,7 +5,6 @@ from typing import Literal
 __all__ = [
     "BentoWorkflowInput",
     "BentoWorkflowInputWithValue",
-    "BentoWorkflowOutput",
     "BentoWorkflowMetadata",
     "BentoRunRequestTags",
     "RunRequest",
@@ -33,21 +32,13 @@ class BentoWorkflowInputWithValue(BentoWorkflowInput):
     hidden: bool = True
 
 
-class BentoWorkflowOutput(BaseModel):
-    id: str
-    type: Literal["string", "string[]", "number", "number[]", "enum", "enum[]", "file", "file[]"]
-    value: str
-
-
 # TODO: Move to bento_lib
 class BentoWorkflowMetadata(BaseModel):
     name: str
     description: str
     action: Literal["ingestion", "analysis", "export"]
-    data_type: str | None = None
     file: str
     inputs: list[BentoWorkflowInputWithValue | BentoWorkflowInputWithFileExtensions | BentoWorkflowInput]
-    outputs: list[BentoWorkflowOutput]
 
 
 class BentoRunRequestTags(BaseModel):
@@ -55,9 +46,6 @@ class BentoRunRequestTags(BaseModel):
 
     workflow_id: str
     workflow_metadata: BentoWorkflowMetadata
-
-    project_id: str
-    dataset_id: str | None = None
 
 
 class RunRequest(BaseModel):
