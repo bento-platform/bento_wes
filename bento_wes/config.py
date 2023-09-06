@@ -1,7 +1,5 @@
 import os
 
-from typing import Optional
-
 from .constants import SERVICE_ID
 from .logger import logger
 
@@ -58,8 +56,8 @@ class Config:
     SERVICE_BASE_URL: str = SERVICE_BASE_URL
 
     # WDL-file-related configuration
-    WOM_TOOL_LOCATION: Optional[str] = os.environ.get("WOM_TOOL_LOCATION")
-    WORKFLOW_HOST_ALLOW_LIST: Optional[str] = os.environ.get("WORKFLOW_HOST_ALLOW_LIST")
+    WOM_TOOL_LOCATION: str | None = os.environ.get("WOM_TOOL_LOCATION")
+    WORKFLOW_HOST_ALLOW_LIST: str | None = os.environ.get("WORKFLOW_HOST_ALLOW_LIST")
 
     # Backend configuration
     CROMWELL_LOCATION: str = os.environ.get("CROMWELL_LOCATION", "/cromwell.jar")
@@ -83,7 +81,7 @@ class Config:
     SERVICE_REGISTRY_URL: str = SERVICE_REGISTRY_URL
 
     # VEP-related configuration
-    VEP_CACHE_DIR: Optional[str] = os.environ.get("VEP_CACHE_DIR")
+    VEP_CACHE_DIR: str | None = os.environ.get("VEP_CACHE_DIR")
 
     INGEST_POST_TIMEOUT: int = 60 * 60  # 1 hour
     # Timeout for workflow runs themselves, in seconds - default to 48 hours

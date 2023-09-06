@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from bento_lib.events import EventBus
 from bento_lib.events.types import EVENT_WES_RUN_FINISHED
 from flask import current_app
-from typing import Any, Optional, Tuple, Union
+from typing import Any
 
 from bento_wes import states
 from bento_wes.constants import SERVICE_ARTIFACT, RUN_PARAM_FROM_CONFIG
@@ -42,9 +42,9 @@ class WESBackend(ABC):
         tmp_dir: str,
         workflow_timeout: int,  # Workflow timeout, in seconds
         logger=None,
-        event_bus: Optional[EventBus] = None,
-        workflow_host_allow_list: Optional[set] = None,
-        bento_url: Optional[str] = None,
+        event_bus: EventBus | None = None,
+        workflow_host_allow_list: set | None = None,
+        bento_url: str | None = None,
         validate_ssl: bool = True,
         debug: bool = False,
     ):
@@ -115,7 +115,7 @@ class WESBackend(ABC):
             self.logger.error(error)
 
     @abstractmethod
-    def _get_supported_types(self) -> Tuple[WorkflowType]:
+    def _get_supported_types(self) -> tuple[WorkflowType, ...]:
         """
         Returns a tuple of the workflow types this backend supports.
         """
@@ -158,7 +158,7 @@ class WESBackend(ABC):
         return os.path.join(self.run_dir(run), self._get_params_file(run))
 
     @abstractmethod
-    def _check_workflow(self, run: Run) -> Optional[Tuple[str, str]]:
+    def _check_workflow(self, run: Run) -> tuple[str, str] | None:
         """
         Checks that a workflow can be executed by the backend via the workflow's URI.
         :param run: The run, including a request with the workflow URI
@@ -166,7 +166,7 @@ class WESBackend(ABC):
         """
         pass
 
-    def _check_workflow_wdl(self, run: RunWithDetails) -> Optional[Tuple[str, str]]:
+    def _check_workflow_wdl(self, run: RunWithDetails) -> tuple[str, str] | None:
         """
         Checks that a particular WDL workflow is valid.
         :param run: The run whose workflow is being checked
@@ -219,7 +219,7 @@ class WESBackend(ABC):
                 STATE_EXECUTOR_ERROR
             )
 
-    def _check_workflow_and_type(self, run: RunWithDetails) -> Optional[Tuple[str, str]]:
+    def _check_workflow_and_type(self, run: RunWithDetails) -> tuple[str, str] | None:
         """
         Checks a workflow file's validity.
         :param run: The run specifying the workflow in question
@@ -233,7 +233,7 @@ class WESBackend(ABC):
         return self._check_workflow(run)
 
     @abstractmethod
-    def get_workflow_name(self, workflow_path: str) -> Optional[str]:
+    def get_workflow_name(self, workflow_path: str) -> str | None:
         """
         Extracts a workflow's name from its file.
         :param workflow_path: The path to the workflow definition file
@@ -242,7 +242,7 @@ class WESBackend(ABC):
         pass
 
     @staticmethod
-    def get_workflow_name_wdl(workflow_path: str) -> Optional[str]:
+    def get_workflow_name_wdl(workflow_path: str) -> str | None:
         """
         Standard extractor for workflow names for WDL.
         :param workflow_path: The path to the workflow definition file
@@ -268,7 +268,7 @@ class WESBackend(ABC):
         """
         pass
 
-    def _update_run_state_and_commit(self, run_id: Union[uuid.UUID, str], state: str) -> None:
+    def _update_run_state_and_commit(self, run_id: uuid.UUID | str, state: str) -> None:
         """
         Wrapper for the database "update_run_state_and_commit" function, which updates a run's state in the database.
         :param run_id: The ID of the run whose state is getting updated
@@ -407,7 +407,7 @@ class WESBackend(ABC):
     def get_workflow_outputs(self, run_dir: str) -> dict[str, Any]:
         pass
 
-    def _perform_run(self, run: RunWithDetails, cmd: Command, params_with_extras: ParamDict) -> Optional[ProcessResult]:
+    def _perform_run(self, run: RunWithDetails, cmd: Command, params_with_extras: ParamDict) -> ProcessResult | None:
         """
         Performs a run based on a provided command and returns stdout, stderr, exit code, and whether the process timed
         out while running.
@@ -507,7 +507,7 @@ class WESBackend(ABC):
 
         return ProcessResult((stdout, stderr, exit_code, timed_out))
 
-    def perform_run(self, run: RunWithDetails, celery_id: int, access_token: str) -> Optional[ProcessResult]:
+    def perform_run(self, run: RunWithDetails, celery_id: int, access_token: str) -> ProcessResult | None:
         """
         Executes a run from start to finish (initialization, startup, and completion / cleanup.)
         :param run: The run to execute

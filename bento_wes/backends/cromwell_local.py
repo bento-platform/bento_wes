@@ -2,7 +2,7 @@ import os.path
 import re
 
 from flask import current_app, json
-from typing import Any, Optional, Tuple
+from typing import Any
 
 from bento_wes.backends import WESBackend
 from bento_wes.backends.backend_types import Command
@@ -20,7 +20,7 @@ WDL_WORKSPACE_NAME_REGEX = re.compile(r"workflow\s+([a-zA-Z][a-zA-Z0-9_]+)")
 
 
 class CromwellLocalBackend(WESBackend):
-    def _get_supported_types(self) -> Tuple[WorkflowType]:
+    def _get_supported_types(self) -> tuple[WorkflowType, ...]:
         """
         Returns a tuple of the workflow types this backend supports. In this case, only WDL is supported.
         """
@@ -42,10 +42,10 @@ class CromwellLocalBackend(WESBackend):
         """
         return json.dumps(workflow_params)
 
-    def _check_workflow(self, run: RunWithDetails) -> Optional[Tuple[str, str]]:
+    def _check_workflow(self, run: RunWithDetails) -> tuple[str, str] | None:
         return self._check_workflow_wdl(run)
 
-    def get_workflow_name(self, workflow_path: str) -> Optional[str]:
+    def get_workflow_name(self, workflow_path: str) -> str | None:
         return self.get_workflow_name_wdl(workflow_path)
 
     @staticmethod
