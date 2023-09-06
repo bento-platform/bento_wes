@@ -76,7 +76,11 @@ class CromwellLocalBackend(WESBackend):
 
         # TODO: Separate cleaning process from run?
         return Command((
-            "java", "-jar", cromwell, "run",
+            "java",
+            "-DLOG_MODE=pretty",
+            # We don't set Cromwell into debug logging mode here even if self.debug is True,
+            # since it's intensely verbose.
+            "-jar", cromwell, "run",
             "--inputs", params_path,
             "--options", options_file,
             "--workflow-root", run_dir,
