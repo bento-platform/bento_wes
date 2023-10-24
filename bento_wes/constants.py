@@ -1,8 +1,6 @@
 import bento_wes
 import os
 
-from typing import Literal
-
 
 __all__ = [
     "BENTO_SERVICE_KIND",

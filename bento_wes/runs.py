@@ -69,7 +69,8 @@ def authz_enabled() -> bool:
 
 def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> Iterator[bool]:
     if not authz_enabled():
-        return tuple([True] * len(run_requests))  # Assume we have permission for everything if authz disabled
+        yield from [True] * len(run_requests)  # Assume we have permission for everything if authz disabled
+        return
 
     # /policy/evaluate returns a matrix of booleans of row: resource, col: permission. Thus, we can
     # return permission booleans by resource by flattening it, since there is only one column.
@@ -109,17 +110,18 @@ def _config_for_run(run_dir: str) -> dict[str, str | None]:
 def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
     run_req = RunRequest(**request.form)
 
-    # TODO: Use this fully
-    #  - files inside the workflow
-    #  - workflow_url can refer to an attachment
-    workflow_attachment_list = request.files.getlist("workflow_attachment")
-
     # Check ingest permissions before continuing
 
     if not _check_single_run_permission_and_mark(run_req, P_INGEST_DATA):
         return flask_forbidden_error("Forbidden")
 
     # We have permission - so continue ---------
+    logger.info(f"Starting run creation for workflow {run_req.tags.workflow_id}")
+
+    # TODO: Use this fully
+    #  - files inside the workflow
+    #  - workflow_url can refer to an attachment
+    workflow_attachment_list = request.files.getlist("workflow_attachment")
 
     # Get list of allowed workflow hosts from configuration for any checks inside the runner
     # If it's blank, assume that means "any host is allowed" and pass None to the runner
