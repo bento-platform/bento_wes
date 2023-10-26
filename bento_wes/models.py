@@ -92,4 +92,4 @@ class RunWithDetails(Run):
 
 
 class RunWithDetailsAndOutput(RunWithDetails):
-    outputs: dict[str, str | int | float | bool | list ]  # Bento-specific extension
+    outputs: dict[str, str | int | float | bool | list]  # Bento-specific extension
