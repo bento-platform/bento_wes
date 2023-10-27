@@ -19,7 +19,7 @@ SHELL ["/bin/bash", "-c"]
 RUN apt-get update -y && \
     apt-get install -y samtools tabix bcftools curl jq openjdk-17-jre && \
     rm -rf /var/lib/apt/lists/* && \
-    pip install --no-cache-dir gunicorn==21.2.0 "pysam>=0.21.0,<0.22.0"
+    pip install --no-cache-dir gunicorn==21.2.0 "pysam>=0.22.0,<0.23.0"
 
 WORKDIR /
 ENV CROMWELL_VERSION=86
