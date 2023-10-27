@@ -22,7 +22,7 @@ RUN apt-get update -y && \
     pip install --no-cache-dir gunicorn==21.2.0 "pysam>=0.21.0,<0.22.0"
 
 WORKDIR /
-ENV CROMWELL_VERSION=85
+ENV CROMWELL_VERSION=86
 RUN curl -L \
     https://github.com/broadinstitute/cromwell/releases/download/${CROMWELL_VERSION}/cromwell-${CROMWELL_VERSION}.jar \
     -o cromwell.jar
