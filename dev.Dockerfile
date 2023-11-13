@@ -1,4 +1,4 @@
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.08.30 AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.10.20 AS base-deps
 
 LABEL org.opencontainers.image.description="Local development image for Bento WES."
 LABEL devcontainer.metadata='[{ \
@@ -19,10 +19,10 @@ SHELL ["/bin/bash", "-c"]
 RUN apt-get update -y && \
     apt-get install -y samtools tabix bcftools curl jq openjdk-17-jre && \
     rm -rf /var/lib/apt/lists/* && \
-    pip install --no-cache-dir gunicorn==21.2.0 "pysam>=0.21.0,<0.22.0"
+    pip install --no-cache-dir gunicorn==21.2.0 "pysam>=0.22.0,<0.23.0"
 
 WORKDIR /
-ENV CROMWELL_VERSION=85
+ENV CROMWELL_VERSION=86
 RUN curl -L \
     https://github.com/broadinstitute/cromwell/releases/download/${CROMWELL_VERSION}/cromwell-${CROMWELL_VERSION}.jar \
     -o cromwell.jar
