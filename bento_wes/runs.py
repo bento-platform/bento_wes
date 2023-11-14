@@ -50,6 +50,7 @@ bp_runs = Blueprint("runs", __name__)
 
 
 def _get_resource_for_run_request(run_req: RunRequest) -> dict:
+    wi = run_req.tags.workflow_id
     wm = run_req.tags.workflow_metadata
 
     resource = RESOURCE_EVERYTHING
@@ -57,8 +58,9 @@ def _get_resource_for_run_request(run_req: RunRequest) -> dict:
     project_dataset_inputs = [i for i in wm.inputs if isinstance(i, WorkflowProjectDatasetInput)]
     if len(project_dataset_inputs) == 1:
         inp = project_dataset_inputs[0]
-        project, dataset = run_req.workflow_params[inp.id]
-        resource = build_resource(project, dataset, data_type=wm.data_type)
+        if inp_val := run_req.workflow_params.get(namespaced_input(wi, inp.id)):
+            project, dataset = inp_val.split(":")
+            resource = build_resource(project, dataset, data_type=wm.data_type)
 
     return resource
 
@@ -108,7 +110,7 @@ def _config_for_run(run_dir: str) -> dict[str, str | None]:
 
 
 def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
-    run_req = RunRequest(**request.form)
+    run_req = RunRequest.model_validate(request.form.to_dict())
 
     # Check ingest permissions before continuing
 
