@@ -103,14 +103,11 @@ def service_info():
 
     try:
         if res_tag := subprocess.check_output(["git", "describe", "--tags", "--abbrev=0"]):
-            res_tag_str = res_tag.decode().rstrip()
-            info["bento"]["gitTag"] = res_tag_str
+            info["bento"]["gitTag"] = res_tag.decode().rstrip()
         if res_branch := subprocess.check_output(["git", "branch", "--show-current"]):
-            res_branch_str = res_branch.decode().rstrip()
-            info["bento"]["gitBranch"] = res_branch_str
+            info["bento"]["gitBranch"] = res_branch.decode().rstrip()
         if res_commit := subprocess.check_output(["git", "rev-parse", "HEAD"]):
-            res_commit_str = res_commit.decode().rstrip()
-            info["bento"]["gitCommit"] = res_commit_str
+            info["bento"]["gitCommit"] = res_commit.decode().rstrip()
     except Exception as e:
         except_name = type(e).__name__
         current_app.logger.info(f"Could not retrieve git information: {str(except_name)}: {e}")

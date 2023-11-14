@@ -51,7 +51,8 @@ def run_workflow(self, run_id: uuid.UUID):
         debug=current_app.config["BENTO_DEBUG"],
     )
 
-    access_token: str = ""
+    secrets: dict[str, str] = {"access_token": ""}
+
     # If we have credentials, obtain access token for use inside workflow to ingest data
     try:
         if (client_id := current_app.config["WES_CLIENT_ID"]) and \
@@ -70,7 +71,7 @@ def run_workflow(self, run_id: uuid.UUID):
                 "client_id": client_id,
                 "client_secret": client_secret,
             })
-            access_token = token_res.json()["access_token"]
+            secrets["access_token"] = token_res.json()["access_token"]
         else:
             logger.warning(
                 "Missing WES credentials: WES_CLIENT_ID and/or WES_CLIENT_SECRET; setting job access token to ''")
@@ -83,7 +84,7 @@ def run_workflow(self, run_id: uuid.UUID):
     # Perform the run
     try:
         logger.info("Starting workflow execution...")
-        backend.perform_run(run, self.request.id, access_token)
+        backend.perform_run(run, self.request.id, secrets)
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while performing run: {type(e).__name__} {e}")

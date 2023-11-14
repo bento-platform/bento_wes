@@ -28,6 +28,6 @@ celery --app bento_wes.app worker --loglevel="${celery_log_level}" &
 
 # Start API server
 echo "[bento_wes] [entrypoint] Starting Flask server"
-python -m debugpy --listen 0.0.0.0:${DEBUGGER_PORT} -m flask run \
+python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:${DEBUGGER_PORT} -m flask run \
   --host 0.0.0.0 \
   --port "${INTERNAL_PORT}"

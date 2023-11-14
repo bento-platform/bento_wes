@@ -1,12 +1,9 @@
+from bento_lib.workflows.models import WorkflowDefinition
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, AnyUrl, Json
 from typing import Literal
 
 __all__ = [
-    "BentoWorkflowInput",
-    "BentoWorkflowInputWithValue",
-    "BentoWorkflowOutput",
-    "BentoWorkflowMetadata",
     "BentoRunRequestTags",
     "RunRequest",
     "RunLog",
@@ -16,48 +13,11 @@ __all__ = [
 ]
 
 
-class BentoWorkflowInput(BaseModel):
-    id: str
-    type: Literal["string", "string[]", "number", "number[]", "enum", "enum[]", "file", "file[]"]
-    required: bool = False,
-    extensions: list[str] | None = None
-
-
-class BentoWorkflowInputWithFileExtensions(BentoWorkflowInput):
-    type: Literal["file", "file[]"]
-    extensions: list[str] | None = None
-
-
-class BentoWorkflowInputWithValue(BentoWorkflowInput):
-    value: Literal["FROM_CONFIG"]
-    hidden: bool = True
-
-
-class BentoWorkflowOutput(BaseModel):
-    id: str
-    type: Literal["string", "string[]", "number", "number[]", "enum", "enum[]", "file", "file[]"]
-    value: str
-
-
-# TODO: Move to bento_lib
-class BentoWorkflowMetadata(BaseModel):
-    name: str
-    description: str
-    action: Literal["ingestion", "analysis", "export"]
-    data_type: str | None = None
-    file: str
-    inputs: list[BentoWorkflowInputWithValue | BentoWorkflowInputWithFileExtensions | BentoWorkflowInput]
-    outputs: list[BentoWorkflowOutput]
-
-
 class BentoRunRequestTags(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     workflow_id: str
-    workflow_metadata: BentoWorkflowMetadata
-
-    project_id: str
-    dataset_id: str | None = None
+    workflow_metadata: WorkflowDefinition
 
 
 class RunRequest(BaseModel):

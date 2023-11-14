@@ -7,6 +7,10 @@ import shutil
 import traceback
 import uuid
 
+from bento_lib.auth.permissions import P_INGEST_DATA, P_VIEW_RUNS
+from bento_lib.auth.resources import RESOURCE_EVERYTHING, build_resource
+from bento_lib.workflows.models import WorkflowProjectDatasetInput, WorkflowConfigInput, WorkflowServiceUrlInput
+from bento_lib.workflows.utils import namespaced_input
 from bento_lib.responses.flask_errors import (
     flask_bad_request_error,
     flask_internal_server_error,
@@ -14,11 +18,11 @@ from bento_lib.responses.flask_errors import (
     flask_forbidden_error,
 )
 from flask import Blueprint, Response, current_app, jsonify, request
-from typing import Callable
+from typing import Callable, Iterator
 from werkzeug.utils import secure_filename
 
 from . import states
-from .authz import authz_middleware, PERMISSION_INGEST_DATA, PERMISSION_VIEW_RUNS
+from .authz import authz_middleware
 from .celery import celery
 from .db import (
     get_db,
@@ -31,6 +35,7 @@ from .events import get_flask_event_bus
 from .logger import logger
 from .models import RunRequest
 from .runner import run_workflow
+from .service_registry import get_bento_services
 from .states import STATE_COMPLETE
 from .types import RunStream
 from .workflows import (
@@ -45,45 +50,81 @@ from .workflows import (
 bp_runs = Blueprint("runs", __name__)
 
 
-def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> tuple[bool, ...]:
-    if not current_app.config["AUTHZ_ENABLED"]:
-        return tuple([True] * len(run_requests))  # Assume we have permission for everything if authz disabled
+def _get_resource_for_run_request(run_req: RunRequest) -> dict:
+    wi = run_req.tags.workflow_id
+    wm = run_req.tags.workflow_metadata
 
-    # /policy/evaluate returns a LIST of booleans when a LIST of requested_resource[s] is passed. Thus, we can
-    # return this list directly *rather* than wrapping it like the above case where authz was disabled.
-    return authz_middleware.authz_post(request, "/policy/evaluate", body={
-        "requested_resource": [
-            {
-                "project": run_request.tags.project_id,
-                **({"dataset": run_request.tags.dataset_id} if run_request.tags.dataset_id else {}),
-            }
-            for run_request in run_requests
-        ],
-        "required_permissions": [permission],
-    })["result"]
+    resource = RESOURCE_EVERYTHING
+
+    project_dataset_inputs = [i for i in wm.inputs if isinstance(i, WorkflowProjectDatasetInput)]
+    if len(project_dataset_inputs) == 1:
+        inp = project_dataset_inputs[0]
+        if inp_val := run_req.workflow_params.get(namespaced_input(wi, inp.id)):
+            project, dataset = inp_val.split(":")
+            resource = build_resource(project, dataset, data_type=wm.data_type)
+
+    return resource
+
+
+def authz_enabled() -> bool:
+    return current_app.config["AUTHZ_ENABLED"]
+
+
+def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> Iterator[bool]:
+    if not authz_enabled():
+        yield from [True] * len(run_requests)  # Assume we have permission for everything if authz disabled
+        return
+
+    # /policy/evaluate returns a matrix of booleans of row: resource, col: permission. Thus, we can
+    # return permission booleans by resource by flattening it, since there is only one column.
+    yield from (r[0] for r in authz_middleware.evaluate(
+        request,
+        [_get_resource_for_run_request(run_request) for run_request in run_requests],
+        [permission],
+    ))
 
 
 def _check_single_run_permission_and_mark(run_req: RunRequest, permission: str) -> bool:
-    p_res = _check_runs_permission([run_req], permission)
     # By calling this, the developer indicates that they will have handled permissions adequately:
-    authz_middleware.mark_authz_done(request)
-    return p_res and p_res[0]
+    return authz_middleware.evaluate_one(
+        request, _get_resource_for_run_request(run_req), permission, mark_authz_done=True
+    ) if authz_enabled() else True
+
+
+def _config_for_run(run_dir: str) -> dict[str, str | None]:
+    return {
+        #  In export/analysis mode, as we rely on services located in different containers
+        #  there is a need to have designated folders on shared volumes between
+        #  WES and the other services, to write files to.
+        #  This is possible because /wes/tmp is a volume mounted with the same
+        #  path in each data service (except Gohan which mounts the dropbox
+        #  data-x directory directly instead, to avoid massive duplicates).
+        #  Also, the Toil library creates directories in the generic /tmp/
+        #  directory instead of the one that is configured for the job execution,
+        #  to create the current working directories where tasks are executed.
+        #  These files are inaccessible to other containers in the context of a
+        #  task unless they are written arbitrarily to run_dir
+        "run_dir": run_dir,
+
+        "vep_cache_dir": current_app.config["VEP_CACHE_DIR"],
+    }
 
 
 def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
-    run_req = RunRequest(**request.form)
+    run_req = RunRequest.model_validate(request.form.to_dict())
+
+    # Check ingest permissions before continuing
+
+    if not _check_single_run_permission_and_mark(run_req, P_INGEST_DATA):
+        return flask_forbidden_error("Forbidden")
+
+    # We have permission - so continue ---------
+    logger.info(f"Starting run creation for workflow {run_req.tags.workflow_id}")
 
     # TODO: Use this fully
     #  - files inside the workflow
     #  - workflow_url can refer to an attachment
     workflow_attachment_list = request.files.getlist("workflow_attachment")
-
-    # Check ingest permissions before continuing
-
-    if not _check_single_run_permission_and_mark(run_req, PERMISSION_INGEST_DATA):
-        return flask_forbidden_error("Forbidden")
-
-    # We have permission - so continue ---------
 
     # Get list of allowed workflow hosts from configuration for any checks inside the runner
     # If it's blank, assume that means "any host is allowed" and pass None to the runner
@@ -141,6 +182,35 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
         # TODO: Support WDL uploads for workflows
         attachment.save(os.path.join(run_dir, secure_filename(attachment.filename)))
 
+    # Process parameters & inject non-secret values
+    #  - Get injectable run config for processing inputs
+    run_injectable_config = _config_for_run(run_dir)
+    #  - Set up parameters
+    run_params = {**run_req.workflow_params}
+    bento_services_data = None
+    for run_input in run_req.tags.workflow_metadata.inputs:
+        input_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
+        if isinstance(run_input, WorkflowConfigInput):
+            config_value = run_injectable_config.get(run_input.key)
+            if config_value is None:
+                err = f"Could not find injectable configuration value for key {run_input.key}"
+                logger.error(err)
+                return flask_bad_request_error(err)
+            logger.debug(
+                f"Injecting configuration parameter '{run_input.key}' into run {run_id}: {run_input.id}={config_value}")
+            run_params[input_key] = config_value
+        elif isinstance(run_input, WorkflowServiceUrlInput):
+            bento_services_data = bento_services_data or get_bento_services()
+            config_value: str | None = bento_services_data.get(run_input.service_kind).get("url")
+            sk = run_input.service_kind
+            if config_value is None:
+                err = f"Could not find URL/service record for service kind '{sk}'"
+                logger.error(err)
+                return flask_bad_request_error(err)
+            logger.debug(
+                f"Injecting URL for service kind '{sk}' into run {run_id}: {run_input.id}={config_value}")
+            run_params[input_key] = config_value
+
     # Will be updated to STATE_QUEUED once submitted
     c.execute("""
         INSERT INTO runs (
@@ -162,7 +232,7 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
         states.STATE_UNKNOWN,
         json.dumps({}),
 
-        json.dumps(run_req.workflow_params),
+        json.dumps(run_params),
         run_req.workflow_type,
         run_req.workflow_type_version,
         json.dumps(run_req.workflow_engine_parameters),
@@ -217,10 +287,11 @@ def run_list():
         try:
             return _create_run(db, c)
         except pydantic.ValidationError:  # TODO: Better error messages
+            logger.error(f"Encountered validation error during run creation: {traceback.format_exc()}")
             authz_middleware.mark_authz_done(request)
-            logger.error(f"Encountered validation error: {traceback.format_exc()}")
             return flask_bad_request_error("Validation error: bad run request format")
         except ValueError:
+            logger.error(f"Encountered value error during run creation: {traceback.format_exc()}")
             authz_middleware.mark_authz_done(request)
             return flask_bad_request_error("Value error")
 
@@ -254,8 +325,7 @@ def run_list():
 
     if not public_endpoint:
         # Filter runs to just those which we have permission to view
-        p_res = _check_runs_permission(perms_list, PERMISSION_VIEW_RUNS)
-        res_list = [v for v, p in zip(res_list, p_res) if p]
+        res_list = [v for v, p in zip(res_list, _check_runs_permission(perms_list, P_VIEW_RUNS)) if p]
 
     authz_middleware.mark_authz_done(request)
 
@@ -264,16 +334,15 @@ def run_list():
 
 @bp_runs.route("/runs/<uuid:run_id>", methods=["GET"])
 def run_detail(run_id: uuid.UUID):
-    authz_enabled = current_app.config["AUTHZ_ENABLED"]
     run_details = get_run_with_details(get_db().cursor(), run_id, stream_content=False)
 
     if run_details is None:
-        if authz_enabled:
+        if authz_enabled():
             return flask_forbidden_error("Forbidden")
         else:
             return flask_not_found_error(f"Run {run_id} not found")
 
-    if not _check_single_run_permission_and_mark(run_details.request, PERMISSION_VIEW_RUNS):
+    if not _check_single_run_permission_and_mark(run_details.request, P_VIEW_RUNS):
         return flask_forbidden_error("Forbidden")
 
     return jsonify(run_details.model_dump(mode="json"))
@@ -300,12 +369,12 @@ def check_run_authz_then_return_response(
     c: sqlite3.Cursor,
     run_id: uuid.UUID,
     cb: Callable[[], Response | dict],
-    permission: str = PERMISSION_VIEW_RUNS,
+    permission: str = P_VIEW_RUNS,
 ):
     run = get_run_with_details(c, run_id, stream_content=False)
 
     if run is None:
-        if current_app.config["AUTHZ_ENABLED"]:
+        if authz_enabled():
             # Without the required permissions, don't even leak if this run exists - just return forbidden
             authz_middleware.mark_authz_done(request)
             return flask_forbidden_error("Forbidden")

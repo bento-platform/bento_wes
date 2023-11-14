@@ -20,18 +20,16 @@ def _get_from_environ_or_fail(var: str) -> str:
     return val
 
 
+def _to_bool(val: str) -> bool:
+    return val.strip().lower() in TRUTH_VALUES
+
+
 TRUTH_VALUES = ("true", "1")
 
 AUTHZ_ENABLED = os.environ.get("AUTHZ_ENABLED", "true").strip().lower() in TRUTH_VALUES
 
-BENTO_DEBUG: bool = os.environ.get(
-    "BENTO_DEBUG",
-    os.environ.get("FLASK_DEBUG", "false")
-).strip().lower() in TRUTH_VALUES
-
-CELERY_DEBUG: bool = os.environ.get(
-    "CELERY_DEBUG", ""
-).strip().lower() in TRUTH_VALUES
+BENTO_DEBUG: bool = _to_bool(os.environ.get("BENTO_DEBUG", os.environ.get("FLASK_DEBUG", "false")))
+CELERY_DEBUG: bool = _to_bool(os.environ.get("CELERY_DEBUG", ""))
 
 AUTHZ_URL: str = _get_from_environ_or_fail("BENTO_AUTHZ_SERVICE_URL").strip().rstrip("/")
 SERVICE_REGISTRY_URL: str = _get_from_environ_or_fail("SERVICE_REGISTRY_URL").strip().rstrip("/")
@@ -47,8 +45,7 @@ class Config:
     BENTO_URL: str = os.environ.get("BENTO_URL", "http://127.0.0.1:5000/")
 
     BENTO_DEBUG: bool = BENTO_DEBUG
-    BENTO_VALIDATE_SSL: bool = os.environ.get(
-        "BENTO_VALIDATE_SSL", str(not BENTO_DEBUG)).strip().lower() in TRUTH_VALUES
+    BENTO_VALIDATE_SSL: bool = _to_bool(os.environ.get("BENTO_VALIDATE_SSL", str(not BENTO_DEBUG)))
 
     DATABASE: str = os.environ.get("DATABASE", "bento_wes.db")
     SERVICE_ID = SERVICE_ID
@@ -74,10 +71,7 @@ class Config:
     WES_CLIENT_ID: str = os.environ.get("WES_CLIENT_ID", "bento_wes")
     WES_CLIENT_SECRET: str = os.environ.get("WES_CLIENT_SECRET", "")
 
-    # Other services, used for interpolating workflow variables and (
-    DRS_URL: str = os.environ.get("DRS_URL", "").strip().rstrip("/")
-    GOHAN_URL: str = os.environ.get("GOHAN_URL", "").strip().rstrip("/")
-    KATSU_URL: str = os.environ.get("KATSU_URL", "").strip().rstrip("/")
+    # Service registry URL, used for looking up service kinds to inject as workflow input
     SERVICE_REGISTRY_URL: str = SERVICE_REGISTRY_URL
 
     # VEP-related configuration
