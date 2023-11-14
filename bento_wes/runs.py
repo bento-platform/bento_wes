@@ -293,7 +293,7 @@ def run_list():
         except ValueError:
             logger.error(f"Encountered value error during run creation: {traceback.format_exc()}")
             authz_middleware.mark_authz_done(request)
-            return flask_bad_request_error(f"Value error")
+            return flask_bad_request_error("Value error")
 
     # GET
     # Bento Extension: Include run public details with /runs request
