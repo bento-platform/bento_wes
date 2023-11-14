@@ -9,7 +9,7 @@ import uuid
 
 from bento_lib.auth.permissions import P_INGEST_DATA, P_VIEW_RUNS
 from bento_lib.auth.resources import RESOURCE_EVERYTHING, build_resource
-from bento_lib.workflows.models import WorkflowProjectDatasetInput, WorkflowConfigInput
+from bento_lib.workflows.models import WorkflowProjectDatasetInput, WorkflowConfigInput, WorkflowServiceUrlInput
 from bento_lib.workflows.utils import namespaced_input
 from bento_lib.responses.flask_errors import (
     flask_bad_request_error,
@@ -35,6 +35,7 @@ from .events import get_flask_event_bus
 from .logger import logger
 from .models import RunRequest
 from .runner import run_workflow
+from .service_registry import get_bento_services
 from .states import STATE_COMPLETE
 from .types import RunStream
 from .workflows import (
@@ -186,8 +187,9 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
     run_injectable_config = _config_for_run(run_dir)
     #  - Set up parameters
     run_params = {**run_req.workflow_params}
+    bento_services_data = None
     for run_input in run_req.tags.workflow_metadata.inputs:
-        # TODO: service input
+        input_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
         if isinstance(run_input, WorkflowConfigInput):
             config_value = run_injectable_config.get(run_input.key)
             if config_value is None:
@@ -195,8 +197,19 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
                 logger.error(err)
                 return flask_bad_request_error(err)
             logger.debug(
-                f"Injecting configuration parameter {run_input.key} into run {run_id}: {run_input.id}={config_value}")
-            run_params[namespaced_input(run_req.tags.workflow_id, run_input.id)] = config_value
+                f"Injecting configuration parameter '{run_input.key}' into run {run_id}: {run_input.id}={config_value}")
+            run_params[input_key] = config_value
+        elif isinstance(run_input, WorkflowServiceUrlInput):
+            bento_services_data = bento_services_data or get_bento_services()
+            config_value: str | None = bento_services_data.get(run_input.service_kind).get("url")
+            sk = run_input.service_kind
+            if config_value is None:
+                err = f"Could not find URL/service record for service kind '{sk}'"
+                logger.error(err)
+                return flask_bad_request_error(err)
+            logger.debug(
+                f"Injecting URL for service kind '{sk}' into run {run_id}: {run_input.id}={config_value}")
+            run_params[input_key] = config_value
 
     # Will be updated to STATE_QUEUED once submitted
     c.execute("""
