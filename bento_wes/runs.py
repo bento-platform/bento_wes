@@ -274,12 +274,13 @@ def run_list():
         try:
             return _create_run(db, c)
         except pydantic.ValidationError:  # TODO: Better error messages
+            logger.error(f"Encountered validation error during run creation: {traceback.format_exc()}")
             authz_middleware.mark_authz_done(request)
-            logger.error(f"Encountered validation error: {traceback.format_exc()}")
             return flask_bad_request_error("Validation error: bad run request format")
         except ValueError:
+            logger.error(f"Encountered value error during run creation: {traceback.format_exc()}")
             authz_middleware.mark_authz_done(request)
-            return flask_bad_request_error("Value error")
+            return flask_bad_request_error(f"Value error")
 
     # GET
     # Bento Extension: Include run public details with /runs request
