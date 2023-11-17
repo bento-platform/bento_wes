@@ -15,11 +15,13 @@ SHELL ["/bin/bash", "-c"]
 
 # Install system packages for HTSLib + SAMtools + curl and jq for workflows
 # OpenJDK is for running WOMtool/Cromwell
-# Then, bootstrap dependencies for setting up and running the Python application
+# Then, install dependencies for running the Python server + Python workflow dependencies
+COPY container.requirements.txt .
 RUN apt-get update -y && \
     apt-get install -y samtools tabix bcftools curl jq openjdk-17-jre && \
     rm -rf /var/lib/apt/lists/* && \
-    pip install --no-cache-dir gunicorn==21.2.0 "pysam>=0.22.0,<0.23.0"
+    pip install --no-cache-dir -r /container.requirements.txt && \
+    rm /container.requirements.txt
 
 WORKDIR /
 ENV CROMWELL_VERSION=86
