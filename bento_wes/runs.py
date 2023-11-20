@@ -91,8 +91,12 @@ def _check_single_run_permission_and_mark(run_req: RunRequest, permission: str) 
     ) if authz_enabled() else True
 
 
-def _config_for_run(run_dir: str) -> dict[str, str | None]:
+def _config_for_run(run_dir: str) -> dict[str, str | bool | None]:
     return {
+        # In production, workflows should validate SSL (i.e., omit the curl -k flag).
+        # In development, SSL certificates are usually self-signed, so they will not validate.
+        "validate_ssl": current_app.config["BENTO_VALIDATE_SSL"],
+
         #  In export/analysis mode, as we rely on services located in different containers
         #  there is a need to have designated folders on shared volumes between
         #  WES and the other services, to write files to.
