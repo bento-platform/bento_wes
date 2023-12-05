@@ -30,6 +30,12 @@ AUTHZ_ENABLED = os.environ.get("AUTHZ_ENABLED", "true").strip().lower() in TRUTH
 
 BENTO_DEBUG: bool = _to_bool(os.environ.get("BENTO_DEBUG", os.environ.get("FLASK_DEBUG", "false")))
 CELERY_DEBUG: bool = _to_bool(os.environ.get("CELERY_DEBUG", ""))
+BENTO_VALIDATE_SSL: bool = _to_bool(os.environ.get("BENTO_VALIDATE_SSL", str(not BENTO_DEBUG)))
+
+if not BENTO_VALIDATE_SSL:
+    # If we've turned off SSL validation, suppress insecure connection warnings
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 AUTHZ_URL: str = _get_from_environ_or_fail("BENTO_AUTHZ_SERVICE_URL").strip().rstrip("/")
 SERVICE_REGISTRY_URL: str = _get_from_environ_or_fail("SERVICE_REGISTRY_URL").strip().rstrip("/")
@@ -45,7 +51,7 @@ class Config:
     BENTO_URL: str = os.environ.get("BENTO_URL", "http://127.0.0.1:5000/")
 
     BENTO_DEBUG: bool = BENTO_DEBUG
-    BENTO_VALIDATE_SSL: bool = _to_bool(os.environ.get("BENTO_VALIDATE_SSL", str(not BENTO_DEBUG)))
+    BENTO_VALIDATE_SSL: bool = BENTO_VALIDATE_SSL
 
     DATABASE: str = os.environ.get("DATABASE", "bento_wes.db")
     SERVICE_ID = SERVICE_ID
