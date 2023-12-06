@@ -27,4 +27,4 @@ gunicorn bento_wes.app:application \
   --workers 1 \
   --worker-class 'gevent' \
   --threads "$(( 2 * $(nproc --all) + 1))" \
-  --bind "0.0.0.0:${INTERNAL_PORT}" \
+  --bind "0.0.0.0:${INTERNAL_PORT}"
