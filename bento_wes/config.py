@@ -30,6 +30,7 @@ AUTHZ_ENABLED = os.environ.get("AUTHZ_ENABLED", "true").strip().lower() in TRUTH
 
 BENTO_DEBUG: bool = _to_bool(os.environ.get("BENTO_DEBUG", os.environ.get("FLASK_DEBUG", "false")))
 CELERY_DEBUG: bool = _to_bool(os.environ.get("CELERY_DEBUG", ""))
+BENTO_CONTAINER_LOCAL: bool = _to_bool(os.environ.get("BENTO_CONTAINER_LOCAL", "false"))
 BENTO_VALIDATE_SSL: bool = _to_bool(os.environ.get("BENTO_VALIDATE_SSL", str(not BENTO_DEBUG)))
 
 if not BENTO_VALIDATE_SSL:
@@ -51,6 +52,7 @@ class Config:
     BENTO_URL: str = os.environ.get("BENTO_URL", "http://127.0.0.1:5000/")
 
     BENTO_DEBUG: bool = BENTO_DEBUG
+    BENTO_CONTAINER_LOCAL: bool = BENTO_CONTAINER_LOCAL
     BENTO_VALIDATE_SSL: bool = BENTO_VALIDATE_SSL
 
     DATABASE: str = os.environ.get("DATABASE", "bento_wes.db")

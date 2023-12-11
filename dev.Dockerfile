@@ -48,5 +48,8 @@ RUN poetry config virtualenvs.create false && \
 COPY entrypoint.bash .
 COPY run.dev.bash .
 
+# Tell the service that we're running a local development container
+ENV BENTO_CONTAINER_LOCAL=true
+
 ENTRYPOINT [ "bash", "./entrypoint.bash" ]
 CMD [ "bash", "./run.dev.bash" ]

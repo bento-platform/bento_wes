@@ -1,9 +1,10 @@
 import bento_wes
 import os
-import subprocess
 
+from asgiref.sync import async_to_sync
 from bento_lib.responses import flask_errors
-from bento_lib.types import GA4GHServiceInfo
+from bento_lib.service_info.constants import SERVICE_ORGANIZATION_C3G
+from bento_lib.service_info.helpers import build_service_info
 from flask import current_app, Flask, jsonify
 from flask_cors import CORS
 from werkzeug.exceptions import BadRequest, Forbidden, NotFound
@@ -78,38 +79,23 @@ with application.app_context():  # pragma: no cover
 @application.route("/service-info", methods=["GET"])
 @authz_middleware.deco_public_endpoint
 def service_info():
-    info: GA4GHServiceInfo = {
-        "id": current_app.config["SERVICE_ID"],
-        "name": SERVICE_NAME,  # TODO: Should be globally unique?
-        "type": SERVICE_TYPE,
-        "description": "Workflow execution service for a Bento instance.",
-        "organization": {
-            "name": "C3G",
-            "url": "https://www.computationalgenomics.ca"
-        },
-        "contactUrl": "mailto:info@c3g.ca",
-        "version": bento_wes.__version__,
-        "environment": "prod",
-        "bento": {
-            "serviceKind": BENTO_SERVICE_KIND,
-            "gitRepository": "https://github.com/bento-platform/bento_wes",
-        },
-    }
-
-    if not current_app.config["BENTO_DEBUG"]:
-        return jsonify(info)
-
-    info["environment"] = "dev"
-
-    try:
-        if res_tag := subprocess.check_output(["git", "describe", "--tags", "--abbrev=0"]):
-            info["bento"]["gitTag"] = res_tag.decode().rstrip()
-        if res_branch := subprocess.check_output(["git", "branch", "--show-current"]):
-            info["bento"]["gitBranch"] = res_branch.decode().rstrip()
-        if res_commit := subprocess.check_output(["git", "rev-parse", "HEAD"]):
-            info["bento"]["gitCommit"] = res_commit.decode().rstrip()
-    except Exception as e:
-        except_name = type(e).__name__
-        current_app.logger.info(f"Could not retrieve git information: {str(except_name)}: {e}")
-
-    return jsonify(info)
+    return jsonify(
+        async_to_sync(build_service_info)(
+            {
+                "id": current_app.config["SERVICE_ID"],
+                "name": SERVICE_NAME,  # TODO: Should be globally unique?
+                "type": SERVICE_TYPE,
+                "description": "Workflow execution service for a Bento instance.",
+                "organization": SERVICE_ORGANIZATION_C3G,
+                "contactUrl": "mailto:info@c3g.ca",
+                "version": bento_wes.__version__,
+                "bento": {
+                    "serviceKind": BENTO_SERVICE_KIND,
+                    "gitRepository": "https://github.com/bento-platform/bento_wes",
+                },
+            },
+            debug=current_app.config["BENTO_DEBUG"],
+            local=current_app.config["BENTO_CONTAINER_LOCAL"],
+            logger=current_app.logger,
+        )
+    )

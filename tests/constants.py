@@ -32,11 +32,13 @@ EXAMPLE_RUN = {
             "inputs": [
                 {
                     "id": "project_dataset",
+                    "help": "",
                     "type": "project:dataset",
                     "required": True,
                 },
                 {
                     "id": "json_document",
+                    "help": "",
                     "type": "file",
                     "required": True,
                     "pattern": r"^.json$",
