@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "bento_wes"
-version = "0.12.6"
+version = "0.12.7"
 description = "Workflow execution service for the Bento platform."
 authors = [
     "David Lougheed <david.lougheed@mail.mcgill.ca>",
@@ -24,7 +24,7 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = "^3.10.0"
-bento-lib = {extras = ["flask"], version = "^11.2.0"}
+bento-lib = {extras = ["flask"], version = "^11.3.0"}
 celery = {extras = ["redis"], version = "^5.2.7"}
 requests = "^2.28.1"
 Flask = "~2.2.5"
