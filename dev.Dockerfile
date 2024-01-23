@@ -1,16 +1,30 @@
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.02.09 AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2024.01.01 AS base-deps
+
+LABEL org.opencontainers.image.description="Local development image for Bento WES."
+LABEL devcontainer.metadata='[{ \
+  "remoteUser": "bento_user", \
+  "customizations": { \
+    "vscode": { \
+      "extensions": ["ms-python.python", "eamodio.gitlens"], \
+      "settings": {"workspaceFolder": "/wes"} \
+    } \
+  } \
+}]'
+
+SHELL ["/bin/bash", "-c"]
 
 # Install system packages for HTSLib + SAMtools + curl and jq for workflows
 # OpenJDK is for running WOMtool/Cromwell
+# Then, install dependencies for running the Python server + Python workflow dependencies
+COPY container.requirements.txt .
 RUN apt-get update -y && \
     apt-get install -y samtools tabix bcftools curl jq openjdk-17-jre && \
-    rm -rf /var/lib/apt/lists/*
-
-# Boostrap dependencies for setting up and running the Python application
-RUN pip install --no-cache-dir poetry==1.3.2 gunicorn==20.1.0 "pysam>=0.20.0,<0.21.0"
+    rm -rf /var/lib/apt/lists/* && \
+    pip install --no-cache-dir -r /container.requirements.txt && \
+    rm /container.requirements.txt
 
 WORKDIR /
-ENV CROMWELL_VERSION=84
+ENV CROMWELL_VERSION=86
 RUN curl -L \
     https://github.com/broadinstitute/cromwell/releases/download/${CROMWELL_VERSION}/cromwell-${CROMWELL_VERSION}.jar \
     -o cromwell.jar
@@ -22,15 +36,20 @@ RUN mkdir -p /wes/tmp && mkdir -p /data
 WORKDIR /wes
 
 COPY pyproject.toml .
-COPY poetry.toml .
 COPY poetry.lock .
 
 # Install production + development dependencies
 # Without --no-root, we get errors related to the code not being copied in yet.
 # But we don't want the code here, otherwise Docker cache doesn't work well.
-RUN poetry install --no-root
+RUN poetry config virtualenvs.create false && \
+    poetry --no-cache install --no-root
 
-# Copy in the entrypoint so we have somewhere to start
-COPY entrypoint.dev.bash .
+# Copy in the entrypoint & run script so we have somewhere to start
+COPY entrypoint.bash .
+COPY run.dev.bash .
 
-CMD [ "bash", "./entrypoint.dev.bash" ]
+# Tell the service that we're running a local development container
+ENV BENTO_CONTAINER_LOCAL=true
+
+ENTRYPOINT [ "bash", "./entrypoint.bash" ]
+CMD [ "bash", "./run.dev.bash" ]

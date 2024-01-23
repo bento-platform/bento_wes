@@ -1,10 +1,12 @@
+import os.path
 import re
 
 from flask import current_app, json
-from typing import Optional, Tuple
+from typing import Any
 
 from bento_wes.backends import WESBackend
 from bento_wes.backends.backend_types import Command
+from bento_wes.models import Run, RunWithDetails
 from bento_wes.workflows import WorkflowType, WES_WORKFLOW_TYPE_WDL
 
 
@@ -18,13 +20,13 @@ WDL_WORKSPACE_NAME_REGEX = re.compile(r"workflow\s+([a-zA-Z][a-zA-Z0-9_]+)")
 
 
 class CromwellLocalBackend(WESBackend):
-    def _get_supported_types(self) -> Tuple[WorkflowType]:
+    def _get_supported_types(self) -> tuple[WorkflowType, ...]:
         """
         Returns a tuple of the workflow types this backend supports. In this case, only WDL is supported.
         """
         return WES_WORKFLOW_TYPE_WDL,
 
-    def _get_params_file(self, run: dict) -> str:
+    def _get_params_file(self, run: Run) -> str:
         """
         Returns the name of the params file to use for the workflow run.
         :param run: The run description; unused here
@@ -40,11 +42,15 @@ class CromwellLocalBackend(WESBackend):
         """
         return json.dumps(workflow_params)
 
-    def _check_workflow(self, run: dict) -> Optional[Tuple[str, str]]:
+    def _check_workflow(self, run: RunWithDetails) -> tuple[str, str] | None:
         return self._check_workflow_wdl(run)
 
-    def get_workflow_name(self, workflow_path: str) -> Optional[str]:
+    def get_workflow_name(self, workflow_path: str) -> str | None:
         return self.get_workflow_name_wdl(workflow_path)
+
+    @staticmethod
+    def get_workflow_metadata_output_json_path(run_dir: str) -> str:
+        return os.path.join(run_dir, "_job_metadata_output.json")
 
     def _get_command(self, workflow_path: str, params_path: str, run_dir: str) -> Command:
         """
@@ -70,10 +76,18 @@ class CromwellLocalBackend(WESBackend):
 
         # TODO: Separate cleaning process from run?
         return Command((
-            "java", "-jar", cromwell, "run",
+            "java",
+            "-DLOG_MODE=pretty",
+            # We don't set Cromwell into debug logging mode here even if self.debug is True,
+            # since it's intensely verbose.
+            "-jar", cromwell, "run",
             "--inputs", params_path,
             "--options", options_file,
             "--workflow-root", run_dir,
-            "--metadata-output", run_dir + "/_job_metadata_output.json",
+            "--metadata-output", self.get_workflow_metadata_output_json_path(run_dir),
             workflow_path,
         ))
+
+    def get_workflow_outputs(self, run_dir: str) -> dict[str, Any]:
+        with open(self.get_workflow_metadata_output_json_path(run_dir), "r") as fh:
+            return json.load(fh).get("outputs", {})

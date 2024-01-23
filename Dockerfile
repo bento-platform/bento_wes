@@ -1,5 +1,7 @@
 FROM --platform=$BUILDPLATFORM debian:bullseye-slim AS downloaded-deps
 
+SHELL ["/bin/bash", "-c"]
+
 # Install VCF2MAF
 # TODO: I don't like /opt as a home for these
 
@@ -17,17 +19,21 @@ RUN apt-get update -y && \
     rm -rf vcf2maf
 
 # Install Cromwell
-ENV CROMWELL_VERSION=84
+ENV CROMWELL_VERSION=86
 WORKDIR /
 RUN curl -L \
     https://github.com/broadinstitute/cromwell/releases/download/${CROMWELL_VERSION}/cromwell-${CROMWELL_VERSION}.jar \
     -o cromwell.jar
 
 # Clone (but don't install yet) Ensembl-VEP
-ENV VEP_ENSEMBL_RELEASE_VERSION=104.3
+ENV VEP_ENSEMBL_RELEASE_VERSION=111.0
 RUN git clone --depth 1 -b "release/${VEP_ENSEMBL_RELEASE_VERSION}" https://github.com/Ensembl/ensembl-vep.git
 
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2023.02.09 AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2024.01.01 AS base-deps
+
+SHELL ["/bin/bash", "-c"]
+
+WORKDIR /
 
 # Copy Ensembl-VEP from downloaded-deps
 COPY --from=downloaded-deps /ensembl-vep /ensembl-vep
@@ -54,21 +60,14 @@ RUN apt-get update -y && \
     && \
     rm -rf /var/lib/apt/lists/*
 
-# Boostrap dependencies for setting up and running the Python application
-RUN pip install --no-cache-dir poetry==1.3.2 gunicorn==20.1.0 "pysam>=0.20.0,<0.21.0"
+# Then, install dependencies for running the Python server + Python workflow dependencies
+COPY container.requirements.txt .
+RUN pip install --no-cache-dir -r /container.requirements.txt && \
+    rm /container.requirements.txt
 
 # Install Ensembl-VEP from cloned source
 WORKDIR /
 RUN cpanm --installdeps --with-recommends --notest --cpanfile ensembl-vep/cpanfile . && \
-    cd ensembl-vep && \
-    # Build vep in /ensembl-vep
-    perl INSTALL.pl -a a --NO_TEST --NO_UPDATE
-
-# Install Ensembl-VEP
-ENV VEP_ENSEMBL_RELEASE_VERSION=104.3
-WORKDIR /
-RUN git clone --depth 1 -b "release/${VEP_ENSEMBL_RELEASE_VERSION}" https://github.com/Ensembl/ensembl-vep.git && \
-    cpanm --installdeps --with-recommends --notest --cpanfile ensembl-vep/cpanfile . && \
     cd ensembl-vep && \
     # Build vep in /ensembl-vep
     perl INSTALL.pl -a a --NO_TEST --NO_UPDATE
@@ -85,23 +84,25 @@ COPY --from=downloaded-deps /cromwell.jar /cromwell.jar
 RUN mkdir -p /wes/tmp && mkdir -p /data
 WORKDIR /wes
 
-COPY pyproject.toml pyproject.toml
-COPY poetry.toml poetry.toml
-COPY poetry.lock poetry.lock
+COPY pyproject.toml .
+COPY poetry.lock .
 
 # Install production dependencies
 # Without --no-root, we get errors related to the code not being copied in yet.
 # But we don't want the code here, otherwise Docker cache doesn't work well.
-RUN poetry install --without dev --no-root
+RUN poetry config virtualenvs.create false && \
+    poetry install --without dev --no-root
 
 # Manually copy only what's relevant
 # (Don't use .dockerignore, which allows us to have development containers too)
 COPY bento_wes bento_wes
-COPY entrypoint.bash entrypoint.bash
-COPY LICENSE LICENSE
-COPY README.md README.md
+COPY entrypoint.bash .
+COPY run.bash .
+COPY LICENSE .
+COPY README.md .
 
 # Install the module itself, locally (similar to `pip install -e .`)
 RUN poetry install --without dev
 
-CMD [ "bash", "./entrypoint.bash" ]
+ENTRYPOINT [ "bash", "./entrypoint.bash" ]
+CMD [ "bash", "./run.bash" ]

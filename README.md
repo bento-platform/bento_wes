@@ -5,6 +5,8 @@
 [![codecov](https://codecov.io/gh/bento-platform/bento_wes/branch/master/graph/badge.svg)](https://codecov.io/gh/bento-platform/bento_wes)
 
 
+Developing `bento_wes` requires Python 3.10+ and Poetry `>=1.5.1`.
+
 
 ## Overview
 
@@ -15,8 +17,9 @@ with additional Bento-specific features.
 ### Workflow definition
 A workflow is based on a `.wdl` file which defines the different tasks with
 their related I/O dependencies (i.e. which variables or files are required as
-input, and what is the output of the workflow). See the [Workflow Definition Language Specs](https://github.com/openwdl/wdl/blob/main/versions/draft-2/SPEC.md) for more information.
-A mandatory JSON file containing the
+input, and what is the output of the workflow). See the 
+[Workflow Definition Language Specs](https://github.com/openwdl/wdl/blob/main/versions/draft-2/SPEC.md) 
+for more information. A mandatory JSON file containing the
 required metadata (variables values, file names, etc... to be used by the workflow) is also provided.
 
 ### Where are workflows defined in Bento?
@@ -39,11 +42,12 @@ The WES container may receive a `/runs` POST request to execute a given workflow
 with specified metadata. The WES service then queries the worflow provider
 to get the relevant `.wdl` file which is copied over in a temporary execution folder,
 along with the metadata as JSON.
-The [Toil library](https://toil.readthedocs.io/en/latest/running/wdl.html)
-is used to generate a script from the workflow definition and a process is
-spawned to run it. In a first step, the dependencies such as
-input files are copied over locally. Note that in DEV mode, the temporary files
+
+The [Cromwell](https://cromwell.readthedocs.io/en/stable/) workflow management system
+is used to execute the WDL files. In a first step, the dependencies such as
+input files are copied over locally. Note that in development mode, the temporary files
 are not cleaned up after completion.
+
 Each run is monitored and its state is stored in a local database.
 
 Note that some metadata may contain callback urls which are called once the
@@ -73,22 +77,18 @@ ca.c3g.bento:wes:VERSION
 
 ### `/runs` POST
 Parameter:
-```JSON
+```json5
 {
-  "workflow_params",    // unused?
+  "workflow_params": {/* ... */},    // unused?
   "workflow_type": "WDL",
   "worflow_type_version": "1.0",
   "workflow_engine_parameters": {}, // unused
-  "workflow_url":       // where the WES can fetch the wdl file,
+  "workflow_url": "...",      // where the WES can fetch the wdl file,
   "tags": {
-    "workflow_id":      // must correspond to the worflow_params namespace
+    "workflow_id": "...",     // must correspond to the worflow_params namespace
     "workflow_metadata": {
-      "inputs": [{}],   // must correspond to the .wdl input section
-      "outputs": [{}]   // must correspond to the .wdl output section
+      "inputs": [{}]   // Defines setup for injecting values into the .wdl input section. IDs must align.
     }
-    "ingestion_path"?,  // optional callback
-    "ingestion_url"?,
-    "table_id"          // used for ingestion callbacks
   }
 }
 ```
@@ -118,13 +118,13 @@ Get run state
 # Bento instance or service base URL, used for generating absolute URLs within
 # the service, for making requests, and for re-writing internal URLS in the case
 # of Singularity-based Bento instances
-CHORD_URL=http://127.0.0.1:5000/
+BENTO_URL=http://127.0.0.1:5000/
 
 # Debug mode for the service - falls back to FLASK_ENV (development = true,
 # any other value = false) if not set
 # SECURITY NOTE: This SHOULD NOT EVER be enabled in production, as it removes
 # checks for TLS certificate validity!
-CHORD_DEBUG=False
+BENTO_DEBUG=False
 
 # SSL Configuration - whether to validate certificates
 BENTO_VALIDATE_SSL=True
@@ -145,8 +145,8 @@ SERVICE_ID=
 # - temporary data directory - the service currently does not make this by
 #   itself, so this must be created prior to startup
 SERVICE_TEMP=tmp
-# - base path for service endpoints
-SERVICE_URL_BASE_PATH=/
+# - base url for service endpoints
+SERVICE_BASE_URL=http://localhost:5000/
 
 # Location of WOMtool, used to validate WDL files
 # - If not set, no WDL validation will be done
@@ -158,16 +158,13 @@ WOM_TOOL_LOCATION=/path/to/womtool.jar
 # from - prevents possibly insecure WDLs from being ran
 WORKFLOW_HOST_ALLOW_LIST=
 
-# DRS configuration options:
-# - Where the DRS instance to use is located. 
+# Service URL configuration:
+BENTO_AUTHZ_SERVICE_URL=
 DRS_URL=https://portal.bentov2.local/api/drs
-# - Whether to redirect file outputs to the DRS instance specified above
-WRITE_OUTPUT_TO_DRS=False
-# - Whether to de-duplicate / consolidate identical files within DRS
-DRS_DEDUPLICATE=True
-# - File extensions to skip when ingesting into DRS - this is a SUPER HACKY way
-#   of not ingesting JSON into DRS used for stuff like katsu
-DRS_SKIP_TYPES=
+SERVICE_REGISTRY_URL=
+
+# CORS
+CORS_ORIGINS='*'
 ```
 
 
@@ -184,13 +181,12 @@ DRS_SKIP_TYPES=
 
 ### Setting up a Virtual Environment
 
-After cloning the repository, set up a virtual environment with Python 3 and
-install the development dependencies:
+After cloning the repository, let Poetry manage the virtual environment and
+install the development dependencies for you:
 
 ```bash
-virtualenv -p python3 ./env
-source env/bin/activate
-pip install -r requirements.txt
+pip install poetry  # if not done so already
+poetry install  # will automatically create a virtual environment
 ```
 
 
@@ -199,7 +195,7 @@ pip install -r requirements.txt
 To run all tests and linting, use the following command:
 
 ```bash
-python3 -m tox
+poetry run tox
 ```
 
 
@@ -243,109 +239,49 @@ To run the Celery worker (required to actually run jobs), the following command
 (or similar) can be used:
 
 ```bash
-nohup celery --loglevel=INFO --app bento_wes.app worker &> celery.log &
+nohup poetry run celery --loglevel=INFO --app bento_wes.app worker &> celery.log &
 ```
 
 ## About the implementation
 This service is built around a [Flask](https://flask.palletsprojects.com/) application.
 It uses [Celery](https://github.com/celery/celery) to monitor and run workflows executed
-by [Toil](http://toil.ucsc-cgl.org/).
+by [Cromwell](https://cromwell.readthedocs.io/en/stable/).
+
 The workflows are downloaded from local services.
+
 There are no checks on the workflows validity in that case
 (assumption that workflows coming from configured hosts are correct,
 see above `WORKFLOW_HOST_ALLOW_LIST` env variable).
+
 For now the [WOMtool](https://cromwell.readthedocs.io/en/stable/WOMtool/) utility used for checking `.wdl` files
 validity is disabled in Bento (see the corresponding Dockerfile).
-
-### WDL files syntax tips
-Toil support for WDL files is considered in alpha stage. Currently the Toil library version
-used in `bento-wes` is `3.2` which only supports `draft-2` version of the WDL specs.
-This makes it error-prone to rely on WOMtools for syntax checks.
-Here is a list of the limitations found:
-- Chaning tasks in scatter blocks is unsupported (i.e. tasks which inputs depend on previous tasks outputs)
-- Input block is unsupported (WDL-draft2 limitation)
-- Interpolation of internal variables with `~{}` syntax is unsupported, even in `<<<>>>` delimited command blocks. Use `${}` instead.
-- If the shell script command block makes use of local variables defined in
-  the shell script (as opposed to WDL variables declared externally), the
-  `${VARNAME}` conflicts with WDL variables. A trick is to define a `dollar`
-  WDL variable `String dollar = "$"` and use it to "escape" shell variables
-  (e.g. `${dollar}{VARNAME}`).
-  ```wdl
-  String dollar = "$"
-
-  command <<<
-    PI=3.14
-    echo ${dollar}{PI}
-  >>>
-  ```
-- File names based on WDL variables used in the `output` block must be enclosed
-  in quotes and use string interpolation
-  ```wdl
-  String output_file = "myfilename.txt"
-
-  output {
-    File out = "${output_file}"
-  }
-  ```
 
 ### runs.py
 This script contains the routes definitions as [Flask's Blueprints](https://flask.palletsprojects.com/en/2.0.x/blueprints/)
 
 ### runner.py
-This script contains the implementation of the workflows execution.
-Of interest is the code handling the callbacks and
-some service specific routines (i.e. code paths specific to Gohan or Katsu ingestions).
+This script contains the implementation of workflow execution.
 
-Due to limitations in Toil wdl runner, it is not possible to access
-programmatically to the list of files generated by the workflow execution
-(defined in the `.wdl` output block). Instead the expected output files are
-retrieved using the workflow metadata (bento specific) with a possibility
-to map output files names to input files names. In the following example,
-the property `map_from_input` refers to an `id` in the `inputs` section. This
-maps the `value` property to use the input file name for string interpolation.
-```json
-{
-  "workflow_name": {
-      ...
-  },
-  "inputs": [
-    {
-      "id": "vcf_files",
-      "type": "file[]",
-      "required": true,
-      "extensions": [".vcf"]
-    },
-    ...
-  ],
-  "outputs": [
-    {
-      "id": "vcf_gz_files",
-      "type": "file[]",
-      "map_from_input": "vcf_files",
-      "value": "{}.gz"
-    },
-    ...
-  ]
-}
-```
+The expected inputs come from the workflow metadata (Bento-specific), which
+also define how `bento_web` will render the workflow set-up UI.
 
 Another extension to the workflow metadata inputs is used to get values from the WES
 configuration variables. The special value `FROM_CONFIG` causes the interpolation
 to the Flask app.config property matching the `id` in uppercase.
 In the following example, the value for this variable will come from the config
-property `METADATA_URL`.
-```python
+property `KATSU_URL`.
+```json5
 {
-  # ...,
+  // ...,
   "inputs": [
     {
-      "id": "metadata_url",
+      "id": "katsu_url",
       "type": "string",
-      "required": True,
-      "value": FROM_CONFIG,
-      "hidden": True,
-    }, # ...
+      "required": true,
+      "value": "FROM_CONFIG",
+      "hidden": true,
+    }, // ...
   ],
-  # ...
+  // ...
 }
 ```

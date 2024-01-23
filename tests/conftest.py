@@ -1,9 +1,14 @@
+import os
 import pytest
 import responses
 
 
 @pytest.fixture
 def app():
+    os.environ["AUTHZ_ENABLED"] = "false"
+    os.environ["BENTO_AUTHZ_SERVICE_URL"] = "http://bento-authz.local"
+    os.environ["SERVICE_REGISTRY_URL"] = "http://bento-sr.local"
+
     from bento_wes.app import application
     from bento_wes.db import init_db
 

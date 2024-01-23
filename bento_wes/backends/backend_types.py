@@ -1,10 +1,10 @@
-from typing import NewType, Tuple
+from typing import NewType
 
 __all__ = [
     "Command",
     "ProcessResult",
 ]
 
-Command = NewType("Command", Tuple[str, ...])
+Command = NewType("Command", tuple[str, ...])
 
-ProcessResult = NewType("ProcessResult", Tuple[str, str, int, bool])
+ProcessResult = NewType("ProcessResult", tuple[str, str, int, bool])

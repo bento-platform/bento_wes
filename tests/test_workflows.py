@@ -1,15 +1,4 @@
-from .constants import EXAMPLE_RUN
-from bento_wes.workflows import (
-    count_bento_workflow_file_outputs,
-    parse_workflow_host_allow_list,
-)
-
-
-def test_count_file_outputs():
-    assert count_bento_workflow_file_outputs(
-        "phenopackets_json",
-        EXAMPLE_RUN["workflow_params"],
-        EXAMPLE_RUN["tags"]["workflow_metadata"])
+from bento_wes.workflows import parse_workflow_host_allow_list
 
 
 def test_parse_allow_list():
