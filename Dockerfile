@@ -29,26 +29,16 @@ RUN curl -L \
 ENV VEP_ENSEMBL_RELEASE_VERSION=111.0
 RUN git clone --depth 1 -b "release/${VEP_ENSEMBL_RELEASE_VERSION}" https://github.com/Ensembl/ensembl-vep.git
 
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2024.01.01 AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2024.01.01 AS ensembl-vep
 
 SHELL ["/bin/bash", "-c"]
 
 WORKDIR /
 
-# Copy Ensembl-VEP from downloaded-deps
-COPY --from=downloaded-deps /ensembl-vep /ensembl-vep
-
-# Install system packages for HTSLib + SAMtools + curl and jq for workflows
-# OpenJDK is for running WOMtool/Cromwell
 # Perl/libdbi-perl/lib*-dev/cpanminus/unzip are for cBioPortal scripts / caches / utilities
 RUN apt-get update -y && \
     apt-get install -y \
-        samtools \
-        tabix \
-        bcftools \
         curl \
-        jq \
-        openjdk-17-jre \
         perl \
         libdbi-perl \
         libperl-dev \
@@ -60,25 +50,44 @@ RUN apt-get update -y && \
     && \
     rm -rf /var/lib/apt/lists/*
 
-# Then, install dependencies for running the Python server + Python workflow dependencies
-COPY container.requirements.txt .
-RUN pip install --no-cache-dir -r /container.requirements.txt && \
-    rm /container.requirements.txt
+# Copy Ensembl-VEP from downloaded-deps
+COPY --from=downloaded-deps /ensembl-vep /ensembl-vep
 
 # Install Ensembl-VEP from cloned source
 WORKDIR /
 RUN cpanm --installdeps --with-recommends --notest --cpanfile ensembl-vep/cpanfile . && \
     cd ensembl-vep && \
     # Build vep in /ensembl-vep
-    perl INSTALL.pl -a a --NO_TEST --NO_UPDATE
+    perl INSTALL.pl -a a --NO_TEST --NO_UPDATE --SPECIES 'homo_sapiens'
+
+RUN ls -l /ensembl-vep
+
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2024.01.01 AS base-deps
+
+SHELL ["/bin/bash", "-c"]
+
+WORKDIR /
+
+# Install system packages for HTSLib + SAMtools + curl and jq for workflows
+# OpenJDK is for running WOMtool/Cromwell
+
+RUN apt-get update -y && \
+    apt-get install -y \
+        samtools \
+        tabix \
+        bcftools \
+        curl \
+        jq \
+        openjdk-17-jre \
+    && \
+    rm -rf /var/lib/apt/lists/*
+
+# Then, install dependencies for running the Python server + Python workflow dependencies
+COPY container.requirements.txt .
+RUN pip install --no-cache-dir -r /container.requirements.txt && \
+    rm /container.requirements.txt
 
 FROM base-deps AS build-install
-
-# Copy VCF2MAF
-COPY --from=downloaded-deps /opt /opt
-
-# Copy Cromwell
-COPY --from=downloaded-deps /cromwell.jar /cromwell.jar
 
 # Backwards-compatible with old BentoV2 container layout
 RUN mkdir -p /wes/tmp && mkdir -p /data
@@ -103,6 +112,17 @@ COPY README.md .
 
 # Install the module itself, locally (similar to `pip install -e .`)
 RUN poetry install --without dev
+
+# Copy from other stages last, since it means the stages can be built in parallel
+
+# - Copy VCF2MAF
+COPY --from=downloaded-deps /opt /opt
+
+# - Copy Cromwell
+COPY --from=downloaded-deps /cromwell.jar /cromwell.jar
+
+# - Copy Ensembl-VEP
+COPY --from=ensembl-vep /ensembl-vep /ensembl-vep
 
 ENTRYPOINT [ "bash", "./entrypoint.bash" ]
 CMD [ "bash", "./run.bash" ]
