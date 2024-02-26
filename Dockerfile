@@ -8,7 +8,7 @@ SHELL ["/bin/bash", "-c"]
 WORKDIR /tmp/vcf2maf
 ENV VCF2MAF_VERSION=1.6.21
 RUN apt-get update -y && \
-    apt-get install -y curl git unzip && \
+    apt-get install -y curl git unzip wget && \
     echo "https://github.com/mskcc/vcf2maf/archive/refs/tags/v${VCF2MAF_VERSION}.zip" && \
     curl -L "https://github.com/mskcc/vcf2maf/archive/refs/tags/v${VCF2MAF_VERSION}.zip" -o vcf2maf.zip && \
     unzip vcf2maf.zip && \
@@ -27,40 +27,21 @@ RUN curl -L \
 
 # Clone (but don't install yet) Ensembl-VEP
 ENV VEP_ENSEMBL_RELEASE_VERSION=111.0
-RUN git clone --depth 1 -b "release/${VEP_ENSEMBL_RELEASE_VERSION}" https://github.com/Ensembl/ensembl-vep.git
+RUN git clone --depth 1 -b "release/${VEP_ENSEMBL_RELEASE_VERSION}" https://github.com/Ensembl/ensembl-vep.git && \
+    chmod u+x ensembl-vep/*.pl
 
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2024.01.01 AS ensembl-vep
-
-SHELL ["/bin/bash", "-c"]
+# Clone ensembl-variation git repository
+WORKDIR /ensembl-vep/
+RUN git clone --depth 1 https://github.com/Ensembl/ensembl-variation.git && \
+    mkdir var_c_code && \
+    cp ensembl-variation/C_code/*.c ensembl-variation/C_code/Makefile var_c_code/
+RUN git clone --depth 1 https://github.com/bioperl/bioperl-ext.git
+RUN curl -L https://github.com/Ensembl/ensembl-xs/archive/2.3.2.zip -o ensembl-xs.zip && \
+    unzip -q ensembl-xs.zip && \
+    mv ensembl-xs-2.3.2 ensembl-xs && \
+    rm -rf ensembl-xs.zip
 
 WORKDIR /
-
-# Perl/libdbi-perl/lib*-dev/cpanminus/unzip are for cBioPortal scripts / caches / utilities
-RUN apt-get update -y && \
-    apt-get install -y \
-        curl \
-        perl \
-        libdbi-perl \
-        libperl-dev \
-        cpanminus \
-        unzip \
-        libbz2-dev \
-        liblzma-dev \
-        zlib1g-dev \
-    && \
-    rm -rf /var/lib/apt/lists/*
-
-# Copy Ensembl-VEP from downloaded-deps
-COPY --from=downloaded-deps /ensembl-vep /ensembl-vep
-
-# Install Ensembl-VEP from cloned source
-WORKDIR /
-RUN cpanm --installdeps --with-recommends --notest --cpanfile ensembl-vep/cpanfile . && \
-    cd ensembl-vep && \
-    # Build vep in /ensembl-vep
-    perl INSTALL.pl -a a --NO_TEST --NO_UPDATE --SPECIES 'homo_sapiens'
-
-RUN ls -l /ensembl-vep
 
 FROM ghcr.io/bento-platform/bento_base_image:python-debian-2024.02.01 AS base-deps
 
@@ -81,6 +62,32 @@ RUN apt-get update -y && \
         openjdk-17-jre \
     && \
     rm -rf /var/lib/apt/lists/*
+
+# Install system packages for VEP
+# Perl/libdbi-perl/lib*-dev/cpanminus/unzip are for cBioPortal scripts / caches / utilities
+RUN apt-get update -y && \
+    apt-get install -y \
+        curl \
+        perl \
+        libdbd-mysql-perl \
+        libdbi-perl \
+        libjson-perl \
+        libperl-dev \
+        cpanminus \
+        unzip \
+        libbz2-dev \
+        liblzma-dev \
+        zlib1g-dev \
+    && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Perl packages for VEP
+RUN curl "https://raw.githubusercontent.com/Ensembl/ensembl/release/111/cpanfile" -o "ensembl_cpanfile" && \
+    curl "https://raw.githubusercontent.com/Ensembl/ensembl-vep/release/111/cpanfile" -o "ensembl_vep_cpanfile" && \
+    cpanm --installdeps --with-recommends --notest --cpanfile ensembl_cpanfile . && \
+    cpanm --installdeps --with-recommends --notest --cpanfile ensembl_vep_cpanfile . && \
+    rm ensembl_cpanfile ensembl_vep_cpanfile && \
+    rm -rf /root/.cpanm
 
 # Then, install dependencies for running the Python server + Python workflow dependencies
 COPY container.requirements.txt .
@@ -122,7 +129,7 @@ COPY --from=downloaded-deps /opt /opt
 COPY --from=downloaded-deps /cromwell.jar /cromwell.jar
 
 # - Copy Ensembl-VEP
-COPY --from=ensembl-vep /ensembl-vep /ensembl-vep
+COPY --from=ensemblorg/ensembl-vep:release_111.0 /opt/vep /opt/vep
 
 ENTRYPOINT [ "bash", "./entrypoint.bash" ]
 CMD [ "bash", "./run.bash" ]
