@@ -72,6 +72,7 @@ RUN apt-get update -y && \
         libdbd-mysql-perl \
         libdbi-perl \
         libjson-perl \
+        libwww-perl \
         libperl-dev \
         cpanminus \
         unzip \
@@ -80,14 +81,6 @@ RUN apt-get update -y && \
         zlib1g-dev \
     && \
     rm -rf /var/lib/apt/lists/*
-
-# Install Perl packages for VEP
-RUN curl "https://raw.githubusercontent.com/Ensembl/ensembl/release/111/cpanfile" -o "ensembl_cpanfile" && \
-    curl "https://raw.githubusercontent.com/Ensembl/ensembl-vep/release/111/cpanfile" -o "ensembl_vep_cpanfile" && \
-    cpanm --installdeps --with-recommends --notest --cpanfile ensembl_cpanfile . && \
-    cpanm --installdeps --with-recommends --notest --cpanfile ensembl_vep_cpanfile . && \
-    rm ensembl_cpanfile ensembl_vep_cpanfile && \
-    rm -rf /root/.cpanm
 
 # Then, install dependencies for running the Python server + Python workflow dependencies
 COPY container.requirements.txt .
@@ -129,6 +122,7 @@ COPY --from=downloaded-deps /opt /opt
 COPY --from=downloaded-deps /cromwell.jar /cromwell.jar
 
 # - Copy Ensembl-VEP
+COPY --from=ensemblorg/ensembl-vep:release_111.0 /usr/share/perl/5.34.0/CPAN /opt/vep
 COPY --from=ensemblorg/ensembl-vep:release_111.0 /opt/vep /opt/vep
 
 ENTRYPOINT [ "bash", "./entrypoint.bash" ]
