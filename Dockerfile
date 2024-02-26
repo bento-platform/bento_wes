@@ -62,7 +62,7 @@ RUN cpanm --installdeps --with-recommends --notest --cpanfile ensembl-vep/cpanfi
 
 RUN ls -l /ensembl-vep
 
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2024.01.01 AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2024.02.01 AS base-deps
 
 SHELL ["/bin/bash", "-c"]
 
