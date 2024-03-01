@@ -43,7 +43,7 @@ RUN curl -L https://github.com/Ensembl/ensembl-xs/archive/2.3.2.zip -o ensembl-x
 
 WORKDIR /
 
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2024.02.01 AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2024.03.01 AS base-deps
 
 SHELL ["/bin/bash", "-c"]
 
