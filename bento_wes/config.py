@@ -55,8 +55,9 @@ class Config:
     BENTO_CONTAINER_LOCAL: bool = BENTO_CONTAINER_LOCAL
     BENTO_VALIDATE_SSL: bool = BENTO_VALIDATE_SSL
 
-    DATABASE: str = os.environ.get("DATABASE", "bento_wes.db")
     SERVICE_ID = SERVICE_ID
+    SERVICE_DATA: str = os.environ.get("SERVICE_DATA", "data")
+    DATABASE: str = os.environ.get("DATABASE", f"{SERVICE_DATA}/bento_wes.db")
     SERVICE_TEMP: str = os.environ.get("SERVICE_TEMP", "tmp")
     SERVICE_BASE_URL: str = SERVICE_BASE_URL
 

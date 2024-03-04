@@ -137,11 +137,14 @@ CELERY_BROKER_URL=redis://
 BENTO_EVENT_REDIS_URL=redis://localhost:6379
 
 # Run/task database location
-DATABASE=bento_wes.db
+DATABASE=data/bento_wes.db
 
 # Service configuration
 # - unique ID service within for Bento instance
 SERVICE_ID=
+# - persistent data directory - this is used for file output artifacts from 
+#   workflows, which is especially useful for analysis/export workflows.
+SERVICE_DATA=data
 # - temporary data directory - the service currently does not make this by
 #   itself, so this must be created prior to startup
 SERVICE_TEMP=tmp

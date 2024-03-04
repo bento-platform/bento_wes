@@ -279,6 +279,7 @@ PRIVATE_RUN_DETAILS_SHAPE = {
     "request": True,
     "run_log": True,
     "task_logs": True,
+    "outputs": True,
 }
 
 

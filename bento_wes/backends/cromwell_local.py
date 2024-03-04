@@ -68,8 +68,8 @@ class CromwellLocalBackend(WESBackend):
         options_file = run_dir + "/_workflow_options.json"
         with open(options_file, "w") as of:
             json.dump({
-                "final_workflow_outputs_dir": run_dir + "/output",
-                "use_relative_output_paths": True,
+                # already namespaced by cromwell ID, so don't need to incorporate run ID into this path:
+                "final_workflow_outputs_dir": self.output_dir,
                 "final_workflow_log_dir": run_dir + "/wf_logs",
                 "final_call_logs_dir": run_dir + "/call_logs",
             }, of)
@@ -90,4 +90,11 @@ class CromwellLocalBackend(WESBackend):
 
     def get_workflow_outputs(self, run_dir: str) -> dict[str, Any]:
         with open(self.get_workflow_metadata_output_json_path(run_dir), "r") as fh:
-            return json.load(fh).get("outputs", {})
+            outputs = json.load(fh).get("outputs", {})
+
+        # Re-point temporary file outputs to a permanent location (as copied by Cromwell) for future download
+        for k, v in outputs.items():
+            if isinstance(v, str) and v.startswith(self.tmp_dir):
+                outputs[k] = self.output_dir + v[len(self.tmp_dir):]
+
+        return outputs

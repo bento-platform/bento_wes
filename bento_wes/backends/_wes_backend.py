@@ -1,4 +1,3 @@
-import json
 import pathlib
 import os
 import re
@@ -17,7 +16,7 @@ from typing import Any
 
 from bento_wes import states
 from bento_wes.constants import SERVICE_ARTIFACT
-from bento_wes.db import get_db, finish_run, update_run_state_and_commit
+from bento_wes.db import get_db, finish_run, set_run_outputs, update_run_state_and_commit
 from bento_wes.models import Run, RunWithDetails
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
 from bento_wes.utils import iso_now
@@ -37,6 +36,7 @@ class WESBackend(ABC):
     def __init__(
         self,
         tmp_dir: str,
+        data_dir: str,
         workflow_timeout: int,  # Workflow timeout, in seconds
         logger=None,
         event_bus: EventBus | None = None,
@@ -49,10 +49,11 @@ class WESBackend(ABC):
 
         self.db: sqlite3.Connection = get_db()
 
-        self.tmp_dir: str = tmp_dir
-        self.log_dir: str = tmp_dir.rstrip("/") + "/logs"  # Not used for most logs, but Toil wanted a log dir...
+        self.tmp_dir: str = tmp_dir.rstrip("/")
+        self.data_dir: str = data_dir
 
-        pathlib.Path(self.log_dir).mkdir(parents=True, exist_ok=True)
+        self.output_dir: str = data_dir.rstrip("/") + "/output"  # For persistent file artifacts from workflows
+        pathlib.Path(self.output_dir).mkdir(parents=True, exist_ok=True)
 
         self.logger = logger
         self.event_bus = event_bus  # TODO: New event bus?
@@ -393,6 +394,8 @@ class WESBackend(ABC):
         # Perform run ==================================================================================================
 
         # -- Start process running the generated command ---------------------------------------------------------------
+        #  - Cromwell creates the `cromwell-executions` and `cromwell-workflow-logs` folders in the CWD, so we set the
+        #    CWD of the subprocess to our WES temporary directory.
         runner_process = subprocess.Popen(
             cmd, cwd=self.tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
         c.execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run.run_id))
@@ -450,7 +453,7 @@ class WESBackend(ABC):
         workflow_outputs = self.get_workflow_outputs(run_dir)
 
         # Explicitly don't commit here; sync with state update
-        c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run.run_id)))
+        set_run_outputs(c, run.run_id, workflow_outputs)
 
         # Emit event if possible
         self.event_bus.publish_service_event(
@@ -465,7 +468,7 @@ class WESBackend(ABC):
             },
         )
 
-        # Finally, set our state to COMPLETE + finish up the run.
+        # Finally, set our state to COMPLETE + finish up the run. This commits all our changes to the database.
         self._finish_run_and_clean_up(run, states.STATE_COMPLETE)
 
         return ProcessResult((stdout, stderr, exit_code, timed_out))
