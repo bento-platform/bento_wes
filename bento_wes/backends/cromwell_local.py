@@ -1,7 +1,7 @@
-import os.path
 import re
 
 from flask import current_app, json
+from pathlib import Path
 from typing import Any
 
 from bento_wes.backends import WESBackend
@@ -45,14 +45,14 @@ class CromwellLocalBackend(WESBackend):
     def _check_workflow(self, run: RunWithDetails) -> tuple[str, str] | None:
         return self._check_workflow_wdl(run)
 
-    def get_workflow_name(self, workflow_path: str) -> str | None:
+    def get_workflow_name(self, workflow_path: Path) -> str | None:
         return self.get_workflow_name_wdl(workflow_path)
 
     @staticmethod
-    def get_workflow_metadata_output_json_path(run_dir: str) -> str:
-        return os.path.join(run_dir, "_job_metadata_output.json")
+    def get_workflow_metadata_output_json_path(run_dir: Path) -> Path:
+        return run_dir / "_job_metadata_output.json"
 
-    def _get_command(self, workflow_path: str, params_path: str, run_dir: str) -> Command:
+    def _get_command(self, workflow_path: Path, params_path: Path, run_dir: Path) -> Command:
         """
         Creates the command which will run Cromwell in CLI mode on the specified WDL workflow, with the specified
         serialized parameters in JSON format, and in the specified run directory.
@@ -65,13 +65,13 @@ class CromwellLocalBackend(WESBackend):
         cromwell = current_app.config["CROMWELL_LOCATION"]
 
         # Create workflow options file
-        options_file = run_dir + "/_workflow_options.json"
+        options_file = run_dir / "_workflow_options.json"
         with open(options_file, "w") as of:
             json.dump({
                 # already namespaced by cromwell ID, so don't need to incorporate run ID into this path:
-                "final_workflow_outputs_dir": self.output_dir,
-                "final_workflow_log_dir": run_dir + "/wf_logs",
-                "final_call_logs_dir": run_dir + "/call_logs",
+                "final_workflow_outputs_dir": str(self.output_dir),
+                "final_workflow_log_dir": str(run_dir / "wf_logs"),
+                "final_call_logs_dir": str(run_dir / "call_logs"),
             }, of)
 
         # TODO: Separate cleaning process from run?
@@ -81,20 +81,22 @@ class CromwellLocalBackend(WESBackend):
             # We don't set Cromwell into debug logging mode here even if self.debug is True,
             # since it's intensely verbose.
             "-jar", cromwell, "run",
-            "--inputs", params_path,
-            "--options", options_file,
-            "--workflow-root", run_dir,
+            "--inputs", str(params_path),
+            "--options", str(options_file),
+            "--workflow-root", str(run_dir),
             "--metadata-output", self.get_workflow_metadata_output_json_path(run_dir),
             workflow_path,
         ))
 
-    def get_workflow_outputs(self, run_dir: str) -> dict[str, Any]:
+    def get_workflow_outputs(self, run_dir: Path) -> dict[str, Any]:
         with open(self.get_workflow_metadata_output_json_path(run_dir), "r") as fh:
             outputs = json.load(fh).get("outputs", {})
 
         # Re-point temporary file outputs to a permanent location (as copied by Cromwell) for future download
+        tmp_dir_str = str(self.tmp_dir)
+        output_dir_str = str(self.output_dir)
         for k, v in outputs.items():
-            if isinstance(v, str) and v.startswith(self.tmp_dir):
-                outputs[k] = self.output_dir + v[len(self.tmp_dir):]
+            if isinstance(v, str) and v.startswith(tmp_dir_str):
+                outputs[k] = output_dir_str + v[len(tmp_dir_str):]
 
         return outputs

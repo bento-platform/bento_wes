@@ -18,6 +18,7 @@ from bento_lib.responses.flask_errors import (
     flask_forbidden_error,
 )
 from flask import Blueprint, Response, current_app, jsonify, request
+from pathlib import Path
 from typing import Callable, Iterator
 from werkzeug.utils import secure_filename
 
@@ -91,7 +92,7 @@ def _check_single_run_permission_and_mark(run_req: RunRequest, permission: str) 
     ) if authz_enabled() else True
 
 
-def _config_for_run(run_dir: str) -> dict[str, str | bool | None]:
+def _config_for_run(run_dir: Path) -> dict[str, str | bool | None]:
     return {
         # In production, workflows should validate SSL (i.e., omit the curl -k flag).
         # In development, SSL certificates are usually self-signed, so they will not validate.
@@ -108,7 +109,7 @@ def _config_for_run(run_dir: str) -> dict[str, str | bool | None]:
         #  to create the current working directories where tasks are executed.
         #  These files are inaccessible to other containers in the context of a
         #  task unless they are written arbitrarily to run_dir
-        "run_dir": run_dir,
+        "run_dir": str(run_dir),
 
         "vep_cache_dir": current_app.config["VEP_CACHE_DIR"],
     }
@@ -170,12 +171,9 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
 
     # Create run directory
 
-    run_dir = os.path.join(current_app.config["SERVICE_TEMP"], str(run_id))
+    run_dir: Path = current_app.config["SERVICE_TEMP"] / str(run_id)
+    run_dir.mkdir(parents=True, exist_ok=True)
 
-    if os.path.exists(run_dir):
-        return flask_internal_server_error("UUID collision")
-
-    os.makedirs(run_dir, exist_ok=True)
     # TODO: Delete run dir if something goes wrong...
 
     # Move workflow attachments to run directory
@@ -446,7 +444,7 @@ def run_cancel(run_id: uuid.UUID):
         # TODO: wait for revocation / failure and update status...
 
         # TODO: Generalize clean-up code / fetch from back-end
-        run_dir = os.path.join(current_app.config["SERVICE_TEMP"], run_id_str)
+        run_dir = current_app.config["SERVICE_TEMP"] / run_id_str
         if not current_app.config["BENTO_DEBUG"]:
             shutil.rmtree(run_dir, ignore_errors=True)
 

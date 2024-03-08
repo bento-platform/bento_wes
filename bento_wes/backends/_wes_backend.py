@@ -1,5 +1,3 @@
-import pathlib
-import os
 import re
 import shutil
 import sqlite3
@@ -12,6 +10,7 @@ from bento_lib.events.types import EVENT_WES_RUN_FINISHED
 from bento_lib.workflows.models import WorkflowSecretInput
 from bento_lib.workflows.utils import namespaced_input
 from flask import current_app
+from pathlib import Path
 from typing import Any
 
 from bento_wes import states
@@ -35,8 +34,8 @@ ParamDict = dict[str, str | int | float | bool]
 class WESBackend(ABC):
     def __init__(
         self,
-        tmp_dir: str,
-        data_dir: str,
+        tmp_dir: Path,
+        data_dir: Path,
         workflow_timeout: int,  # Workflow timeout, in seconds
         logger=None,
         event_bus: EventBus | None = None,
@@ -49,11 +48,11 @@ class WESBackend(ABC):
 
         self.db: sqlite3.Connection = get_db()
 
-        self.tmp_dir: str = tmp_dir.rstrip("/")
-        self.data_dir: str = data_dir
+        self.tmp_dir: Path = tmp_dir
+        self.data_dir: Path = data_dir
 
-        self.output_dir: str = data_dir.rstrip("/") + "/output"  # For persistent file artifacts from workflows
-        pathlib.Path(self.output_dir).mkdir(parents=True, exist_ok=True)
+        self.output_dir: Path = data_dir / "output"  # For persistent file artifacts from workflows
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.logger = logger
         self.event_bus = event_bus  # TODO: New event bus?
@@ -137,23 +136,23 @@ class WESBackend(ABC):
         """
         pass
 
-    def workflow_path(self, run: RunWithDetails) -> str:
+    def workflow_path(self, run: RunWithDetails) -> Path:
         """
         Gets the local filesystem path to the workflow file specified by a run's workflow URI.
         """
         return self._workflow_manager.workflow_path(run.request.workflow_url, WorkflowType(run.request.workflow_type))
 
-    def run_dir(self, run: Run) -> str:
+    def run_dir(self, run: Run) -> Path:
         """
         Returns a path to the work directory for executing a run.
         """
-        return os.path.join(self.tmp_dir, run.run_id)
+        return self.tmp_dir / run.run_id
 
-    def _params_path(self, run: Run) -> str:
+    def _params_path(self, run: Run) -> Path:
         """
         Returns a path to the workflow parameters file for a run.
         """
-        return os.path.join(self.run_dir(run), self._get_params_file(run))
+        return self.run_dir(run) / self._get_params_file(run)
 
     @abstractmethod
     def _check_workflow(self, run: Run) -> tuple[str, str] | None:
@@ -231,7 +230,7 @@ class WESBackend(ABC):
         return self._check_workflow(run)
 
     @abstractmethod
-    def get_workflow_name(self, workflow_path: str) -> str | None:
+    def get_workflow_name(self, workflow_path: Path) -> str | None:
         """
         Extracts a workflow's name from its file.
         :param workflow_path: The path to the workflow definition file
@@ -240,7 +239,7 @@ class WESBackend(ABC):
         pass
 
     @staticmethod
-    def get_workflow_name_wdl(workflow_path: str) -> str | None:
+    def get_workflow_name_wdl(workflow_path: Path) -> str | None:
         """
         Standard extractor for workflow names for WDL.
         :param workflow_path: The path to the workflow definition file
@@ -255,7 +254,7 @@ class WESBackend(ABC):
             return workflow_id_match.group(1) if workflow_id_match else None
 
     @abstractmethod
-    def _get_command(self, workflow_path: str, params_path: str, run_dir: str) -> Command:
+    def _get_command(self, workflow_path: Path, params_path: Path, run_dir: Path) -> Command:
         """
         Creates the command which will run the backend runner on the specified workflow, with the specified
         serialized parameters, and in the specified run directory.
@@ -320,7 +319,7 @@ class WESBackend(ABC):
         run_dir = self.run_dir(run)
 
         # -- Check that the run directory exists -----------------------------------------------------------------------
-        if not os.path.exists(run_dir):
+        if not run_dir.exists():
             # TODO: Log error in run log
             self.log_error("Run directory not found")
             return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
@@ -376,7 +375,7 @@ class WESBackend(ABC):
         return cmd, workflow_params_with_secrets
 
     @abstractmethod
-    def get_workflow_outputs(self, run_dir: str) -> dict[str, Any]:
+    def get_workflow_outputs(self, run_dir: Path) -> dict[str, Any]:
         pass
 
     def _perform_run(self, run: RunWithDetails, cmd: Command, params_with_secrets: ParamDict) -> ProcessResult | None:
