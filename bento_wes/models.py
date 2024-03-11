@@ -9,6 +9,7 @@ __all__ = [
     "RunLog",
     "Run",
     "RunWithDetails",
+    "RunOutput",
     "RunWithDetailsAndOutput",
 ]
 
@@ -51,5 +52,10 @@ class RunWithDetails(Run):
     task_logs: list[dict]  # TODO: model
 
 
+class RunOutput(BaseModel):
+    type: str  # WDL / (workflow descriptor language) type
+    value: str | int | float | bool | list  # Output value
+
+
 class RunWithDetailsAndOutput(RunWithDetails):
-    outputs: dict[str, str | int | float | bool | list]  # Bento-specific extension
+    outputs: dict[str, RunOutput]  # Bento-specific extension

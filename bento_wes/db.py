@@ -217,14 +217,14 @@ def run_with_details_and_output_from_row(
     run: sqlite3.Row,
     stream_content: bool,
 ) -> RunWithDetailsAndOutput:
-    return RunWithDetailsAndOutput(
+    return RunWithDetailsAndOutput.model_validate(dict(
         run_id=run["id"],
         state=run["state"],
         request=run_request_from_row(run),
         run_log=run_log_from_row(run, stream_content),
         task_logs=get_task_logs(c, run["id"]),
         outputs=json.loads(run["outputs"]),
-    )
+    ))
 
 
 def _get_run_row(c: sqlite3.Cursor, run_id: uuid.UUID | str) -> sqlite3.Row | None:

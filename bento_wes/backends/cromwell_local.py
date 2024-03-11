@@ -2,7 +2,6 @@ import re
 
 from flask import current_app, json
 from pathlib import Path
-from typing import Any
 
 from bento_wes.backends import WESBackend
 from bento_wes.backends.backend_types import Command
@@ -42,7 +41,7 @@ class CromwellLocalBackend(WESBackend):
         """
         return json.dumps(workflow_params)
 
-    def _check_workflow(self, run: RunWithDetails) -> tuple[str, str] | None:
+    def _check_workflow(self, run: RunWithDetails) -> None:
         return self._check_workflow_wdl(run)
 
     def get_workflow_name(self, workflow_path: Path) -> str | None:
@@ -84,19 +83,32 @@ class CromwellLocalBackend(WESBackend):
             "--inputs", str(params_path),
             "--options", str(options_file),
             "--workflow-root", str(run_dir),
-            "--metadata-output", self.get_workflow_metadata_output_json_path(run_dir),
-            workflow_path,
+            "--metadata-output", str(self.get_workflow_metadata_output_json_path(run_dir)),
+            str(workflow_path),
         ))
 
-    def get_workflow_outputs(self, run_dir: Path) -> dict[str, Any]:
-        with open(self.get_workflow_metadata_output_json_path(run_dir), "r") as fh:
+    def get_workflow_outputs(self, run: RunWithDetails) -> dict[str, dict]:
+        p = self.execute_womtool_command(("outputs", str(self.workflow_path(run))))
+
+        stdout, _ = p.communicate()
+        workflow_types = json.loads(stdout)
+
+        with open(self.get_workflow_metadata_output_json_path(self.run_dir(run)), "r") as fh:
             outputs = json.load(fh).get("outputs", {})
 
-        # Re-point temporary file outputs to a permanent location (as copied by Cromwell) for future download
-        tmp_dir_str = str(self.tmp_dir)
+        # Re-point temporary file outputs to a permanent location (as copied by Cromwell) for future download, and
+        # annotate all output values with their type from the WDL.
+
+        tmp_dir_str = str(self.tmp_dir / "cromwell-executions")
         output_dir_str = str(self.output_dir)
+
+        outputs_with_type = {}
         for k, v in outputs.items():
             if isinstance(v, str) and v.startswith(tmp_dir_str):
-                outputs[k] = output_dir_str + v[len(tmp_dir_str):]
+                v = output_dir_str + v[len(tmp_dir_str):]
+            outputs_with_type[k] = {
+                "type": workflow_types[k],
+                "value": v,
+            }
 
-        return outputs
+        return outputs_with_type
