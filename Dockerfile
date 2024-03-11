@@ -18,12 +18,16 @@ RUN apt-get update -y && \
     cp -r vcf2maf/data /opt/data && \
     rm -rf vcf2maf
 
-# Install Cromwell
+# Install Cromwell + WOMtool
 ENV CROMWELL_VERSION=86
 WORKDIR /
 RUN curl -L \
     https://github.com/broadinstitute/cromwell/releases/download/${CROMWELL_VERSION}/cromwell-${CROMWELL_VERSION}.jar \
-    -o cromwell.jar
+    -o cromwell.jar && \
+    curl -L \
+    https://github.com/broadinstitute/cromwell/releases/download/${CROMWELL_VERSION}/womtool-${CROMWELL_VERSION}.jar \
+    -o womtool.jar
+
 
 # Clone (but don't install yet) Ensembl-VEP
 ENV VEP_ENSEMBL_RELEASE_VERSION=111.0
