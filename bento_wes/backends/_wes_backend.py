@@ -157,9 +157,9 @@ class WESBackend(ABC):
     @abstractmethod
     def _check_workflow(self, run: Run) -> None:
         """
-        Checks that a workflow can be executed by the backend via the workflow's URI.
+        Checks that a workflow can be executed by the backend via the workflow's URI. A RunExceptionWithFailState is
+        raised if the workflow is not valid.
         :param run: The run, including a request with the workflow URI
-        :return: None if the workflow is valid; a tuple of an error message and an error state otherwise
         """
         pass
 
@@ -191,9 +191,8 @@ class WESBackend(ABC):
 
     def _check_workflow_wdl(self, run: RunWithDetails) -> None:
         """
-        Checks that a particular WDL workflow is valid.
+        Checks that a particular WDL workflow is valid. A RunExceptionWithFailState is raised if the WDL is not valid.
         :param run: The run whose workflow is being checked
-        :return: None if the workflow is valid; a tuple of an error message and an error state otherwise
         """
 
         # Validate WDL, listing dependencies:
@@ -219,9 +218,9 @@ class WESBackend(ABC):
 
     def _check_workflow_and_type(self, run: RunWithDetails) -> None:
         """
-        Checks a workflow file's validity.
+        Checks a workflow file's validity. A RunExceptionWithFailState is raised if the workflow file is not valid.
+        A NotImplementedError is raised if the workflow type is not supported by the backend.
         :param run: The run specifying the workflow in question
-        :return: None if the workflow is valid; a tuple of an error message and an error state otherwise
         """
 
         workflow_type: WorkflowType = WorkflowType(run.request.workflow_type)
