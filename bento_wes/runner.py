@@ -37,6 +37,7 @@ def run_workflow(self, run_id: uuid.UUID):
     validate_ssl = current_app.config["BENTO_VALIDATE_SSL"]
     backend: WESBackend = CromwellLocalBackend(
         tmp_dir=current_app.config["SERVICE_TEMP"],
+        data_dir=current_app.config["SERVICE_DATA"],
         workflow_timeout=current_app.config["WORKFLOW_TIMEOUT"],
         logger=logger,
         event_bus=event_bus,

@@ -27,7 +27,10 @@ WORKDIR /
 ENV CROMWELL_VERSION=86
 RUN curl -L \
     https://github.com/broadinstitute/cromwell/releases/download/${CROMWELL_VERSION}/cromwell-${CROMWELL_VERSION}.jar \
-    -o cromwell.jar
+    -o cromwell.jar && \
+    curl -L \
+    https://github.com/broadinstitute/cromwell/releases/download/${CROMWELL_VERSION}/womtool-${CROMWELL_VERSION}.jar \
+    -o womtool.jar
 
 FROM base-deps AS install
 

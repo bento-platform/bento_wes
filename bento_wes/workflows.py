@@ -1,10 +1,10 @@
 import logging
 
-import os
 import shutil
 import requests
 
 from base64 import urlsafe_b64encode
+from pathlib import Path
 from pydantic import AnyUrl
 from typing import NewType
 from urllib.parse import urlparse
@@ -63,7 +63,7 @@ class WorkflowDownloadError(Exception):
 class WorkflowManager:
     def __init__(
         self,
-        tmp_dir: str,
+        tmp_dir: Path,
         service_base_url: str,
         bento_url: str | None = None,
         logger: logging.Logger | None = None,
@@ -71,7 +71,7 @@ class WorkflowManager:
         validate_ssl: bool = True,
         debug: bool = False,
     ):
-        self.tmp_dir: str = tmp_dir
+        self.tmp_dir: Path = tmp_dir
         self.service_base_url: str = service_base_url
         self.bento_url: str | None = bento_url
         self.logger: logging.Logger | None = logger
@@ -93,15 +93,16 @@ class WorkflowManager:
         if self.logger:
             self.logger.error(message)
 
-    def workflow_path(self, workflow_uri: AnyUrl, workflow_type: WorkflowType) -> str:
+    def workflow_path(self, workflow_uri: AnyUrl, workflow_type: WorkflowType) -> Path:
         """
         Generates a unique filesystem path name for a specified workflow URI.
         """
         if workflow_type not in WES_SUPPORTED_WORKFLOW_TYPES:
             raise UnsupportedWorkflowType(f"Unsupported workflow type: {workflow_type}")
 
-        workflow_name = str(urlsafe_b64encode(bytes(str(workflow_uri), encoding="utf-8")), encoding="utf-8")
-        return os.path.join(self.tmp_dir, f"workflow_{workflow_name}.{WORKFLOW_EXTENSIONS[workflow_type]}")
+        workflow_name = str(urlsafe_b64encode(bytes(str(workflow_uri), encoding="utf-8")), encoding="utf-8").replace(
+            "=", "")
+        return self.tmp_dir / f"workflow_{workflow_name}.{WORKFLOW_EXTENSIONS[workflow_type]}"
 
     def download_or_copy_workflow(
         self,
@@ -163,22 +164,22 @@ class WorkflowManager:
                 verify=self._validate_ssl,
             )
         except requests.exceptions.ConnectionError as e:
-            if os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
+            if workflow_path.exists():  # Use cached version if needed, otherwise error
                 return
             else:
                 # Network issues
                 raise e
 
         if wr.status_code == 200 and len(wr.content) < MAX_WORKFLOW_FILE_BYTES:
-            if os.path.exists(workflow_path):
-                os.remove(workflow_path)
+            if workflow_path.exists():
+                workflow_path.unlink()
 
             with open(workflow_path, "wb") as nwf:
                 nwf.write(wr.content)
 
             self._info("Workflow file downloaded")
 
-        elif not os.path.exists(workflow_path):  # Use cached version if needed, otherwise error
+        elif not workflow_path.exists():  # Use cached version if needed, otherwise error
             # Request issues
             self._error(
                 f"Error downloading workflow: {workflow_uri} (use_auth_headers={use_auth_headers}, "

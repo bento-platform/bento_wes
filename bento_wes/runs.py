@@ -1,3 +1,4 @@
+import itertools
 import json
 import os
 import sqlite3
@@ -5,6 +6,7 @@ import pydantic
 import requests
 import shutil
 import traceback
+import urllib.parse
 import uuid
 
 from bento_lib.auth.permissions import P_INGEST_DATA, P_VIEW_RUNS
@@ -17,8 +19,9 @@ from bento_lib.responses.flask_errors import (
     flask_not_found_error,
     flask_forbidden_error,
 )
-from flask import Blueprint, Response, current_app, jsonify, request
-from typing import Callable, Iterator
+from flask import Blueprint, Request, Response, current_app, jsonify, request
+from pathlib import Path
+from typing import Any, Callable, Iterator
 from werkzeug.utils import secure_filename
 
 from . import states
@@ -46,6 +49,8 @@ from .workflows import (
     parse_workflow_host_allow_list,
 )
 
+MIME_OCTET_STREAM = "application/octet-stream"
+CHUNK_SIZE = 1024 * 16  # Read 16 KB at a time
 
 bp_runs = Blueprint("runs", __name__)
 
@@ -84,14 +89,23 @@ def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> I
     ))
 
 
-def _check_single_run_permission_and_mark(run_req: RunRequest, permission: str) -> bool:
+def _post_headers_getter(r: Request) -> dict[str, str]:
+    token = r.form.get("token")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def _check_single_run_permission_and_mark(run_req: RunRequest, permission: str, form_mode: bool = False) -> bool:
     # By calling this, the developer indicates that they will have handled permissions adequately:
     return authz_middleware.evaluate_one(
-        request, _get_resource_for_run_request(run_req), permission, mark_authz_done=True
+        request,
+        _get_resource_for_run_request(run_req),
+        permission,
+        headers_getter=_post_headers_getter if form_mode else None,
+        mark_authz_done=True,
     ) if authz_enabled() else True
 
 
-def _config_for_run(run_dir: str) -> dict[str, str | bool | None]:
+def _config_for_run(run_dir: Path) -> dict[str, str | bool | None]:
     return {
         # In production, workflows should validate SSL (i.e., omit the curl -k flag).
         # In development, SSL certificates are usually self-signed, so they will not validate.
@@ -108,7 +122,7 @@ def _config_for_run(run_dir: str) -> dict[str, str | bool | None]:
         #  to create the current working directories where tasks are executed.
         #  These files are inaccessible to other containers in the context of a
         #  task unless they are written arbitrarily to run_dir
-        "run_dir": run_dir,
+        "run_dir": str(run_dir),
 
         "vep_cache_dir": current_app.config["VEP_CACHE_DIR"],
     }
@@ -170,12 +184,9 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
 
     # Create run directory
 
-    run_dir = os.path.join(current_app.config["SERVICE_TEMP"], str(run_id))
+    run_dir: Path = current_app.config["SERVICE_TEMP"] / str(run_id)
+    run_dir.mkdir(parents=True, exist_ok=True)
 
-    if os.path.exists(run_dir):
-        return flask_internal_server_error("UUID collision")
-
-    os.makedirs(run_dir, exist_ok=True)
     # TODO: Delete run dir if something goes wrong...
 
     # Move workflow attachments to run directory
@@ -279,6 +290,7 @@ PRIVATE_RUN_DETAILS_SHAPE = {
     "request": True,
     "run_log": True,
     "task_logs": True,
+    "outputs": True,
 }
 
 
@@ -336,20 +348,73 @@ def run_list():
     return jsonify(res_list)
 
 
+def _run_none_response(run_id: uuid.UUID):
+    if authz_enabled():
+        # Without the required permissions, don't even leak if this run exists - just return forbidden
+        authz_middleware.mark_authz_done(request)
+        return flask_forbidden_error("Forbidden")
+    return flask_not_found_error(f"Run {str(run_id)} not found")
+
+
 @bp_runs.route("/runs/<uuid:run_id>", methods=["GET"])
 def run_detail(run_id: uuid.UUID):
     run_details = get_run_with_details(get_db().cursor(), run_id, stream_content=False)
 
     if run_details is None:
-        if authz_enabled():
-            return flask_forbidden_error("Forbidden")
-        else:
-            return flask_not_found_error(f"Run {run_id} not found")
+        return _run_none_response(run_id)
 
     if not _check_single_run_permission_and_mark(run_details.request, P_VIEW_RUNS):
         return flask_forbidden_error("Forbidden")
 
     return jsonify(run_details.model_dump(mode="json"))
+
+
+def _denest_list(x: Any) -> list:
+    if isinstance(x, list):
+        return list(itertools.chain.from_iterable(map(_denest_list, x)))
+    return [x]
+
+
+@bp_runs.route("/runs/<uuid:run_id>/download-artifact", methods=["POST"])
+def run_download_artifact(run_id: uuid.UUID):
+    run_details = get_run_with_details(get_db().cursor(), run_id, stream_content=False)
+
+    if run_details is None:
+        return _run_none_response(run_id)
+
+    if not _check_single_run_permission_and_mark(run_details.request, P_VIEW_RUNS, form_mode=True):
+        return flask_forbidden_error("Forbidden")
+
+    artifact_path = request.form.get("path")
+    if not artifact_path:
+        return flask_bad_request_error("Requested artifact path is blank or unspecified")
+
+    # Collect file artifacts
+    artifacts: set[str] = set()
+    for o in run_details.outputs.values():
+        if "File" in o.type:
+            dn: set[str] = set(_denest_list(o.value))
+            artifacts.update(dn)
+
+    if artifact_path not in artifacts:
+        return flask_not_found_error(f"Requested artifact path not found in run {run_id}")
+
+    p = Path(artifact_path)
+
+    if not p.exists():
+        return flask_internal_server_error(f"Artifact path does not exist on filesystem: {artifact_path}")
+
+    def generate_bytes():
+        with open(p, "rb") as fh:
+            while data := fh.read(CHUNK_SIZE):
+                yield data
+                if len(data) == 0:
+                    break
+
+    r = current_app.response_class(generate_bytes(), status=200, mimetype=MIME_OCTET_STREAM)
+    r.headers["Content-Length"] = p.stat().st_size
+    r.headers["Content-Disposition"] = f"attachment; filename*=UTF-8' '{urllib.parse.quote(p.name, encoding='utf-8')}"
+    return r
 
 
 def get_stream(c: sqlite3.Cursor, stream: RunStream, run_id: uuid.UUID):
@@ -378,12 +443,7 @@ def check_run_authz_then_return_response(
     run = get_run_with_details(c, run_id, stream_content=False)
 
     if run is None:
-        if authz_enabled():
-            # Without the required permissions, don't even leak if this run exists - just return forbidden
-            authz_middleware.mark_authz_done(request)
-            return flask_forbidden_error("Forbidden")
-        else:
-            return flask_not_found_error(f"Run {run_id} not found")
+        return _run_none_response(run_id)
 
     if not _check_single_run_permission_and_mark(run.request, permission):
         return flask_forbidden_error("Forbidden")
@@ -445,7 +505,7 @@ def run_cancel(run_id: uuid.UUID):
         # TODO: wait for revocation / failure and update status...
 
         # TODO: Generalize clean-up code / fetch from back-end
-        run_dir = os.path.join(current_app.config["SERVICE_TEMP"], run_id_str)
+        run_dir = current_app.config["SERVICE_TEMP"] / run_id_str
         if not current_app.config["BENTO_DEBUG"]:
             shutil.rmtree(run_dir, ignore_errors=True)
 

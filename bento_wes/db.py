@@ -7,6 +7,7 @@ from bento_lib.events import EventBus
 from bento_lib.events.notifications import format_notification
 from bento_lib.events.types import EVENT_CREATE_NOTIFICATION, EVENT_WES_RUN_UPDATED
 from flask import current_app, g
+from typing import Any
 from urllib.parse import urljoin
 
 from . import states
@@ -31,6 +32,7 @@ __all__ = [
     "run_with_details_and_output_from_row",
     "get_run",
     "get_run_with_details",
+    "set_run_outputs",
     "update_run_state_and_commit",
 ]
 
@@ -127,7 +129,7 @@ def update_stuck_runs(db: sqlite3.Connection):
     c = db.cursor()
     logger: logging.Logger = current_app.logger
 
-    c.execute("SELECT id FROM runs WHERE state = ? OR state = ?", (states.STATE_INITIALIZING, states.STATE_RUNNING))
+    c.execute("SELECT id FROM runs WHERE state IN (?, ?)", (states.STATE_INITIALIZING, states.STATE_RUNNING))
     stuck_run_ids: list[sqlite3.Row] = c.fetchall()
 
     for r in stuck_run_ids:
@@ -215,14 +217,14 @@ def run_with_details_and_output_from_row(
     run: sqlite3.Row,
     stream_content: bool,
 ) -> RunWithDetailsAndOutput:
-    return RunWithDetailsAndOutput(
+    return RunWithDetailsAndOutput.model_validate(dict(
         run_id=run["id"],
         state=run["state"],
         request=run_request_from_row(run),
         run_log=run_log_from_row(run, stream_content),
         task_logs=get_task_logs(c, run["id"]),
         outputs=json.loads(run["outputs"]),
-    )
+    ))
 
 
 def _get_run_row(c: sqlite3.Cursor, run_id: uuid.UUID | str) -> sqlite3.Row | None:
@@ -243,6 +245,10 @@ def get_run_with_details(
     if run := _get_run_row(c, run_id):
         return run_with_details_and_output_from_row(c, run, stream_content)
     return None
+
+
+def set_run_outputs(c: sqlite3.Cursor, run_id: str, outputs: dict[str, Any]):
+    c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(outputs), str(run_id)))
 
 
 def update_run_state_and_commit(

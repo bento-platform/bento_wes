@@ -1,6 +1,3 @@
-import json
-import pathlib
-import os
 import re
 import shutil
 import sqlite3
@@ -13,17 +10,18 @@ from bento_lib.events.types import EVENT_WES_RUN_FINISHED
 from bento_lib.workflows.models import WorkflowSecretInput
 from bento_lib.workflows.utils import namespaced_input
 from flask import current_app
-from typing import Any
+from pathlib import Path
 
 from bento_wes import states
 from bento_wes.constants import SERVICE_ARTIFACT
-from bento_wes.db import get_db, finish_run, update_run_state_and_commit
-from bento_wes.models import Run, RunWithDetails
+from bento_wes.db import get_db, finish_run, set_run_outputs, update_run_state_and_commit
+from bento_wes.models import Run, RunWithDetails, RunOutput
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
 from bento_wes.utils import iso_now
 from bento_wes.workflows import WorkflowType, WorkflowManager
 
 from .backend_types import Command, ProcessResult
+from .exceptions import RunExceptionWithFailState
 
 __all__ = ["WESBackend"]
 
@@ -36,7 +34,8 @@ ParamDict = dict[str, str | int | float | bool]
 class WESBackend(ABC):
     def __init__(
         self,
-        tmp_dir: str,
+        tmp_dir: Path,
+        data_dir: Path,
         workflow_timeout: int,  # Workflow timeout, in seconds
         logger=None,
         event_bus: EventBus | None = None,
@@ -49,10 +48,11 @@ class WESBackend(ABC):
 
         self.db: sqlite3.Connection = get_db()
 
-        self.tmp_dir: str = tmp_dir
-        self.log_dir: str = tmp_dir.rstrip("/") + "/logs"  # Not used for most logs, but Toil wanted a log dir...
+        self.tmp_dir: Path = tmp_dir
+        self.data_dir: Path = data_dir
 
-        pathlib.Path(self.log_dir).mkdir(parents=True, exist_ok=True)
+        self.output_dir: Path = data_dir / "output"  # For persistent file artifacts from workflows
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.logger = logger
         self.event_bus = event_bus  # TODO: New event bus?
@@ -136,91 +136,91 @@ class WESBackend(ABC):
         """
         pass
 
-    def workflow_path(self, run: RunWithDetails) -> str:
+    def workflow_path(self, run: RunWithDetails) -> Path:
         """
         Gets the local filesystem path to the workflow file specified by a run's workflow URI.
         """
         return self._workflow_manager.workflow_path(run.request.workflow_url, WorkflowType(run.request.workflow_type))
 
-    def run_dir(self, run: Run) -> str:
+    def run_dir(self, run: Run) -> Path:
         """
         Returns a path to the work directory for executing a run.
         """
-        return os.path.join(self.tmp_dir, run.run_id)
+        return self.tmp_dir / run.run_id
 
-    def _params_path(self, run: Run) -> str:
+    def _params_path(self, run: Run) -> Path:
         """
         Returns a path to the workflow parameters file for a run.
         """
-        return os.path.join(self.run_dir(run), self._get_params_file(run))
+        return self.run_dir(run) / self._get_params_file(run)
 
     @abstractmethod
-    def _check_workflow(self, run: Run) -> tuple[str, str] | None:
+    def _check_workflow(self, run: Run) -> None:
         """
-        Checks that a workflow can be executed by the backend via the workflow's URI.
+        Checks that a workflow can be executed by the backend via the workflow's URI. A RunExceptionWithFailState is
+        raised if the workflow is not valid.
         :param run: The run, including a request with the workflow URI
-        :return: None if the workflow is valid; a tuple of an error message and an error state otherwise
         """
         pass
 
-    def _check_workflow_wdl(self, run: RunWithDetails) -> tuple[str, str] | None:
-        """
-        Checks that a particular WDL workflow is valid.
-        :param run: The run whose workflow is being checked
-        :return: None if the workflow is valid; a tuple of an error message and an error state otherwise
-        """
-
+    @staticmethod
+    def get_womtool_path_or_raise() -> str:
         womtool_path = current_app.config["WOM_TOOL_LOCATION"]
-
-        # If WOMtool isn't specified, exit early (either as an error or just skipping validation)
-
         if not womtool_path:
-            # WOMtool not specified; assume the WDL is valid if WORKFLOW_HOST_ALLOW_LIST has been adequately specified
-            return None if self.workflow_host_allow_list else (
-                f"Failed with {STATE_EXECUTOR_ERROR} due to missing or invalid WOMtool (Bad WOM_TOOL_LOCATION)\n"
-                f"\tWOM_TOOL_LOCATION: {womtool_path}",
-                STATE_EXECUTOR_ERROR
-            )
+            raise RunExceptionWithFailState(
+                STATE_SYSTEM_ERROR,
+                f"Missing or invalid WOMtool (Bad WOM_TOOL_LOCATION)\n\tWOM_TOOL_LOCATION: {womtool_path}")
+        return womtool_path
+
+    @classmethod
+    def execute_womtool_command(cls, command: tuple[str, ...]) -> subprocess.Popen:
+        womtool_path = cls.get_womtool_path_or_raise()
 
         # Check for Java (needed to run WOMtool)
         try:
             subprocess.run(("java", "-version"))
         except FileNotFoundError:
-            return "Java is missing (required to validate WDL files)", STATE_SYSTEM_ERROR
+            raise RunExceptionWithFailState(STATE_SYSTEM_ERROR, "Java is missing (required to validate WDL files)")
 
-        # Validate WDL, listing dependencies
+        # Execute WOMtool command
+        return subprocess.Popen(
+            ("java", "-jar", womtool_path, *command),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            encoding="utf-8")
 
-        vr = subprocess.Popen(("java", "-jar", womtool_path, "validate", "-l", self.workflow_path(run)),
-                              stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE,
-                              encoding="utf-8")
+    def _check_workflow_wdl(self, run: RunWithDetails) -> None:
+        """
+        Checks that a particular WDL workflow is valid. A RunExceptionWithFailState is raised if the WDL is not valid.
+        :param run: The run whose workflow is being checked
+        """
+
+        # Validate WDL, listing dependencies:
+        vr = self.execute_womtool_command(("validate", "-l", str(self.workflow_path(run))))
 
         v_out, v_err = vr.communicate()
 
         if vr.returncode != 0:
             # Validation error with WDL file
-            # TODO: Add some stdout or stderr to logs?
-            return (
+            raise RunExceptionWithFailState(
+                STATE_EXECUTOR_ERROR,
                 f"Failed with {STATE_EXECUTOR_ERROR} due to non-0 validation return code:\n"
                 f"\tstdout: {v_out}\n\tstderr: {v_err}",
-                STATE_EXECUTOR_ERROR
             )
 
         #  - Since Toil doesn't support WDL imports right now, any dependencies will result in an error
         if "None" not in v_out:  # No dependencies
             # Toil can't process WDL dependencies right now  TODO
-            # TODO: Add some stdout or stderr to logs?
-            return (
+            raise RunExceptionWithFailState(
+                STATE_EXECUTOR_ERROR,
                 f"Failed with {STATE_EXECUTOR_ERROR} due to dependencies in WDL:\n"
-                f"\tstdout: {v_out}\n\tstderr: {v_err}",
-                STATE_EXECUTOR_ERROR
-            )
+                f"\tstdout: {v_out}\n\tstderr: {v_err}")
 
-    def _check_workflow_and_type(self, run: RunWithDetails) -> tuple[str, str] | None:
+    def _check_workflow_and_type(self, run: RunWithDetails) -> None:
         """
-        Checks a workflow file's validity.
+        Checks a workflow file's validity. A RunExceptionWithFailState is raised if the workflow file is not valid.
+        A NotImplementedError is raised if the workflow type is not supported by the backend.
         :param run: The run specifying the workflow in question
-        :return: None if the workflow is valid; a tuple of an error message and an error state otherwise
         """
 
         workflow_type: WorkflowType = WorkflowType(run.request.workflow_type)
@@ -230,7 +230,7 @@ class WESBackend(ABC):
         return self._check_workflow(run)
 
     @abstractmethod
-    def get_workflow_name(self, workflow_path: str) -> str | None:
+    def get_workflow_name(self, workflow_path: Path) -> str | None:
         """
         Extracts a workflow's name from its file.
         :param workflow_path: The path to the workflow definition file
@@ -239,7 +239,7 @@ class WESBackend(ABC):
         pass
 
     @staticmethod
-    def get_workflow_name_wdl(workflow_path: str) -> str | None:
+    def get_workflow_name_wdl(workflow_path: Path) -> str | None:
         """
         Standard extractor for workflow names for WDL.
         :param workflow_path: The path to the workflow definition file
@@ -254,7 +254,7 @@ class WESBackend(ABC):
             return workflow_id_match.group(1) if workflow_id_match else None
 
     @abstractmethod
-    def _get_command(self, workflow_path: str, params_path: str, run_dir: str) -> Command:
+    def _get_command(self, workflow_path: Path, params_path: Path, run_dir: Path) -> Command:
         """
         Creates the command which will run the backend runner on the specified workflow, with the specified
         serialized parameters, and in the specified run directory.
@@ -319,7 +319,7 @@ class WESBackend(ABC):
         run_dir = self.run_dir(run)
 
         # -- Check that the run directory exists -----------------------------------------------------------------------
-        if not os.path.exists(run_dir):
+        if not run_dir.exists():
             # TODO: Log error in run log
             self.log_error("Run directory not found")
             return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
@@ -341,10 +341,12 @@ class WESBackend(ABC):
                 workflow_params_with_secrets[namespaced_input(run_req.tags.workflow_id, run_input.id)] = secret_value
 
         # -- Validate the workflow -------------------------------------------------------------------------------------
-        error = self._check_workflow_and_type(run)
-        if error is not None:
-            self.log_error(error[0])
-            return self._finish_run_and_clean_up(run, error[1])
+
+        try:
+            self._check_workflow_and_type(run)
+        except RunExceptionWithFailState as e:
+            self.log_error(str(e))
+            self._finish_run_and_clean_up(run, e.state)
 
         # -- Find "real" workflow name from workflow file --------------------------------------------------------------
         workflow_name = self.get_workflow_name(self.workflow_path(run))
@@ -375,7 +377,7 @@ class WESBackend(ABC):
         return cmd, workflow_params_with_secrets
 
     @abstractmethod
-    def get_workflow_outputs(self, run_dir: str) -> dict[str, Any]:
+    def get_workflow_outputs(self, run: RunWithDetails) -> dict[str, RunOutput]:
         pass
 
     def _perform_run(self, run: RunWithDetails, cmd: Command, params_with_secrets: ParamDict) -> ProcessResult | None:
@@ -393,6 +395,8 @@ class WESBackend(ABC):
         # Perform run ==================================================================================================
 
         # -- Start process running the generated command ---------------------------------------------------------------
+        #  - Cromwell creates the `cromwell-executions` and `cromwell-workflow-logs` folders in the CWD, so we set the
+        #    CWD of the subprocess to our WES temporary directory.
         runner_process = subprocess.Popen(
             cmd, cwd=self.tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
         c.execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run.run_id))
@@ -444,13 +448,10 @@ class WESBackend(ABC):
 
         # Exit code is 0 otherwise; complete the run
 
-        run_dir = self.run_dir(run)
-        workflow_name = self.get_workflow_name(self.workflow_path(run))
-
-        workflow_outputs = self.get_workflow_outputs(run_dir)
+        workflow_outputs = self.get_workflow_outputs(run)
 
         # Explicitly don't commit here; sync with state update
-        c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(workflow_outputs), str(run.run_id)))
+        set_run_outputs(c, run.run_id, workflow_outputs)
 
         # Emit event if possible
         self.event_bus.publish_service_event(
@@ -458,14 +459,14 @@ class WESBackend(ABC):
             EVENT_WES_RUN_FINISHED,
             # Run result object:
             event_data={
-                "workflow_id": workflow_name,
+                "workflow_id": self.get_workflow_name(self.workflow_path(run)),
                 "workflow_metadata": run.request.tags.workflow_metadata.model_dump_json(),
                 "workflow_outputs": workflow_outputs,
                 "workflow_params": run.request.workflow_params,
             },
         )
 
-        # Finally, set our state to COMPLETE + finish up the run.
+        # Finally, set our state to COMPLETE + finish up the run. This commits all our changes to the database.
         self._finish_run_and_clean_up(run, states.STATE_COMPLETE)
 
         return ProcessResult((stdout, stderr, exit_code, timed_out))
