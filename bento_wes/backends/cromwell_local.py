@@ -2,6 +2,7 @@ import re
 
 from flask import current_app, json
 from pathlib import Path
+from typing import TypeVar
 
 from bento_wes.backends import WESBackend
 from bento_wes.backends.backend_types import Command
@@ -13,6 +14,8 @@ __all__ = [
     "CromwellLocalBackend"
 ]
 
+
+T = TypeVar("T")
 
 # Spec: https://software.broadinstitute.org/wdl/documentation/spec#whitespace-strings-identifiers-constants
 WDL_WORKSPACE_NAME_REGEX = re.compile(r"workflow\s+([a-zA-Z][a-zA-Z0-9_]+)")
@@ -87,6 +90,21 @@ class CromwellLocalBackend(WESBackend):
             str(workflow_path),
         ))
 
+    @staticmethod
+    def _rewrite_tmp_dir_paths(v: T, tmp_dir_str: str, output_dir_str: str) -> T:
+        if isinstance(v, str):
+            # If we have a file output, it should be a path starting with a prefix like
+            # /<tmp_dir>/cromwell-executions/... from executing Cromwell with the PWD as /<tmp_dir>/.
+            # Cromwell outputs the same folder structure in whatever is set for `final_workflow_outputs_dir` in
+            # _get_command() above, so we can rewrite this prefix to be the output directory instead, since this
+            # will be preserved after the run is finished:
+            return output_dir_str + v[len(tmp_dir_str):]
+        elif isinstance(v, list):
+            # If we have a list, it may be a nested list of paths, in which case we need to recursively rewrite:
+            return [CromwellLocalBackend._rewrite_tmp_dir_paths(w, tmp_dir_str, output_dir_str) for w in v]
+        else:
+            return v
+
     def get_workflow_outputs(self, run: RunWithDetails) -> dict[str, dict]:
         p = self.execute_womtool_command(("outputs", str(self.workflow_path(run))))
 
@@ -102,13 +120,10 @@ class CromwellLocalBackend(WESBackend):
         tmp_dir_str = str(self.tmp_dir / "cromwell-executions")
         output_dir_str = str(self.output_dir)
 
-        outputs_with_type = {}
-        for k, v in outputs.items():
-            if isinstance(v, str) and v.startswith(tmp_dir_str):
-                v = output_dir_str + v[len(tmp_dir_str):]
-            outputs_with_type[k] = {
+        return {
+            k: {
                 "type": workflow_types[k],
-                "value": v,
+                "value": self._rewrite_tmp_dir_paths(v, tmp_dir_str, output_dir_str),
             }
-
-        return outputs_with_type
+            for k, v in outputs.items()
+        }
