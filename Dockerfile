@@ -124,7 +124,7 @@ COPY --from=downloaded-deps /opt /opt
 
 # - Copy Cromwell + WOMtool
 COPY --from=downloaded-deps /cromwell.jar /cromwell.jar
-COPY --from=downloaded-deps /womtool.jar /womtoo.jar
+COPY --from=downloaded-deps /womtool.jar /womtool.jar
 
 # - Copy Ensembl-VEP
 COPY --from=ensemblorg/ensembl-vep:release_111.0 /usr/share/perl/5.34.0/CPAN /opt/vep
