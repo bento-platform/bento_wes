@@ -18,7 +18,7 @@ RUN apt-get update -y && \
     cp -r vcf2maf/data /opt/data && \
     rm -rf vcf2maf
 
-# Install Cromwell + WOMtool
+# Download Cromwell + WOMtool
 ENV CROMWELL_VERSION=86
 WORKDIR /
 RUN curl -L \
@@ -122,8 +122,9 @@ RUN poetry install --without dev
 # - Copy VCF2MAF
 COPY --from=downloaded-deps /opt /opt
 
-# - Copy Cromwell
+# - Copy Cromwell + WOMtool
 COPY --from=downloaded-deps /cromwell.jar /cromwell.jar
+COPY --from=downloaded-deps /womtool.jar /womtoo.jar
 
 # - Copy Ensembl-VEP
 COPY --from=ensemblorg/ensembl-vep:release_111.0 /usr/share/perl/5.34.0/CPAN /opt/vep
