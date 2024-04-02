@@ -45,6 +45,14 @@ RUN curl -L https://github.com/Ensembl/ensembl-xs/archive/2.3.2.zip -o ensembl-x
     mv ensembl-xs-2.3.2 ensembl-xs && \
     rm -rf ensembl-xs.zip
 
+WORKDIR /vep-cache
+
+# Download GRCh38 VEP cache
+ENV VEP_CACHE_BASE_URL="https://ftp.ensembl.org/pub/release-${VEP_ENSEMBL_RELEASE_VERSION}/variation/indexed_vep_cache"
+ENV VEP_CACHE_ARCHIVE="homo_sapiens_vep_${VEP_ENSEMBL_RELEASE_VERSION}_GRCh38.tar.gz"
+RUN curl -O "${VEP_CACHE_BASE_URL}/${VEP_CACHE_ARCHIVE}" && \
+    tar xzvf "${VEP_CACHE_ARCHIVE}"
+
 WORKDIR /
 
 FROM ghcr.io/bento-platform/bento_base_image:python-debian-2024.03.01 AS base-deps
@@ -129,6 +137,8 @@ COPY --from=downloaded-deps /womtool.jar /womtool.jar
 # - Copy Ensembl-VEP
 COPY --from=ensemblorg/ensembl-vep:release_111.0 /usr/share/perl/5.34.0/CPAN /opt/vep
 COPY --from=ensemblorg/ensembl-vep:release_111.0 /opt/vep /opt/vep
+COPY --from=downloaded-deps /vep-cache /vep-cache
+ENV VEP_CACHE_DIR=/vep-cache
 
 ENTRYPOINT [ "bash", "./entrypoint.bash" ]
 CMD [ "bash", "./run.bash" ]
