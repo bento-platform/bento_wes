@@ -56,7 +56,7 @@ RUN curl -O "${VEP_CACHE_BASE_URL}/${VEP_CACHE_ARCHIVE}" && \
 
 WORKDIR /
 
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2024.03.01 AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2024.04.01 AS base-deps
 
 SHELL ["/bin/bash", "-c"]
 
