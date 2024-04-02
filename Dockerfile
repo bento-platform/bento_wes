@@ -30,8 +30,9 @@ RUN curl -L \
 
 
 # Clone (but don't install yet) Ensembl-VEP
-ENV VEP_ENSEMBL_RELEASE_VERSION=111.0
-RUN git clone --depth 1 -b "release/${VEP_ENSEMBL_RELEASE_VERSION}" https://github.com/Ensembl/ensembl-vep.git && \
+ENV VEP_ENSEMBL_VERSION=111
+ENV VEP_ENSEMBL_GIT_VERSION=111.0
+RUN git clone --depth 1 -b "release/${VEP_ENSEMBL_GIT_VERSION}" https://github.com/Ensembl/ensembl-vep.git && \
     chmod u+x ensembl-vep/*.pl
 
 # Clone ensembl-variation git repository
@@ -48,8 +49,8 @@ RUN curl -L https://github.com/Ensembl/ensembl-xs/archive/2.3.2.zip -o ensembl-x
 WORKDIR /vep-cache
 
 # Download GRCh38 VEP cache
-ENV VEP_CACHE_BASE_URL="https://ftp.ensembl.org/pub/release-${VEP_ENSEMBL_RELEASE_VERSION}/variation/indexed_vep_cache"
-ENV VEP_CACHE_ARCHIVE="homo_sapiens_vep_${VEP_ENSEMBL_RELEASE_VERSION}_GRCh38.tar.gz"
+ENV VEP_CACHE_BASE_URL="https://ftp.ensembl.org/pub/release-${VEP_ENSEMBL_VERSION}/variation/indexed_vep_cache"
+ENV VEP_CACHE_ARCHIVE="homo_sapiens_vep_${VEP_ENSEMBL_VERSION}_GRCh38.tar.gz"
 RUN curl -O "${VEP_CACHE_BASE_URL}/${VEP_CACHE_ARCHIVE}" && \
     tar xzvf "${VEP_CACHE_ARCHIVE}"
 
