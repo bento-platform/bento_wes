@@ -3,6 +3,7 @@ FROM --platform=$BUILDPLATFORM debian:bullseye-slim AS downloaded-deps
 SHELL ["/bin/bash", "-c"]
 
 # Install VCF2MAF
+#  - support VEP v107+ by patching vcf2maf to remove references to removed --af_esp option
 # TODO: I don't like /opt as a home for these
 
 WORKDIR /tmp/vcf2maf
@@ -15,6 +16,7 @@ RUN apt-get update -y && \
     mv "vcf2maf-${VCF2MAF_VERSION}" vcf2maf && \
     mkdir -p /opt/data && \
     cp vcf2maf/*.pl /opt && \
+    sed '/ --af_esp/d' /opt/vcf2maf.pl && \
     cp -r vcf2maf/data /opt/data && \
     rm -rf vcf2maf
 
