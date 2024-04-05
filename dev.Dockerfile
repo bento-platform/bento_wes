@@ -16,7 +16,7 @@ RUN apt-get update -y && \
     mv "vcf2maf-${VCF2MAF_VERSION}" vcf2maf && \
     mkdir -p /opt/data && \
     cp vcf2maf/*.pl /opt && \
-    sed '/ --af_esp/d' /opt/vcf2maf.pl && \
+    sed -i '/ --af_esp/d' /opt/vcf2maf.pl && \
     cp -r vcf2maf/data /opt/data && \
     rm -rf vcf2maf
 
