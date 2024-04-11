@@ -354,11 +354,7 @@ class WESBackend(ABC):
             self.log_error("Could not find workflow name in workflow file")
             return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
 
-        c = self.db.cursor()
-
-        # TODO: To avoid having multiple names, we should maybe only set this once?
-        c.execute("UPDATE runs SET run_log__name = ? WHERE id = ?", (workflow_name, run.run_id))
-        self.db.commit()
+        self.db.set_run_log_name(run, workflow_name)
 
         # -- Store input for the workflow in a file in the temporary folder --------------------------------------------
         with open(self._params_path(run), "w") as pf:
@@ -368,10 +364,7 @@ class WESBackend(ABC):
         cmd = self._get_command(self.workflow_path(run), self._params_path(run), self.run_dir(run))
 
         # -- Update run log with command and Celery ID -----------------------------------------------------------------
-        c.execute(
-            "UPDATE runs SET run_log__cmd = ?, run_log__celery_id = ? WHERE id = ?",
-            (" ".join(cmd), celery_id, run.run_id))
-        self.db.commit()
+        self.db.set_run_log_command_and_celery_id(run, cmd, celery_id)
 
         return cmd, workflow_params_with_secrets
 

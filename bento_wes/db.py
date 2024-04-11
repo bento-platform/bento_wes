@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urljoin
 
 from . import states
+from .backends.backend_types import Command
 from .constants import SERVICE_ARTIFACT
 from .events import get_flask_event_bus
 from .models import RunLog, RunRequest, Run, RunWithDetailsAndOutput
@@ -95,10 +96,8 @@ class Database:
         self._conn.close()
 
     def init(self):
-        c = self.cursor()
-
         with current_app.open_resource("schema.sql") as sf:
-            c.executescript(sf.read().decode("utf-8"))
+            self.cursor().executescript(sf.read().decode("utf-8"))
 
         self.commit()
 
@@ -113,10 +112,10 @@ class Database:
         """
         Updates a run's state, sets the run log's end time, and publishes an event corresponding with a run failure
         or a run success, depending on the state.
-        :param c: An SQLite connection cursor
         :param event_bus: A bento_lib-defined event bus implementation for sending events
         :param run: The run which just finished
         :param state: The terminal state for the finished run
+        :param cursor: An SQLite connection cursor to re-use (optional)
         :param logger: An optionally-provided logger object.
         :return:
         """
@@ -223,6 +222,17 @@ class Database:
         if run := cls._get_run_row(c, run_id):
             return cls.run_with_details_and_output_from_row(c, run, stream_content)
         return None
+
+    def set_run_log_name(self, run: Run, workflow_name: str):
+        # TODO: To avoid having multiple names, we should maybe only set this once?
+        self.cursor().execute("UPDATE runs SET run_log__name = ? WHERE id = ?", (workflow_name, run.run_id))
+        self.commit()
+
+    def set_run_log_command_and_celery_id(self, run: Run, cmd: Command, celery_id: int):
+        self.cursor().execute(
+            "UPDATE runs SET run_log__cmd = ?, run_log__celery_id = ? WHERE id = ?",
+            (" ".join(cmd), celery_id, run.run_id))
+        self.commit()
 
     @staticmethod
     def set_run_outputs(c: sqlite3.Cursor, run_id: str, outputs: dict[str, Any]):
