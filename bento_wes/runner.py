@@ -5,10 +5,10 @@ from celery.utils.log import get_task_logger
 from flask import current_app
 
 from . import states
-from .backends import WESBackend
 from .backends.cromwell_local import CromwellLocalBackend
+from .backends.wes_backend import WESBackend
 from .celery import celery
-from .db import get_db, get_run_with_details, finish_run
+from .db import Database, get_db
 from .events import get_new_event_bus
 from .workflows import parse_workflow_host_allow_list
 
@@ -17,14 +17,14 @@ from .workflows import parse_workflow_host_allow_list
 def run_workflow(self, run_id: uuid.UUID):
     logger = get_task_logger(__name__)
 
-    db = get_db()
+    db: Database = get_db()
     c = db.cursor()
     event_bus = get_new_event_bus()
 
     # Checks ------------------------------------------------------------------
 
     # Check that the run and its associated objects exist
-    run = get_run_with_details(c, run_id, stream_content=False)
+    run = db.get_run_with_details(c, run_id, stream_content=False)
     if run is None:
         logger.error(f"Cannot find run {run_id}")
         return
@@ -79,7 +79,7 @@ def run_workflow(self, run_id: uuid.UUID):
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while obtaining access token: {type(e).__name__} {e}")
-        finish_run(db, c, event_bus, run, states.STATE_SYSTEM_ERROR, logger=logger)
+        db.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, cursor=c, logger=logger)
         raise e
 
     # Perform the run
@@ -89,5 +89,5 @@ def run_workflow(self, run_id: uuid.UUID):
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while performing run: {type(e).__name__} {e}")
-        finish_run(db, c, event_bus, run, states.STATE_SYSTEM_ERROR, logger=logger)
+        db.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, cursor=c, logger=logger)
         raise e

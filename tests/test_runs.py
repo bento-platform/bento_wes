@@ -171,7 +171,7 @@ def test_run_cancel_endpoint(client, mocked_responses):
 
 
 def test_runs_public_endpoint(client, mocked_responses):
-    from bento_wes.db import get_db, update_run_state_and_commit
+    from bento_wes.db import get_db
     from bento_lib.events import EventBus
 
     event_bus = EventBus(allow_fake=True)  # mock event bus
@@ -185,7 +185,7 @@ def test_runs_public_endpoint(client, mocked_responses):
     # make sure the run is complete, otherwise the public endpoint won't list it
     db = get_db()
     c = db.cursor()
-    update_run_state_and_commit(db, c, rv.get_json()["run_id"], STATE_COMPLETE, event_bus)
+    db.update_run_state_and_commit(c, rv.get_json()["run_id"], STATE_COMPLETE, event_bus)
 
     # validate the public runs endpoint
     rv = client.get("/runs?with_details=true&public=true")

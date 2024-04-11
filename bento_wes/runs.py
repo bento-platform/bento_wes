@@ -27,13 +27,7 @@ from werkzeug.utils import secure_filename
 from . import states
 from .authz import authz_middleware
 from .celery import celery
-from .db import (
-    get_db,
-    run_with_details_and_output_from_row,
-    get_run,
-    get_run_with_details,
-    update_run_state_and_commit,
-)
+from .db import Database, get_db
 from .events import get_flask_event_bus
 from .logger import logger
 from .models import RunRequest
@@ -128,7 +122,7 @@ def _config_for_run(run_dir: Path) -> dict[str, str | bool | None]:
     }
 
 
-def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
+def _create_run(db: Database, c: sqlite3.Cursor) -> Response:
     run_req = RunRequest.model_validate(request.form.to_dict())
 
     # Check ingest permissions before continuing
@@ -261,7 +255,7 @@ def _create_run(db: sqlite3.Connection, c: sqlite3.Cursor) -> Response:
     # TODO: figure out timeout
     # TODO: retry policy
 
-    update_run_state_and_commit(db, c, run_id, states.STATE_QUEUED, logger=logger, publish_event=False)
+    db.update_run_state_and_commit(c, run_id, states.STATE_QUEUED, logger=logger, publish_event=False)
 
     run_workflow.delay(run_id)
 
@@ -296,7 +290,7 @@ PRIVATE_RUN_DETAILS_SHAPE = {
 
 @bp_runs.route("/runs", methods=["GET", "POST"])
 def run_list():
-    db = get_db()
+    db: Database = get_db()
     c = db.cursor()
 
     if request.method == "POST":
@@ -321,7 +315,7 @@ def run_list():
     perms_list: list[RunRequest] = []
 
     for r in c.execute("SELECT * FROM runs").fetchall():
-        run = run_with_details_and_output_from_row(c, r, stream_content=False)
+        run = db.run_with_details_and_output_from_row(c, r, stream_content=False)
         perms_list.append(run.request)
 
         if not public_endpoint or run.state == STATE_COMPLETE:
@@ -358,7 +352,8 @@ def _run_none_response(run_id: uuid.UUID):
 
 @bp_runs.route("/runs/<uuid:run_id>", methods=["GET"])
 def run_detail(run_id: uuid.UUID):
-    run_details = get_run_with_details(get_db().cursor(), run_id, stream_content=False)
+    db: Database = get_db()
+    run_details = db.get_run_with_details(db.cursor(), run_id, stream_content=False)
 
     if run_details is None:
         return _run_none_response(run_id)
@@ -377,7 +372,8 @@ def _denest_list(x: Any) -> list:
 
 @bp_runs.route("/runs/<uuid:run_id>/download-artifact", methods=["POST"])
 def run_download_artifact(run_id: uuid.UUID):
-    run_details = get_run_with_details(get_db().cursor(), run_id, stream_content=False)
+    db: Database = get_db()
+    run_details = db.get_run_with_details(db.cursor(), run_id, stream_content=False)
 
     if run_details is None:
         return _run_none_response(run_id)
@@ -418,7 +414,8 @@ def run_download_artifact(run_id: uuid.UUID):
 
 
 def get_stream(c: sqlite3.Cursor, stream: RunStream, run_id: uuid.UUID):
-    run = get_run_with_details(c, run_id, stream_content=True)
+    db: Database = get_db()
+    run = db.get_run_with_details(c, run_id, stream_content=True)
     return (current_app.response_class(
         headers={
             # If we've finished, we allow long-term (24h) caching of the stdout/stderr responses.
@@ -440,7 +437,8 @@ def check_run_authz_then_return_response(
     cb: Callable[[], Response | dict],
     permission: str = P_VIEW_RUNS,
 ):
-    run = get_run_with_details(c, run_id, stream_content=False)
+    db: Database = get_db()
+    run = db.get_run_with_details(c, run_id, stream_content=False)
 
     if run is None:
         return _run_none_response(run_id)
@@ -475,13 +473,13 @@ def run_cancel(run_id: uuid.UUID):
     # TODO: Check if already completed
     # TODO: Check if run log exists
     # TODO: from celery.task.control import revoke; revoke(celery_id, terminate=True)
-    db = get_db()
+    db: Database = get_db()
     c = db.cursor()
 
     run_id_str = str(run_id)
 
     def perform_run_cancel() -> Response:
-        run = get_run_with_details(c, run_id_str, stream_content=False)
+        run = db.get_run_with_details(c, run_id_str, stream_content=False)
 
         if run is None:
             return flask_not_found_error(f"Run {run_id_str} not found")
@@ -499,7 +497,7 @@ def run_cancel(run_id: uuid.UUID):
         event_bus = get_flask_event_bus()
 
         # TODO: terminate=True might be iffy
-        update_run_state_and_commit(db, c, run_id_str, states.STATE_CANCELING, event_bus=event_bus)
+        db.update_run_state_and_commit(c, run_id_str, states.STATE_CANCELING, event_bus=event_bus)
         celery.control.revoke(celery_id, terminate=True)  # Remove from queue if there, terminate if running
 
         # TODO: wait for revocation / failure and update status...
@@ -509,7 +507,7 @@ def run_cancel(run_id: uuid.UUID):
         if not current_app.config["BENTO_DEBUG"]:
             shutil.rmtree(run_dir, ignore_errors=True)
 
-        update_run_state_and_commit(db, c, run_id_str, states.STATE_CANCELED, event_bus=event_bus)
+        db.update_run_state_and_commit(c, run_id_str, states.STATE_CANCELED, event_bus=event_bus)
 
         return current_app.response_class(status=204)  # TODO: Better response
 
@@ -518,10 +516,11 @@ def run_cancel(run_id: uuid.UUID):
 
 @bp_runs.route("/runs/<uuid:run_id>/status", methods=["GET"])
 def run_status(run_id: uuid.UUID):
-    c = get_db().cursor()
+    db: Database = get_db()
+    c = db.cursor()
 
     def run_status_response() -> Response:
-        if run := get_run(c, run_id):
+        if run := db.get_run(c, run_id):
             return jsonify(run.model_dump())
         return flask_not_found_error(f"Run {run_id} not found")
 

@@ -1,4 +1,3 @@
-import sqlite3
 from flask import g
 
 
@@ -8,7 +7,7 @@ def test_db(client):
 
     # Force db init by yielding client
 
-    assert isinstance(db.get_db(), sqlite3.Connection)
+    assert isinstance(db.get_db(), db.Database)
 
     # Test helper util
     assert db._strip_first_slash("/") == ""
