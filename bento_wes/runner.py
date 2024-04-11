@@ -79,7 +79,7 @@ def run_workflow(self, run_id: uuid.UUID):
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while obtaining access token: {type(e).__name__} {e}")
-        db.finish_run(c, event_bus, run, states.STATE_SYSTEM_ERROR, logger=logger)
+        db.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, cursor=c, logger=logger)
         raise e
 
     # Perform the run
@@ -89,5 +89,5 @@ def run_workflow(self, run_id: uuid.UUID):
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while performing run: {type(e).__name__} {e}")
-        db.finish_run(c, event_bus, run, states.STATE_SYSTEM_ERROR, logger=logger)
+        db.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, cursor=c, logger=logger)
         raise e

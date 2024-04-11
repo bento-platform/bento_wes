@@ -283,7 +283,7 @@ class WESBackend(ABC):
 
         # Finish run ----------------------------------------------------------
 
-        self.db.finish_run(self.db.cursor(), self.event_bus, run, state)
+        self.db.finish_run(self.event_bus, run, state)
 
         # Clean up ------------------------------------------------------------
 

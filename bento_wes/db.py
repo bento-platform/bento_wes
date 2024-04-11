@@ -104,10 +104,10 @@ class Database:
 
     def finish_run(
         self,
-        c: sqlite3.Cursor,
         event_bus: EventBus,
         run: Run,
         state: str,
+        cursor: sqlite3.Cursor | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         """
@@ -120,6 +120,8 @@ class Database:
         :param logger: An optionally-provided logger object.
         :return:
         """
+
+        c: sqlite3.Cursor = cursor or self.cursor()
 
         run_id = run.run_id
         end_time = iso_now()
@@ -176,7 +178,7 @@ class Database:
 
             logger.info(
                 f"Found stuck run: {run.run_id} at state {run.state}. Setting state to {states.STATE_SYSTEM_ERROR}")
-            self.finish_run(c, event_bus, run, states.STATE_SYSTEM_ERROR)
+            self.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, cursor=c)
 
         self.commit()
 
