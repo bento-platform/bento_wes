@@ -1,6 +1,5 @@
 import re
 import shutil
-import sqlite3
 import subprocess
 import uuid
 
@@ -14,7 +13,7 @@ from pathlib import Path
 
 from bento_wes import states
 from bento_wes.constants import SERVICE_ARTIFACT
-from bento_wes.db import get_db, finish_run, set_run_outputs, update_run_state_and_commit
+from bento_wes.db import Database, get_db
 from bento_wes.models import Run, RunWithDetails, RunOutput
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
 from bento_wes.utils import iso_now
@@ -46,7 +45,7 @@ class WESBackend(ABC):
     ):
         self._workflow_timeout: int = workflow_timeout
 
-        self.db: sqlite3.Connection = get_db()
+        self.db: Database = get_db()
 
         self.tmp_dir: Path = tmp_dir
         self.data_dir: Path = data_dir
@@ -272,7 +271,7 @@ class WESBackend(ABC):
         :param state: The value to set the run's current state to
         """
         self.log_debug(f"Setting state of run {run_id} to {state}")
-        update_run_state_and_commit(self.db, self.db.cursor(), run_id, state, event_bus=self.event_bus)
+        self.db.update_run_state_and_commit(self.db.cursor(), run_id, state, event_bus=self.event_bus)
 
     def _finish_run_and_clean_up(self, run: Run, state: str) -> None:
         """
@@ -284,7 +283,7 @@ class WESBackend(ABC):
 
         # Finish run ----------------------------------------------------------
 
-        finish_run(self.db, self.db.cursor(), self.event_bus, run, state)
+        self.db.finish_run(self.db.cursor(), self.event_bus, run, state)
 
         # Clean up ------------------------------------------------------------
 
@@ -451,7 +450,7 @@ class WESBackend(ABC):
         workflow_outputs = self.get_workflow_outputs(run)
 
         # Explicitly don't commit here; sync with state update
-        set_run_outputs(c, run.run_id, workflow_outputs)
+        self.db.set_run_outputs(c, run.run_id, workflow_outputs)
 
         # Emit event if possible
         self.event_bus.publish_service_event(
