@@ -5,8 +5,8 @@ from celery.utils.log import get_task_logger
 from flask import current_app
 
 from . import states
-from .backends import WESBackend
 from .backends.cromwell_local import CromwellLocalBackend
+from .backends.wes_backend import WESBackend
 from .celery import celery
 from .db import Database, get_db
 from .events import get_new_event_bus

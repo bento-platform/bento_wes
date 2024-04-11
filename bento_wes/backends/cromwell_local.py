@@ -4,10 +4,11 @@ from flask import current_app, json
 from pathlib import Path
 from typing import TypeVar
 
-from bento_wes.backends import WESBackend
-from bento_wes.backends.backend_types import Command
 from bento_wes.models import Run, RunWithDetails
 from bento_wes.workflows import WorkflowType, WES_WORKFLOW_TYPE_WDL
+
+from .backend_types import Command
+from .wes_backend import WESBackend
 
 
 __all__ = [
