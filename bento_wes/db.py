@@ -14,7 +14,7 @@ from . import states
 from .backends.backend_types import Command
 from .constants import SERVICE_ARTIFACT
 from .events import get_flask_event_bus
-from .models import RunLog, RunRequest, Run, RunWithDetailsAndOutput
+from .models import RunLog, RunRequest, Run, RunWithDetails
 from .types import RunStream
 from .utils import iso_now
 
@@ -187,13 +187,13 @@ class Database:
         return [task_log_dict(task_log) for task_log in c.fetchall()]
 
     @classmethod
-    def run_with_details_and_output_from_row(
+    def run_with_details_from_row(
         cls,
         c: sqlite3.Cursor,
         run: sqlite3.Row,
         stream_content: bool,
-    ) -> RunWithDetailsAndOutput:
-        return RunWithDetailsAndOutput.model_validate(dict(
+    ) -> RunWithDetails:
+        return RunWithDetails.model_validate(dict(
             run_id=run["id"],
             state=run["state"],
             request=run_request_from_row(run),
@@ -218,9 +218,9 @@ class Database:
         c: sqlite3.Cursor,
         run_id: uuid.UUID | str,
         stream_content: bool,
-    ) -> RunWithDetailsAndOutput | None:
+    ) -> RunWithDetails | None:
         if run := cls._get_run_row(c, run_id):
-            return cls.run_with_details_and_output_from_row(c, run, stream_content)
+            return cls.run_with_details_from_row(c, run, stream_content)
         return None
 
     def set_run_log_name(self, run: Run, workflow_name: str):
