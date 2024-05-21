@@ -29,7 +29,7 @@ celery = {extras = ["redis"], version = "^5.2.7"}
 requests = "^2.32.0"
 Flask = "~2.2.5"
 pydantic = "^2.0.2"
-flask-cors = "^4.0.0"
+flask-cors = "^4.0.1"
 werkzeug = "~2.2.3"  # debugpy is broken with werkzeug 2.3.x so pin this manually
 asgiref = "^3.7.2"
 
