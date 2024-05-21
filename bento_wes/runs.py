@@ -315,7 +315,7 @@ def run_list():
     perms_list: list[RunRequest] = []
 
     for r in c.execute("SELECT * FROM runs").fetchall():
-        run = db.run_with_details_and_output_from_row(c, r, stream_content=False)
+        run = db.run_with_details_from_row(c, r, stream_content=False)
         perms_list.append(run.request)
 
         if not public_endpoint or run.state == STATE_COMPLETE:

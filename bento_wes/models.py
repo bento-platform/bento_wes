@@ -10,7 +10,6 @@ __all__ = [
     "Run",
     "RunWithDetails",
     "RunOutput",
-    "RunWithDetailsAndOutput",
 ]
 
 
@@ -46,16 +45,13 @@ class Run(BaseModel):
     state: str  # TODO: Literal
 
 
+class RunOutput(BaseModel):  # Bento-specific schema
+    type: str  # WDL / (workflow descriptor language) type
+    value: str | int | float | bool | list | None  # Output value
+
+
 class RunWithDetails(Run):
     request: RunRequest
     run_log: RunLog
     task_logs: list[dict]  # TODO: model
-
-
-class RunOutput(BaseModel):
-    type: str  # WDL / (workflow descriptor language) type
-    value: str | int | float | bool | list  # Output value
-
-
-class RunWithDetailsAndOutput(RunWithDetails):
-    outputs: dict[str, RunOutput]  # Bento-specific extension
+    outputs: dict[str, RunOutput]
