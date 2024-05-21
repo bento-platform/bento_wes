@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "bento_wes"
-version = "0.13.0"
+version = "0.14.0"
 description = "Workflow execution service for the Bento platform."
 authors = [
     "David Lougheed <david.lougheed@mail.mcgill.ca>",
@@ -24,11 +24,11 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = "^3.10.0"
-bento-lib = {extras = ["flask"], version = "^11.5.0"}
-celery = {extras = ["redis"], version = "^5.2.7"}
-requests = "^2.32.0"
+bento-lib = {extras = ["flask"], version = "^11.8.0"}
+celery = {extras = ["redis"], version = "^5.4.0"}
+requests = "^2.32.2"
 Flask = "~2.2.5"
-pydantic = "^2.0.2"
+pydantic = "^2.7.1"
 flask-cors = "^4.0.1"
 werkzeug = "~2.2.3"  # debugpy is broken with werkzeug 2.3.x so pin this manually
 asgiref = "^3.7.2"
