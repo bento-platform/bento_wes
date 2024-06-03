@@ -3,11 +3,10 @@ FROM --platform=$BUILDPLATFORM debian:bullseye-slim AS downloaded-deps
 SHELL ["/bin/bash", "-c"]
 
 # Install VCF2MAF
-#  - support VEP v107+ by patching vcf2maf to remove references to removed --af_esp option
 # TODO: I don't like /opt as a home for these
 
 WORKDIR /tmp/vcf2maf
-ENV VCF2MAF_VERSION=1.6.21
+ENV VCF2MAF_VERSION=1.6.22
 RUN apt-get update -y && \
     apt-get install -y curl git unzip wget && \
     echo "https://github.com/mskcc/vcf2maf/archive/refs/tags/v${VCF2MAF_VERSION}.zip" && \
@@ -16,12 +15,11 @@ RUN apt-get update -y && \
     mv "vcf2maf-${VCF2MAF_VERSION}" vcf2maf && \
     mkdir -p /opt/data && \
     cp vcf2maf/*.pl /opt && \
-    sed -i '/ --af_esp/d' /opt/vcf2maf.pl && \
     cp -r vcf2maf/data /opt/data && \
     rm -rf vcf2maf
 
 # Download Cromwell + WOMtool
-ENV CROMWELL_VERSION=86
+ENV CROMWELL_VERSION=87
 WORKDIR /
 RUN curl -L \
     https://github.com/broadinstitute/cromwell/releases/download/${CROMWELL_VERSION}/cromwell-${CROMWELL_VERSION}.jar \
@@ -32,7 +30,7 @@ RUN curl -L \
 
 
 # Clone (but don't install yet) Ensembl-VEP
-ENV VEP_ENSEMBL_GIT_VERSION=111.0
+ENV VEP_ENSEMBL_GIT_VERSION=112.0
 RUN git clone --depth 1 -b "release/${VEP_ENSEMBL_GIT_VERSION}" https://github.com/Ensembl/ensembl-vep.git && \
     chmod u+x ensembl-vep/*.pl
 
@@ -49,7 +47,7 @@ RUN curl -L https://github.com/Ensembl/ensembl-xs/archive/2.3.2.zip -o ensembl-x
 
 WORKDIR /
 
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2024.04.01 AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2024.06.01 AS base-deps
 
 SHELL ["/bin/bash", "-c"]
 
@@ -129,8 +127,8 @@ COPY --from=downloaded-deps /cromwell.jar /cromwell.jar
 COPY --from=downloaded-deps /womtool.jar /womtool.jar
 
 # - Copy Ensembl-VEP
-COPY --from=ensemblorg/ensembl-vep:release_111.0 /usr/share/perl/5.34.0/CPAN /opt/vep
-COPY --from=ensemblorg/ensembl-vep:release_111.0 /opt/vep /opt/vep
+COPY --from=ensemblorg/ensembl-vep:release_112.0 /usr/share/perl/5.34.0/CPAN /opt/vep
+COPY --from=ensemblorg/ensembl-vep:release_112.0 /opt/vep /opt/vep
 
 ENTRYPOINT [ "bash", "./entrypoint.bash" ]
 CMD [ "bash", "./run.bash" ]
