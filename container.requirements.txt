@@ -1,4 +1,4 @@
-gunicorn==22.0.0
-gevent==23.9.1
-pysam>=0.22.0,<0.23.0
-fasta-checksum-utils>=0.4.1,<0.5
+gunicorn==23.0.0
+gevent==24.2.1
+pysam>=0.22.1,<0.23.0
+fasta-checksum-utils>=0.4.3,<0.5
