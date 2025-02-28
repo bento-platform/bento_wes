@@ -2,11 +2,12 @@ import re
 import shutil
 import subprocess
 import uuid
+import requests
 
 from abc import ABC, abstractmethod
 from bento_lib.events import EventBus
 from bento_lib.events.types import EVENT_WES_RUN_FINISHED
-from bento_lib.workflows.models import WorkflowSecretInput
+from bento_lib.workflows.models import WorkflowSecretInput, WorkflowFileInput, WorkflowFileArrayInput
 from bento_lib.workflows.utils import namespaced_input
 from flask import current_app
 from pathlib import Path
@@ -252,6 +253,52 @@ class WESBackend(ABC):
             # Invalid/non-workflow-specifying WDL file if false-y
             return workflow_id_match.group(1) if workflow_id_match else None
 
+    def download_input_file(self, path: str, token: str, run_dir: Path):
+        """
+        Downloads the input file from Drop-Box in the run directory.
+        Returns the path to the temp file to inject in the workflow parameters.
+        
+        This makes the interactions between WES and Drop-Box purely network based,
+        which is necessary for object storage backends like S3.
+        """
+
+        validate_ssl = current_app.config["BENTO_VALIDATE_SSL"]
+        self.log_debug(f"Downloading input {input} from dropbox")
+
+        # Temp hack: remove the drop-box mount prefix to query drop-box over HTTP
+        # TODO: probably best to simply have the input file value be the drop-box URL
+        drop_box_path_prefix = "/data"
+        drop_box_object = path
+        if path.startswith(drop_box_path_prefix):
+            drop_box_object = path[len(drop_box_path_prefix):]
+
+        # TODO: parametrize drop-box url
+        url = f"https://bentov2.local/api/drop-box/objects/{drop_box_object}"
+
+        # TODO: require grant 'view:drop_box' (docs)
+        response = requests.post(
+            url,
+            data={"token": token},
+            verify=validate_ssl
+        )
+
+        if response.status_code != 200:
+            raise RunExceptionWithFailState(
+                STATE_EXECUTOR_ERROR,
+                f"Download request to drop-box resulted in a non 200 status code: {response.status_code}"
+            )
+
+        file_name = drop_box_object.split("/")[-1]
+        tmp_file_path = f"{run_dir}/{file_name}"
+        with open(tmp_file_path, 'wb') as f:
+            f.write(response.content)
+        return tmp_file_path
+
+
+    def download_input_files_array(self,  file_array: list[str], token: str, run_dir: Path):
+        tmp_array = [self.download_input_file(file_path, token, run_dir) for file_path in file_array]
+        return tmp_array
+
     @abstractmethod
     def _get_command(self, workflow_path: Path, params_path: Path, run_dir: Path) -> Command:
         """
@@ -338,6 +385,18 @@ class WESBackend(ABC):
                     self.log_error(err)
                     return self._finish_run_and_clean_up(run, STATE_EXECUTOR_ERROR)
                 workflow_params_with_secrets[namespaced_input(run_req.tags.workflow_id, run_input.id)] = secret_value
+            elif isinstance(run_input, WorkflowFileInput):
+                # Inject TMP file location downloaded from drop-box
+                param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
+                file_path = run_req.workflow_params.get(param_key)
+                tmp_file_path = self.download_input_file(file_path, secrets["access_token"], run_dir)
+                workflow_params_with_secrets[param_key] = tmp_file_path
+            elif isinstance(run_input, WorkflowFileArrayInput):
+                # Inject TMP file locations downloaded from drop-box
+                param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
+                file_array = run_req.workflow_params.get(param_key)
+                tmp_file_array = self.download_input_files_array(file_array, secrets["access_token"], run_dir)
+                workflow_params_with_secrets[param_key] = tmp_file_array
 
         # -- Validate the workflow -------------------------------------------------------------------------------------
 
@@ -359,6 +418,9 @@ class WESBackend(ABC):
         # -- Store input for the workflow in a file in the temporary folder --------------------------------------------
         with open(self._params_path(run), "w") as pf:
             pf.write(self._serialize_params(workflow_params_with_secrets))
+
+        # -- Download input file from drop-box
+
 
         # -- Create the runner command based on inputs -----------------------------------------------------------------
         cmd = self._get_command(self.workflow_path(run), self._params_path(run), self.run_dir(run))
