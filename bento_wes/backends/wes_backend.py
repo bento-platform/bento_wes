@@ -257,7 +257,7 @@ class WESBackend(ABC):
         """
         Downloads the input file from Drop-Box in the run directory.
         Returns the path to the temp file to inject in the workflow parameters.
-        
+
         This makes the interactions between WES and Drop-Box purely network based,
         which is necessary for object storage backends like S3.
         """
@@ -293,7 +293,6 @@ class WESBackend(ABC):
         with open(tmp_file_path, 'wb') as f:
             f.write(response.content)
         return tmp_file_path
-
 
     def download_input_files_array(self,  file_array: list[str], token: str, run_dir: Path):
         tmp_array = [self.download_input_file(file_path, token, run_dir) for file_path in file_array]
@@ -418,9 +417,6 @@ class WESBackend(ABC):
         # -- Store input for the workflow in a file in the temporary folder --------------------------------------------
         with open(self._params_path(run), "w") as pf:
             pf.write(self._serialize_params(workflow_params_with_secrets))
-
-        # -- Download input file from drop-box
-
 
         # -- Create the runner command based on inputs -----------------------------------------------------------------
         cmd = self._get_command(self.workflow_path(run), self._params_path(run), self.run_dir(run))
