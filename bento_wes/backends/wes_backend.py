@@ -253,7 +253,7 @@ class WESBackend(ABC):
             # Invalid/non-workflow-specifying WDL file if false-y
             return workflow_id_match.group(1) if workflow_id_match else None
 
-    def download_input_file(self, path: str, token: str, run_dir: Path):
+    def download_input_file(self, obj_path: str, token: str, run_dir: Path):
         """
         Downloads the input file from Drop-Box in the run directory.
         Returns the path to the temp file to inject in the workflow parameters.
@@ -265,17 +265,10 @@ class WESBackend(ABC):
         validate_ssl = current_app.config["BENTO_VALIDATE_SSL"]
         self.log_debug(f"Downloading input {input} from dropbox")
 
-        # Temp hack: remove the drop-box mount prefix to query drop-box over HTTP
-        # TODO: probably best to simply have the input file value be the drop-box URL
-        drop_box_path_prefix = "/data"
-        drop_box_object = path
-        if path.startswith(drop_box_path_prefix):
-            drop_box_object = path[len(drop_box_path_prefix):]
-
         # TODO: parametrize drop-box url
-        url = f"https://bentov2.local/api/drop-box/objects/{drop_box_object}"
+        url = f"https://bentov2.local/api/drop-box/objects/{obj_path}"
 
-        # TODO: require grant 'view:drop_box' (docs)
+        # TODO: WES client requires grant 'view:drop_box' (docs)
         response = requests.post(
             url,
             data={"token": token},
@@ -288,7 +281,7 @@ class WESBackend(ABC):
                 f"Download request to drop-box resulted in a non 200 status code: {response.status_code}"
             )
 
-        file_name = drop_box_object.split("/")[-1]
+        file_name = obj_path.split("/")[-1]
         tmp_file_path = f"{run_dir}/{file_name}"
         with open(tmp_file_path, 'wb') as f:
             f.write(response.content)
