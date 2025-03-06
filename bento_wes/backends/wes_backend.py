@@ -253,7 +253,7 @@ class WESBackend(ABC):
             # Invalid/non-workflow-specifying WDL file if false-y
             return workflow_id_match.group(1) if workflow_id_match else None
 
-    def download_input_file(self, obj_path: str, token: str, run_dir: Path):
+    def download_input_file(self, obj_path: str, token: str, run_dir: Path) -> Path:
         """
         Downloads the input file from Drop-Box in the run directory.
         Returns the path to the temp file to inject in the workflow parameters.
@@ -261,31 +261,33 @@ class WESBackend(ABC):
         This makes the interactions between WES and Drop-Box purely network based,
         which is necessary for object storage backends like S3.
         """
+        if not obj_path:
+            return None
 
         validate_ssl = current_app.config["BENTO_VALIDATE_SSL"]
         self.log_debug(f"Downloading input {input} from dropbox")
 
         # TODO: parametrize drop-box url
-        url = f"https://bentov2.local/api/drop-box/objects/{obj_path}"
+        url = f"https://bentov2.local/api/drop-box/objects{obj_path}"
 
         # TODO: WES client requires grant 'view:drop_box' (docs)
-        response = requests.post(
+        with requests.get(
             url,
-            data={"token": token},
-            verify=validate_ssl
-        )
+            headers={"Authorization": f"Bearer {token}"},
+            verify=validate_ssl,
+            stream=True
+        ) as response:
+            if response.status_code != 200:
+                raise RunExceptionWithFailState(
+                    STATE_EXECUTOR_ERROR,
+                    f"Download request to drop-box resulted in a non 200 status code: {response.status_code}"
+                )
 
-        if response.status_code != 200:
-            raise RunExceptionWithFailState(
-                STATE_EXECUTOR_ERROR,
-                f"Download request to drop-box resulted in a non 200 status code: {response.status_code}"
-            )
-
-        file_name = obj_path.split("/")[-1]
-        tmp_file_path = f"{run_dir}/{file_name}"
-        with open(tmp_file_path, 'wb') as f:
-            f.write(response.content)
-        return tmp_file_path
+            file_name = obj_path.split("/")[-1]
+            tmp_file_path = f"{run_dir}/{file_name}"
+            with open(tmp_file_path, 'wb') as f:
+                f.writelines(response.iter_lines())
+            return tmp_file_path
 
     def download_input_files_array(self,  file_array: list[str], token: str, run_dir: Path):
         tmp_array = [self.download_input_file(file_path, token, run_dir) for file_path in file_array]
