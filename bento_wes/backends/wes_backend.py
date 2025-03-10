@@ -270,6 +270,9 @@ class WESBackend(ABC):
         # TODO: parametrize drop-box url
         url = f"https://bentov2.local/api/drop-box/objects{obj_path}"
 
+        file_name = obj_path.split("/")[-1]
+        tmp_file_path = f"{run_dir}/{file_name}"
+
         # TODO: WES client requires grant 'view:drop_box' (docs)
         with requests.get(
             url,
@@ -282,12 +285,12 @@ class WESBackend(ABC):
                     STATE_EXECUTOR_ERROR,
                     f"Download request to drop-box resulted in a non 200 status code: {response.status_code}"
                 )
-
-            file_name = obj_path.split("/")[-1]
-            tmp_file_path = f"{run_dir}/{file_name}"
             with open(tmp_file_path, 'wb') as f:
-                f.writelines(response.iter_lines())
-            return tmp_file_path
+                # chunk_size=None to use the chunk size from the stream
+                for chunk in response.iter_content(chunk_size=None):
+                    f.write(chunk)
+        self.log_debug(f"Temp file {file_name} downloaded at path: {tmp_file_path}")
+        return tmp_file_path
 
     def download_input_files_array(self,  file_array: list[str], token: str, run_dir: Path):
         tmp_array = [self.download_input_file(file_path, token, run_dir) for file_path in file_array]
