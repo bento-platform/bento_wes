@@ -17,7 +17,7 @@ from bento_wes.constants import SERVICE_ARTIFACT
 from bento_wes.db import Database, get_db
 from bento_wes.models import Run, RunWithDetails, RunOutput
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
-from bento_wes.utils import iso_now
+from bento_wes.utils import get_object_drop_box_url, iso_now
 from bento_wes.workflows import WorkflowType, WorkflowManager
 
 from .backend_types import Command, ProcessResult
@@ -267,15 +267,13 @@ class WESBackend(ABC):
         validate_ssl = current_app.config["BENTO_VALIDATE_SSL"]
         self.log_debug(f"Downloading input {input} from dropbox")
 
-        # TODO: parametrize drop-box url
-        url = f"https://bentov2.local/api/drop-box/objects{obj_path}"
+        download_url = get_object_drop_box_url(obj_path)
 
         file_name = obj_path.split("/")[-1]
         tmp_file_path = f"{run_dir}/{file_name}"
 
-        # TODO: WES client requires grant 'view:drop_box' (docs)
         with requests.get(
-            url,
+            download_url,
             headers={"Authorization": f"Bearer {token}"},
             verify=validate_ssl,
             stream=True
