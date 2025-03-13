@@ -1,3 +1,4 @@
+import os
 import re
 import shutil
 import subprocess
@@ -7,7 +8,9 @@ import requests
 from abc import ABC, abstractmethod
 from bento_lib.events import EventBus
 from bento_lib.events.types import EVENT_WES_RUN_FINISHED
-from bento_lib.workflows.models import WorkflowSecretInput, WorkflowFileInput, WorkflowFileArrayInput
+from bento_lib.workflows.models import (
+    WorkflowSecretInput, WorkflowFileInput, WorkflowFileArrayInput, WorkflowDirectoryInput
+)
 from bento_lib.workflows.utils import namespaced_input
 from flask import current_app
 from pathlib import Path
@@ -16,6 +19,7 @@ from bento_wes import states
 from bento_wes.constants import SERVICE_ARTIFACT
 from bento_wes.db import Database, get_db
 from bento_wes.models import Run, RunWithDetails, RunOutput
+from bento_wes.service_registry import get_bento_service_kind_url
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
 from bento_wes.utils import get_object_drop_box_url, iso_now
 from bento_wes.workflows import WorkflowType, WorkflowManager
@@ -253,7 +257,7 @@ class WESBackend(ABC):
             # Invalid/non-workflow-specifying WDL file if false-y
             return workflow_id_match.group(1) if workflow_id_match else None
 
-    def download_input_file(self, obj_path: str, token: str, run_dir: Path) -> Path:
+    def download_input_file(self, obj_path: str, token: str, run_dir: Path) -> str:
         """
         Downloads the input file from Drop-Box in the run directory.
         Returns the path to the temp file to inject in the workflow parameters.
@@ -262,6 +266,7 @@ class WESBackend(ABC):
         which is necessary for object storage backends like S3.
         """
         if not obj_path:
+            # Ignore empty inputs (e.g. reference genome ingestion with no GFF3 files)
             return None
 
         validate_ssl = current_app.config["BENTO_VALIDATE_SSL"]
@@ -290,9 +295,57 @@ class WESBackend(ABC):
         self.log_debug(f"Temp file {file_name} downloaded at path: {tmp_file_path}")
         return tmp_file_path
 
-    def download_input_files_array(self,  file_array: list[str], token: str, run_dir: Path):
+    def download_input_files_array(self,  file_array: list[str], token: str, run_dir: Path) -> list[str]:
         tmp_array = [self.download_input_file(file_path, token, run_dir) for file_path in file_array]
         return tmp_array
+
+    def download_directory_tree(self, tree: list[dict], token: str, run_dir: Path):
+        # Downloads the contents of a given Drop-Box tree or sub-tree to the temporary run_dir directory
+        validate_ssl = current_app.config["BENTO_VALIDATE_SSL"]
+        for node in tree:
+            if contents := node.get("contents"):
+                self.log_debug(f"GOING IN SUB TREE {node['filePath']}")
+                self.download_directory_tree(contents, token, run_dir)
+            if uri := node.get("uri"):
+                path = node.get("filePath")
+                tmp_path = run_dir.joinpath(path)
+                self.log_debug(f"DOWNLOADING {tmp_path}")
+                os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
+                with requests.get(
+                    uri,
+                    headers={"Authorization": f"Bearer {token}"},
+                    verify=validate_ssl,
+                    stream=True
+                ) as response:
+                    if response.status_code != 200:
+                        raise RunExceptionWithFailState(
+                            STATE_EXECUTOR_ERROR,
+                            f"Download request to drop-box resulted in a non 200 status code: {response.status_code}"
+                        )
+                    with open(tmp_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=None):
+                            f.write(chunk)
+
+    def download_input_directory(self, directory: str, token: str, run_dir: Path) -> str:
+        validate_ssl = current_app.config["BENTO_VALIDATE_SSL"]
+        d_box_url = get_bento_service_kind_url("drop-box")
+
+        # retrieve directory sub-tree
+        sub_tree = directory.lstrip("/")
+        with requests.get(
+            f"{d_box_url}/tree/{sub_tree}",
+            headers={"Authorization": f"Bearer {token}"},
+            verify=validate_ssl,
+            stream=True
+        ) as response:
+            if response.status_code != 200:
+                raise RunExceptionWithFailState(
+                    STATE_EXECUTOR_ERROR,
+                    f"Tree request to drop-box resulted in a non 200 status code: {response.status_code}"
+                )
+            tree = response.json()
+            self.download_directory_tree(tree, token, run_dir)
+        return str(run_dir.joinpath(sub_tree))
 
     @abstractmethod
     def _get_command(self, workflow_path: Path, params_path: Path, run_dir: Path) -> Command:
@@ -371,27 +424,32 @@ class WESBackend(ABC):
         # the run ID was passed to the runner:
         workflow_params_with_secrets: ParamDict = {**run_req.workflow_params}
 
-        # -- Find which inputs are secrets, which need to be injected here (so they don't end up in the database) ------
         for run_input in run_req.tags.workflow_metadata.inputs:
             if isinstance(run_input, WorkflowSecretInput):
+                # Find which inputs are secrets, which need to be injected here (so they don't end up in the database)
                 secret_value = secrets.get(run_input.key)
                 if secret_value is None:
                     err = f"Could not find injectable secret for key {run_input.key}"
                     self.log_error(err)
                     return self._finish_run_and_clean_up(run, STATE_EXECUTOR_ERROR)
                 workflow_params_with_secrets[namespaced_input(run_req.tags.workflow_id, run_input.id)] = secret_value
-            elif isinstance(run_input, WorkflowFileInput):
-                # Inject TMP file location downloaded from drop-box
+            elif isinstance(run_input, (WorkflowFileInput, WorkflowFileArrayInput)):
+                # Finds workflow inputs for drop-box file(s)
+                # Downloads the files in a temp dir and injects the path
                 param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
-                file_path = run_req.workflow_params.get(param_key)
-                tmp_file_path = self.download_input_file(file_path, secrets["access_token"], run_dir)
-                workflow_params_with_secrets[param_key] = tmp_file_path
-            elif isinstance(run_input, WorkflowFileArrayInput):
-                # Inject TMP file locations downloaded from drop-box
+                input_param = run_req.workflow_params.get(param_key)
+                if isinstance(input_param, list):
+                    injected_input = self.download_input_files_array(input_param, secrets["access_token"], run_dir)
+                else:
+                    injected_input = self.download_input_file(input_param, secrets["access_token"], run_dir)
+                workflow_params_with_secrets[param_key] = injected_input
+            elif isinstance(run_input, WorkflowDirectoryInput):
+                # Finds workfloe inputs for a drop-box directory
+                # Downloads the directory's contents to a temp directory and injects the path
                 param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
-                file_array = run_req.workflow_params.get(param_key)
-                tmp_file_array = self.download_input_files_array(file_array, secrets["access_token"], run_dir)
-                workflow_params_with_secrets[param_key] = tmp_file_array
+                input_param = run_req.workflow_params.get(param_key)
+                injected_dir = self.download_input_directory(input_param, secrets["access_token"], run_dir)
+                workflow_params_with_secrets[param_key] = injected_dir
 
         # -- Validate the workflow -------------------------------------------------------------------------------------
 
