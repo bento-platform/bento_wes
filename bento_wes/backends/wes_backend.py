@@ -1,9 +1,9 @@
 import os
 import re
+import requests
 import shutil
 import subprocess
 import uuid
-import requests
 
 from abc import ABC, abstractmethod
 from bento_lib.events import EventBus
@@ -315,7 +315,7 @@ class WESBackend(ABC):
                 self._download_directory_tree(contents, token, run_dir)
             elif uri := node.get("uri"):
                 # Node is a file: download
-                tmp_path = run_dir.joinpath(node.get("filePath"))
+                tmp_path = run_dir.joinpath(node["filePath"])
                 os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
                 self._download_to_path(uri, token, tmp_path)
 
@@ -416,8 +416,9 @@ class WESBackend(ABC):
 
         # run_req.workflow_params now includes non-secret injected values since it was read from the database after
         # the run ID was passed to the runner:
-        workflow_params_with_secrets: ParamDict = {**run_req.workflow_params}
+        processed_workflow_params: ParamDict = {**run_req.workflow_params}
 
+        # -- Inject workflow inputs that should NOT be stored in DB (secrets, temporary files) -------------------------
         for run_input in run_req.tags.workflow_metadata.inputs:
             if isinstance(run_input, WorkflowSecretInput):
                 # Find which inputs are secrets, which need to be injected here (so they don't end up in the database)
@@ -426,7 +427,7 @@ class WESBackend(ABC):
                     err = f"Could not find injectable secret for key {run_input.key}"
                     self.log_error(err)
                     return self._finish_run_and_clean_up(run, STATE_EXECUTOR_ERROR)
-                workflow_params_with_secrets[namespaced_input(run_req.tags.workflow_id, run_input.id)] = secret_value
+                processed_workflow_params[namespaced_input(run_req.tags.workflow_id, run_input.id)] = secret_value
             elif isinstance(run_input, (WorkflowFileInput, WorkflowFileArrayInput)):
                 # Finds workflow inputs for drop-box file(s)
                 # Downloads the file(s) in a temp dir and injects the path(s)
@@ -436,14 +437,14 @@ class WESBackend(ABC):
                     injected_input = self._download_input_files_array(input_param, secrets["access_token"], run_dir)
                 else:
                     injected_input = self._download_input_file(input_param, secrets["access_token"], run_dir)
-                workflow_params_with_secrets[param_key] = injected_input
+                processed_workflow_params[param_key] = injected_input
             elif isinstance(run_input, WorkflowDirectoryInput):
                 # Finds workfloe inputs for a drop-box directory
                 # Downloads the directory's contents to a temp directory and injects the path
                 param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
                 input_param = run_req.workflow_params.get(param_key)
                 injected_dir = self._download_input_directory(input_param, secrets["access_token"], run_dir)
-                workflow_params_with_secrets[param_key] = injected_dir
+                processed_workflow_params[param_key] = injected_dir
 
         # -- Validate the workflow -------------------------------------------------------------------------------------
 
@@ -464,7 +465,7 @@ class WESBackend(ABC):
 
         # -- Store input for the workflow in a file in the temporary folder --------------------------------------------
         with open(self._params_path(run), "w") as pf:
-            pf.write(self._serialize_params(workflow_params_with_secrets))
+            pf.write(self._serialize_params(processed_workflow_params))
 
         # -- Create the runner command based on inputs -----------------------------------------------------------------
         cmd = self._get_command(self.workflow_path(run), self._params_path(run), self.run_dir(run))
@@ -472,7 +473,7 @@ class WESBackend(ABC):
         # -- Update run log with command and Celery ID -----------------------------------------------------------------
         self.db.set_run_log_command_and_celery_id(run, cmd, celery_id)
 
-        return cmd, workflow_params_with_secrets
+        return cmd, processed_workflow_params
 
     @abstractmethod
     def get_workflow_outputs(self, run: RunWithDetails) -> dict[str, RunOutput]:

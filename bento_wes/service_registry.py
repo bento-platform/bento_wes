@@ -36,6 +36,6 @@ def get_bento_services() -> dict:
 
 def get_bento_service_kind_url(kind: str) -> str | None:
     services = get_bento_services()
-    service_details: dict = services.get(kind)
+    service_details: dict | None = services.get(kind)
     if service_details:
         return service_details.get("url")
