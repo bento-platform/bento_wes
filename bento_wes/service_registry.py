@@ -4,6 +4,7 @@ from flask import current_app
 
 __all__ = [
     "get_bento_services",
+    "get_bento_service_kind_url",
 ]
 
 
@@ -35,6 +36,7 @@ def get_bento_services() -> dict:
 
 
 def get_bento_service_kind_url(kind: str) -> str | None:
+    # TODO: replace this with upcoming bento_lib service registry utils
     services = get_bento_services()
     service_details: dict | None = services.get(kind)
     if service_details:

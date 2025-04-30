@@ -439,7 +439,7 @@ class WESBackend(ABC):
                     injected_input = self._download_input_file(input_param, secrets["access_token"], run_dir)
                 processed_workflow_params[param_key] = injected_input
             elif isinstance(run_input, WorkflowDirectoryInput):
-                # Finds workfloe inputs for a drop-box directory
+                # Finds workflow inputs for a drop-box directory
                 # Downloads the directory's contents to a temp directory and injects the path
                 param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
                 input_param = run_req.workflow_params.get(param_key)
