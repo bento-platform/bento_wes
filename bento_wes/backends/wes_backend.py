@@ -22,7 +22,7 @@ from bento_wes.models import Run, RunWithDetails, RunOutput
 from bento_wes.service_registry import get_bento_service_kind_url
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
 from bento_wes.utils import get_object_drop_box_url, iso_now
-from bento_wes.workflows import WorkflowType, WorkflowManager
+from bento_wes.workflows import WORKFLOW_USE_INPUT_URL_FILE_REF, WorkflowType, WorkflowManager
 
 from .backend_types import Command, ProcessResult
 from .exceptions import RunExceptionWithFailState
@@ -279,7 +279,27 @@ class WESBackend(ABC):
                     f.write(chunk)
         self.log_debug(f"Downloaded file at {url} to path {destination}")
 
-    def _download_input_file(self, obj_path: str, token: str, run_dir: Path) -> str:
+    def _inputs_url_refs(self, files: str | list[str], token: str) -> str | list[str] | None:
+        if not files:
+            return None
+
+        if isinstance(files, list):
+            input_files = [ get_object_drop_box_url(f_path) for f_path in files ]
+        else:
+            input_files = get_object_drop_box_url(files)
+        return input_files
+
+
+    def _download_input_files(self, inputs: str | list[str], token: str, run_dir: Path) -> str | list[str] | None:
+        if not inputs:
+            return None
+        
+        if isinstance(inputs, list):
+            return [self._download_input_file(f) for f in inputs]
+        else:
+            return self._download_input_file(inputs, token, run_dir)
+
+    def _download_input_file(self, obj_path: str, token: str, run_dir: Path) -> str | None:
         """
         Downloads an input file from Drop-Box in the run directory.
         Returns the path to the temp file to inject in the workflow params.
@@ -295,14 +315,6 @@ class WESBackend(ABC):
         download_url = get_object_drop_box_url(obj_path)
         self._download_to_path(download_url, token, tmp_file_path)
         return tmp_file_path
-
-    def _download_input_files_array(self,  file_array: list[str], token: str, run_dir: Path) -> list[str]:
-        """
-        Downloads a list of files from Drop-Box to the run directory.
-        Returns the paths in the run directory to inject in the workflow params.
-        """
-        tmp_array = [self._download_input_file(file_path, token, run_dir) for file_path in file_array]
-        return tmp_array
 
     def _download_directory_tree(self, tree: list[dict], token: str, run_dir: Path):
         """
@@ -418,6 +430,12 @@ class WESBackend(ABC):
         # the run ID was passed to the runner:
         processed_workflow_params: ParamDict = {**run_req.workflow_params}
 
+        # -- Check if file injection needed ----------------------------------------------------------------------------
+        # Most workflow with input files expect the files to be accessible locally (temp file inject)
+        # In some cases, a URL reference to the file must be passed to the data service (e.g. gohan VCFs ingestion)
+        # use_input_url_ref = run_req.tags.workflow_id == 'vcf_gz'
+        use_input_url_ref = run_req.tags.workflow_id in WORKFLOW_USE_INPUT_URL_FILE_REF
+
         # -- Inject workflow inputs that should NOT be stored in DB (secrets, temporary files) -------------------------
         for run_input in run_req.tags.workflow_metadata.inputs:
             if isinstance(run_input, WorkflowSecretInput):
@@ -433,17 +451,23 @@ class WESBackend(ABC):
                 # Downloads the file(s) in a temp dir and injects the path(s)
                 param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
                 input_param = run_req.workflow_params.get(param_key)
-                if isinstance(input_param, list):
-                    injected_input = self._download_input_files_array(input_param, secrets["access_token"], run_dir)
+                if use_input_url_ref:
+                    # pass input(s) as URL references
+                    injected_input = self._inputs_url_refs(input_param, secrets["access_token"])
                 else:
-                    injected_input = self._download_input_file(input_param, secrets["access_token"], run_dir)
+                    # inject input(s) as temp files
+                    injected_input = self._download_input_files(input_param, secrets["access_token"], run_dir)
                 processed_workflow_params[param_key] = injected_input
             elif isinstance(run_input, WorkflowDirectoryInput):
                 # Finds workflow inputs for a drop-box directory
                 # Downloads the directory's contents to a temp directory and injects the path
                 param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
                 input_param = run_req.workflow_params.get(param_key)
-                injected_dir = self._download_input_directory(input_param, secrets["access_token"], run_dir)
+                if use_input_url_ref:
+                    # TODO: pass the input as a drop-box sub-tree url
+                    pass
+                else:
+                    injected_dir = self._download_input_directory(input_param, secrets["access_token"], run_dir)
                 processed_workflow_params[param_key] = injected_dir
 
         # -- Validate the workflow -------------------------------------------------------------------------------------
