@@ -21,7 +21,7 @@ from bento_wes.db import Database, get_db
 from bento_wes.models import Run, RunWithDetails, RunOutput
 from bento_wes.service_registry import get_bento_service_kind_url
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
-from bento_wes.utils import get_object_drop_box_url, iso_now
+from bento_wes.utils import get_drop_box_resource_url, iso_now
 from bento_wes.workflows import WORKFLOW_USE_INPUT_URL_FILE_REF, WorkflowType, WorkflowManager
 
 from .backend_types import Command, ProcessResult
@@ -279,21 +279,20 @@ class WESBackend(ABC):
                     f.write(chunk)
         self.log_debug(f"Downloaded file at {url} to path {destination}")
 
-    def _inputs_url_refs(self, files: str | list[str], token: str) -> str | list[str] | None:
+    def _inputs_url_refs(self, files: str | list[str]) -> str | list[str] | None:
         if not files:
             return None
 
         if isinstance(files, list):
-            input_files = [ get_object_drop_box_url(f_path) for f_path in files ]
+            input_files = [get_drop_box_resource_url(f_path) for f_path in files]
         else:
-            input_files = get_object_drop_box_url(files)
+            input_files = get_drop_box_resource_url(files)
         return input_files
-
 
     def _download_input_files(self, inputs: str | list[str], token: str, run_dir: Path) -> str | list[str] | None:
         if not inputs:
             return None
-        
+
         if isinstance(inputs, list):
             return [self._download_input_file(f) for f in inputs]
         else:
@@ -312,11 +311,17 @@ class WESBackend(ABC):
         tmp_file_path = f"{run_dir}/{file_name}"
 
         # Downloads file to /wes/tmp/<run_dir>/<file_name>
-        download_url = get_object_drop_box_url(obj_path)
+        download_url = get_drop_box_resource_url(obj_path)
         self._download_to_path(download_url, token, tmp_file_path)
         return tmp_file_path
 
-    def _download_directory_tree(self, tree: list[dict], token: str, run_dir: Path):
+    def _download_directory_tree(
+        self,
+        tree: list[dict],
+        token: str,
+        run_dir: Path,
+        ignore_extensions: tuple[str] | None = None
+    ):
         """
         Downloads the contents of a given Drop-Box tree or sub-tree to the temporary run_dir directory
         e.g. /wes/tmp/<Run ID>/<Dir Tree>
@@ -324,14 +329,24 @@ class WESBackend(ABC):
         for node in tree:
             if contents := node.get("contents"):
                 # Node is a directory: go inside recursively to find files
-                self._download_directory_tree(contents, token, run_dir)
+                self._download_directory_tree(contents, token, run_dir, ignore_extensions)
             elif uri := node.get("uri"):
+                file_name: str = node.get("name", "")
+                if ignore_extensions and file_name.endswith(ignore_extensions):
+                    # File must be ignored: continue
+                    continue
                 # Node is a file: download
                 tmp_path = run_dir.joinpath(node["filePath"])
                 os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
                 self._download_to_path(uri, token, tmp_path)
 
-    def _download_input_directory(self, directory: str, token: str, run_dir: Path) -> str:
+    def _download_input_directory(
+        self,
+        directory: str,
+        token: str,
+        run_dir: Path,
+        ignore_extensions: tuple[str] | None = None
+    ) -> str:
         validate_ssl = current_app.config["BENTO_VALIDATE_SSL"]
         drop_box_url = get_bento_service_kind_url("drop-box")
 
@@ -350,7 +365,9 @@ class WESBackend(ABC):
                 )
             tree = response.json()
             # Download tree content under run_dir
-            self._download_directory_tree(tree, token, run_dir)
+            # TODO: Drop-Box should have query params to get a tree that excludes given extentions.
+            # For now we are getting a full tree and ignoring filtering items for download
+            self._download_directory_tree(tree, token, run_dir, ignore_extensions)
         return str(run_dir.joinpath(sub_tree))
 
     @abstractmethod
@@ -433,7 +450,6 @@ class WESBackend(ABC):
         # -- Check if file injection needed ----------------------------------------------------------------------------
         # Most workflow with input files expect the files to be accessible locally (temp file inject)
         # In some cases, a URL reference to the file must be passed to the data service (e.g. gohan VCFs ingestion)
-        # use_input_url_ref = run_req.tags.workflow_id == 'vcf_gz'
         use_input_url_ref = run_req.tags.workflow_id in WORKFLOW_USE_INPUT_URL_FILE_REF
 
         # -- Inject workflow inputs that should NOT be stored in DB (secrets, temporary files) -------------------------
@@ -452,8 +468,8 @@ class WESBackend(ABC):
                 param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
                 input_param = run_req.workflow_params.get(param_key)
                 if use_input_url_ref:
-                    # pass input(s) as URL references
-                    injected_input = self._inputs_url_refs(input_param, secrets["access_token"])
+                    # pass input(s) as Drop-Box URL references
+                    injected_input = self._inputs_url_refs(input_param)
                 else:
                     # inject input(s) as temp files
                     injected_input = self._download_input_files(input_param, secrets["access_token"], run_dir)
@@ -463,11 +479,23 @@ class WESBackend(ABC):
                 # Downloads the directory's contents to a temp directory and injects the path
                 param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
                 input_param = run_req.workflow_params.get(param_key)
+
+                # TODO: directory workflows should simply include a list of file extentions to filter out.
+                filter_vcfs = run_req.workflow_params.get("experiments_json_with_files.filter_out_vcf_files")
+                filter_extensions: tuple[str] | None = None
+                if filter_vcfs:
+                    filter_extensions = ('.vcf', '.vcf.gz')
+
                 if use_input_url_ref:
-                    # TODO: pass the input as a drop-box sub-tree url
-                    pass
+                    # TODO: use ignore query param to get a filtered tree
+                    injected_dir = get_drop_box_resource_url(input_param, "tree")
                 else:
-                    injected_dir = self._download_input_directory(input_param, secrets["access_token"], run_dir)
+                    injected_dir = self._download_input_directory(
+                        input_param,
+                        secrets["access_token"],
+                        run_dir,
+                        filter_extensions
+                    )
                 processed_workflow_params[param_key] = injected_dir
 
         # -- Validate the workflow -------------------------------------------------------------------------------------
