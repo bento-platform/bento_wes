@@ -13,6 +13,7 @@ htmlcov/
 celery.log
 bento_services.json
 bento_wes/*.json
+data/
 
 cromwell-executions
 cromwell-workflow-logs
