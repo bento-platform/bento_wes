@@ -15,7 +15,7 @@ __all__ = [
     "WorkflowType",
     "WES_WORKFLOW_TYPE_WDL",
     "WES_WORKFLOW_TYPE_CWL",
-    "WORKFLOW_USE_INPUT_URL_FILE_REF",
+    "WORKFLOW_IGNORE_FILE_PATH_INJECTION",
     "parse_workflow_host_allow_list",
     "UnsupportedWorkflowType",
     "WorkflowDownloadError",
@@ -42,7 +42,7 @@ MAX_WORKFLOW_FILE_BYTES = 50000  # 50 KB
 
 # Workflow IDs for which input file(s) must be a URL reference, instead of an injected temp file.
 # TODO: find a way for WES to get this info from the workflow/service, instead of hard-coding
-WORKFLOW_USE_INPUT_URL_FILE_REF = ["vcf_gz"]
+WORKFLOW_IGNORE_FILE_PATH_INJECTION = ["vcf_gz"]
 
 
 def parse_workflow_host_allow_list(allow_list: str | None) -> set[str] | None:

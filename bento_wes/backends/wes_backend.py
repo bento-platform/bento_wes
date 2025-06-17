@@ -22,7 +22,7 @@ from bento_wes.models import Run, RunWithDetails, RunOutput
 from bento_wes.service_registry import get_bento_service_kind_url
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
 from bento_wes.utils import get_drop_box_resource_url, iso_now
-from bento_wes.workflows import WORKFLOW_USE_INPUT_URL_FILE_REF, WorkflowType, WorkflowManager
+from bento_wes.workflows import WORKFLOW_IGNORE_FILE_PATH_INJECTION, WorkflowType, WorkflowManager
 
 from .backend_types import Command, ProcessResult
 from .exceptions import RunExceptionWithFailState
@@ -449,8 +449,11 @@ class WESBackend(ABC):
 
         # -- Check if file injection needed ----------------------------------------------------------------------------
         # Most workflow with input files expect the files to be accessible locally (temp file inject)
-        # In some cases, a URL reference to the file must be passed to the data service (e.g. gohan VCFs ingestion)
-        use_input_url_ref = run_req.tags.workflow_id in WORKFLOW_USE_INPUT_URL_FILE_REF
+        # In some cases, the targeted service itself will obtain the file from Drop-Box (e.g. gohan VCFs ingestion)
+        # For such cases, file and directory inputs are passed as-is, and the service can retrieve the files from:
+        # Individual files:     https://<BENTO DOMAIN>/api/drop-box/objects/<OBJECT PATH>
+        # Directories:          https://<BENTO DOMAIN>/api/drop-box/tree/<DIRECTORY PATH>
+        skip_file_input_injection = run_req.tags.workflow_id in WORKFLOW_IGNORE_FILE_PATH_INJECTION
 
         # -- Inject workflow inputs that should NOT be stored in DB (secrets, temporary files) -------------------------
         for run_input in run_req.tags.workflow_metadata.inputs:
@@ -467,12 +470,11 @@ class WESBackend(ABC):
                 # Downloads the file(s) in a temp dir and injects the path(s)
                 param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
                 input_param = run_req.workflow_params.get(param_key)
-                if use_input_url_ref:
-                    # pass input(s) as Drop-Box URL references
-                    injected_input = self._inputs_url_refs(input_param)
-                else:
+                if not skip_file_input_injection:
                     # inject input(s) as temp files
                     injected_input = self._download_input_files(input_param, secrets["access_token"], run_dir)
+                else:
+                    injected_input = input_param
                 processed_workflow_params[param_key] = injected_input
             elif isinstance(run_input, WorkflowDirectoryInput):
                 # Finds workflow inputs for a drop-box directory
@@ -486,16 +488,15 @@ class WESBackend(ABC):
                 if filter_vcfs:
                     filter_extensions = ('.vcf', '.vcf.gz')
 
-                if use_input_url_ref:
-                    # TODO: use ignore query param to get a filtered tree
-                    injected_dir = get_drop_box_resource_url(input_param, "tree")
-                else:
+                if not skip_file_input_injection:
                     injected_dir = self._download_input_directory(
                         input_param,
                         secrets["access_token"],
                         run_dir,
                         filter_extensions
                     )
+                else:
+                    injected_dir = input_param
                 processed_workflow_params[param_key] = injected_dir
 
         # -- Validate the workflow -------------------------------------------------------------------------------------
