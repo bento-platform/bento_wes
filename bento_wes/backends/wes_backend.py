@@ -265,7 +265,7 @@ class WESBackend(ABC):
         with requests.get(
             url,
             headers={"Authorization": f"Bearer {token}"},
-            verify=current_app.config["BENTO_VALIDATE_SSL"],
+            verify=self.validate_ssl,
             stream=True
         ) as response:
             if response.status_code != 200:
