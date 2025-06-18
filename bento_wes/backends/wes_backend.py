@@ -310,7 +310,6 @@ class WESBackend(ABC):
         tree: list[dict],
         token: str,
         run_dir: Path,
-        ignore_extensions: tuple[str] | None = None
     ):
         """
         Downloads the contents of a given Drop-Box tree or sub-tree to the temporary run_dir directory
@@ -319,12 +318,8 @@ class WESBackend(ABC):
         for node in tree:
             if contents := node.get("contents"):
                 # Node is a directory: go inside recursively to find files
-                self._download_directory_tree(contents, token, run_dir, ignore_extensions)
+                self._download_directory_tree(contents, token, run_dir)
             elif uri := node.get("uri"):
-                file_name: str = node.get("name", "")
-                if ignore_extensions and file_name.endswith(ignore_extensions):
-                    # File must be ignored: continue
-                    continue
                 # Node is a file: download
                 tmp_path = run_dir.joinpath(node["filePath"])
                 os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
@@ -340,10 +335,21 @@ class WESBackend(ABC):
         validate_ssl = current_app.config["BENTO_VALIDATE_SSL"]
         drop_box_url = get_bento_service_kind_url("drop-box")
 
-        # Fetch directory sub-tree from Drop-Box
         sub_tree = directory.lstrip("/")
+
+        ignore_param = ""
+        if ignore_extensions:
+            # build query params to ignore extensions
+            ignore_param = "&".join([f"ignore={ext}" for ext in ignore_extensions])
+
+        url = f"{drop_box_url}/tree/{sub_tree}"
+        if ignore_param:
+            # add ignore query params
+            url = f"{url}?{ignore_param}"
+
+        # Fetch directory sub-tree from Drop-Box
         with requests.get(
-            f"{drop_box_url}/tree/{sub_tree}",
+            url,
             headers={"Authorization": f"Bearer {token}"},
             verify=validate_ssl,
             stream=True
@@ -355,9 +361,7 @@ class WESBackend(ABC):
                 )
             tree = response.json()
             # Download tree content under run_dir
-            # TODO: Drop-Box should have query params to get a tree that excludes given extentions.
-            # For now we are getting a full tree and ignoring filtering items for download
-            self._download_directory_tree(tree, token, run_dir, ignore_extensions)
+            self._download_directory_tree(tree, token, run_dir)
         return str(run_dir.joinpath(sub_tree))
 
     @abstractmethod
