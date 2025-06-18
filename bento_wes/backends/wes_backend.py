@@ -281,21 +281,22 @@ class WESBackend(ABC):
 
     def _download_input_files(self, inputs: str | list[str], token: str, run_dir: Path) -> str | list[str]:
         if not inputs:
-            return []
+            # Ignore empty imputs
+            return inputs
 
         if isinstance(inputs, list):
             return [self._download_input_file(f) for f in inputs]
         else:
             return self._download_input_file(inputs, token, run_dir)
 
-    def _download_input_file(self, obj_path: str, token: str, run_dir: Path) -> str | None:
+    def _download_input_file(self, obj_path: str, token: str, run_dir: Path) -> str:
         """
         Downloads an input file from Drop-Box in the run directory.
         Returns the path to the temp file to inject in the workflow params.
         """
         if not obj_path:
             # Ignore empty inputs (e.g. reference genome ingestion with no GFF3 files)
-            return None
+            return obj_path
 
         file_name = obj_path.split("/")[-1]
         tmp_file_path = f"{run_dir}/{file_name}"
