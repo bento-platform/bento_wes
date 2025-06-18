@@ -273,25 +273,15 @@ class WESBackend(ABC):
                     STATE_EXECUTOR_ERROR,
                     f"Download request to drop-box resulted in a non 200 status code: {response.status_code}"
                 )
-            with open(destination, 'wb') as f:
+            with open(destination, "wb") as f:
                 # chunk_size=None to use the chunk size from the stream
                 for chunk in response.iter_content(chunk_size=None):
                     f.write(chunk)
         self.log_debug(f"Downloaded file at {url} to path {destination}")
 
-    def _inputs_url_refs(self, files: str | list[str]) -> str | list[str] | None:
-        if not files:
-            return None
-
-        if isinstance(files, list):
-            input_files = [get_drop_box_resource_url(f_path) for f_path in files]
-        else:
-            input_files = get_drop_box_resource_url(files)
-        return input_files
-
-    def _download_input_files(self, inputs: str | list[str], token: str, run_dir: Path) -> str | list[str] | None:
+    def _download_input_files(self, inputs: str | list[str], token: str, run_dir: Path) -> str | list[str]:
         if not inputs:
-            return None
+            return []
 
         if isinstance(inputs, list):
             return [self._download_input_file(f) for f in inputs]
