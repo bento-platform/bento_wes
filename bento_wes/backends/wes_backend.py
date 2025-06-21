@@ -479,7 +479,7 @@ class WESBackend(ABC):
 
                 # TODO: directory workflows should simply include a list of file extentions to filter out.
                 filter_vcfs = run_req.workflow_params.get("experiments_json_with_files.filter_out_vcf_files")
-                filter_extensions: tuple[str] | None = None
+                filter_extensions: tuple[str, ...] | None = None
                 if filter_vcfs:
                     filter_extensions = ('.vcf', '.vcf.gz')
 
