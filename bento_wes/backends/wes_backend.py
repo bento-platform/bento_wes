@@ -285,7 +285,7 @@ class WESBackend(ABC):
             return inputs
 
         if isinstance(inputs, list):
-            return [self._download_input_file(f) for f in inputs]
+            return [self._download_input_file(f, token, run_dir) for f in inputs]
         else:
             return self._download_input_file(inputs, token, run_dir)
 
