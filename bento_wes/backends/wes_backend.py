@@ -14,6 +14,7 @@ from bento_lib.workflows.models import (
 from bento_lib.workflows.utils import namespaced_input
 from flask import current_app
 from pathlib import Path
+from typing import overload
 
 from bento_wes import states
 from bento_wes.constants import SERVICE_ARTIFACT
@@ -279,9 +280,15 @@ class WESBackend(ABC):
                     f.write(chunk)
         self.log_debug(f"Downloaded file at {url} to path {destination}")
 
+    @overload
+    def _download_input_files(self, inputs: str, token: str, run_dir: Path) -> str: ...
+
+    @overload
+    def _download_input_files(self, inputs: list[str], token: str, run_dir: Path) -> list[str]: ...
+
     def _download_input_files(self, inputs: str | list[str], token: str, run_dir: Path) -> str | list[str]:
         if not inputs:
-            # Ignore empty imputs
+            # Ignore empty inputs
             return inputs
 
         if isinstance(inputs, list):
@@ -313,7 +320,7 @@ class WESBackend(ABC):
         run_dir: Path,
     ):
         """
-        Downloads the contents of a given Drop-Box tree or sub-tree to the temporary run_dir directory
+        Downloads the contents of a given Drop Box tree or subtree to the temporary run_dir directory
         e.g. /wes/tmp/<Run ID>/<Dir Tree>
         """
         for node in tree:
@@ -347,7 +354,7 @@ class WESBackend(ABC):
             # add ignore query params
             url = f"{url}?{ignore_param}"
 
-        # Fetch directory sub-tree from Drop-Box
+        # Fetch directory subtree from Drop Box
         with requests.get(
             url,
             headers={"Authorization": f"Bearer {token}"},
@@ -357,7 +364,7 @@ class WESBackend(ABC):
             if response.status_code != 200:
                 raise RunExceptionWithFailState(
                     STATE_EXECUTOR_ERROR,
-                    f"Tree request to drop-box resulted in a non 200 status code: {response.status_code}"
+                    f"Tree request to drop box resulted in a non 200 status code: {response.status_code}"
                 )
             tree = response.json()
             # Download tree content under run_dir
