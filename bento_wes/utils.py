@@ -4,7 +4,7 @@ from typing import Literal
 from bento_wes.service_registry import get_bento_service_kind_url
 
 
-__all__ = ["iso_now"]
+__all__ = ["iso_now", "get_drop_box_resource_url"]
 
 
 def iso_now() -> str:
