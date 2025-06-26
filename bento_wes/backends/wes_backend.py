@@ -257,7 +257,7 @@ class WESBackend(ABC):
             # Invalid/non-workflow-specifying WDL file if false-y
             return workflow_id_match.group(1) if workflow_id_match else None
 
-    def _download_to_path(self, url: str, token: str, destination: str):
+    def _download_to_path(self, url: str, token: str, destination: Path | str):
         """
         Download a file from a URL to a destination directory.
         Bearer token auth works with Drop-Box and DRS.
@@ -333,7 +333,6 @@ class WESBackend(ABC):
         run_dir: Path,
         ignore_extensions: tuple[str] | None = None
     ) -> str:
-        validate_ssl = current_app.config["BENTO_VALIDATE_SSL"]
         drop_box_url = get_bento_service_kind_url("drop-box")
 
         sub_tree = directory.lstrip("/")
@@ -352,7 +351,7 @@ class WESBackend(ABC):
         with requests.get(
             url,
             headers={"Authorization": f"Bearer {token}"},
-            verify=validate_ssl,
+            verify=self.validate_ssl,
             stream=True
         ) as response:
             if response.status_code != 200:
@@ -638,7 +637,7 @@ class WESBackend(ABC):
         # Initialization (loading / downloading files + secrets injection) ---------------------------------------------
         init_vals = self._initialize_run_and_get_command(run, celery_id, secrets)
         if init_vals is None:
-            return
+            return None
 
         cmd, params_with_secrets = init_vals
 
