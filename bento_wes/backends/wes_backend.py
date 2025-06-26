@@ -14,7 +14,7 @@ from bento_lib.workflows.models import (
 from bento_lib.workflows.utils import namespaced_input
 from flask import current_app
 from pathlib import Path
-from typing import overload
+from typing import overload, Sequence
 
 from bento_wes import states
 from bento_wes.constants import SERVICE_ARTIFACT
@@ -338,7 +338,7 @@ class WESBackend(ABC):
         directory: str,
         token: str,
         run_dir: Path,
-        ignore_extensions: tuple[str] | None = None
+        ignore_extensions: Sequence[str] | None = None,
     ) -> str:
         drop_box_url = get_bento_service_kind_url("drop-box")
 
@@ -485,9 +485,7 @@ class WESBackend(ABC):
 
                 # TODO: directory workflows should simply include a list of file extentions to filter out.
                 filter_vcfs = run_req.workflow_params.get("experiments_json_with_files.filter_out_vcf_files")
-                filter_extensions: tuple[str, ...] | None = None
-                if filter_vcfs:
-                    filter_extensions = ('.vcf', '.vcf.gz')
+                filter_extensions: tuple[str, ...] | None = (".vcf", ".vcf.gz") if filter_vcfs else None
 
                 if not skip_file_input_injection:
                     injected_dir = self._download_input_directory(
