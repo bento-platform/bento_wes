@@ -37,7 +37,5 @@ def get_bento_services() -> dict:
 
 def get_bento_service_kind_url(kind: str) -> str | None:
     # TODO: replace this with upcoming bento_lib service registry utils
-    services = get_bento_services()
-    service_details: dict | None = services.get(kind)
-    if service_details:
-        return service_details.get("url")
+    service_details: dict | None = get_bento_services().get(kind)
+    return (service_details or {}).get("url")
