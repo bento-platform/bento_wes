@@ -11,9 +11,7 @@ from .backend_types import Command
 from .wes_backend import WESBackend
 
 
-__all__ = [
-    "CromwellLocalBackend"
-]
+__all__ = ["CromwellLocalBackend"]
 
 
 T = TypeVar("T")
@@ -27,7 +25,7 @@ class CromwellLocalBackend(WESBackend):
         """
         Returns a tuple of the workflow types this backend supports. In this case, only WDL is supported.
         """
-        return WES_WORKFLOW_TYPE_WDL,
+        return (WES_WORKFLOW_TYPE_WDL,)
 
     def _get_params_file(self, run: Run) -> str:
         """
@@ -70,26 +68,37 @@ class CromwellLocalBackend(WESBackend):
         # Create workflow options file
         options_file = run_dir / "_workflow_options.json"
         with open(options_file, "w") as of:
-            json.dump({
-                # already namespaced by cromwell ID, so don't need to incorporate run ID into this path:
-                "final_workflow_outputs_dir": str(self.output_dir),
-                "final_workflow_log_dir": str(run_dir / "wf_logs"),
-                "final_call_logs_dir": str(run_dir / "call_logs"),
-            }, of)
+            json.dump(
+                {
+                    # already namespaced by cromwell ID, so don't need to incorporate run ID into this path:
+                    "final_workflow_outputs_dir": str(self.output_dir),
+                    "final_workflow_log_dir": str(run_dir / "wf_logs"),
+                    "final_call_logs_dir": str(run_dir / "call_logs"),
+                },
+                of,
+            )
 
         # TODO: Separate cleaning process from run?
-        return Command((
-            "java",
-            "-DLOG_MODE=pretty",
-            # We don't set Cromwell into debug logging mode here even if self.debug is True,
-            # since it's intensely verbose.
-            "-jar", cromwell, "run",
-            "--inputs", str(params_path),
-            "--options", str(options_file),
-            "--workflow-root", str(run_dir),
-            "--metadata-output", str(self.get_workflow_metadata_output_json_path(run_dir)),
-            str(workflow_path),
-        ))
+        return Command(
+            (
+                "java",
+                "-DLOG_MODE=pretty",
+                # We don't set Cromwell into debug logging mode here even if self.debug is True,
+                # since it's intensely verbose.
+                "-jar",
+                cromwell,
+                "run",
+                "--inputs",
+                str(params_path),
+                "--options",
+                str(options_file),
+                "--workflow-root",
+                str(run_dir),
+                "--metadata-output",
+                str(self.get_workflow_metadata_output_json_path(run_dir)),
+                str(workflow_path),
+            )
+        )
 
     @staticmethod
     def _rewrite_tmp_dir_paths(v: T, tmp_dir_str: str, output_dir_str: str) -> T:
@@ -99,7 +108,7 @@ class CromwellLocalBackend(WESBackend):
             # Cromwell outputs the same folder structure in whatever is set for `final_workflow_outputs_dir` in
             # _get_command() above, so we can rewrite this prefix to be the output directory instead, since this
             # will be preserved after the run is finished:
-            return output_dir_str + v[len(tmp_dir_str):]
+            return output_dir_str + v[len(tmp_dir_str) :]
         elif isinstance(v, list):
             # If we have a list, it may be a nested list of paths, in which case we need to recursively rewrite:
             return [CromwellLocalBackend._rewrite_tmp_dir_paths(w, tmp_dir_str, output_dir_str) for w in v]

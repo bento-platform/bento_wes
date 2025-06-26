@@ -10,7 +10,10 @@ from bento_lib.events import EventBus
 from bento_lib.events.types import EVENT_WES_RUN_FINISHED
 from bento_lib.utils.headers import authz_bearer_header
 from bento_lib.workflows.models import (
-    WorkflowSecretInput, WorkflowFileInput, WorkflowFileArrayInput, WorkflowDirectoryInput
+    WorkflowSecretInput,
+    WorkflowFileInput,
+    WorkflowFileArrayInput,
+    WorkflowDirectoryInput,
 )
 from bento_lib.workflows.utils import namespaced_input
 from flask import current_app
@@ -175,7 +178,8 @@ class WESBackend(ABC):
         if not womtool_path:
             raise RunExceptionWithFailState(
                 STATE_SYSTEM_ERROR,
-                f"Missing or invalid WOMtool (Bad WOM_TOOL_LOCATION)\n\tWOM_TOOL_LOCATION: {womtool_path}")
+                f"Missing or invalid WOMtool (Bad WOM_TOOL_LOCATION)\n\tWOM_TOOL_LOCATION: {womtool_path}",
+            )
         return womtool_path
 
     @classmethod
@@ -190,10 +194,8 @@ class WESBackend(ABC):
 
         # Execute WOMtool command
         return subprocess.Popen(
-            ("java", "-jar", womtool_path, *command),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            encoding="utf-8")
+            ("java", "-jar", womtool_path, *command), stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8"
+        )
 
     def _check_workflow_wdl(self, run: RunWithDetails) -> None:
         """
@@ -219,8 +221,8 @@ class WESBackend(ABC):
             # Toil can't process WDL dependencies right now  TODO
             raise RunExceptionWithFailState(
                 STATE_EXECUTOR_ERROR,
-                f"Failed with {STATE_EXECUTOR_ERROR} due to dependencies in WDL:\n"
-                f"\tstdout: {v_out}\n\tstderr: {v_err}")
+                f"Failed with {STATE_EXECUTOR_ERROR} due to dependencies in WDL:\n\tstdout: {v_out}\n\tstderr: {v_err}",
+            )
 
     def _check_workflow_and_type(self, run: RunWithDetails) -> None:
         """
@@ -268,7 +270,7 @@ class WESBackend(ABC):
             if response.status_code != 200:
                 raise RunExceptionWithFailState(
                     STATE_EXECUTOR_ERROR,
-                    f"Download request to drop-box resulted in a non 200 status code: {response.status_code}"
+                    f"Download request to drop-box resulted in a non 200 status code: {response.status_code}",
                 )
             with open(destination, "wb") as f:
                 # chunk_size=None to use the chunk size from the stream
@@ -355,7 +357,7 @@ class WESBackend(ABC):
             if response.status_code != 200:
                 raise RunExceptionWithFailState(
                     STATE_EXECUTOR_ERROR,
-                    f"Tree request to drop box resulted in a non 200 status code: {response.status_code}"
+                    f"Tree request to drop box resulted in a non 200 status code: {response.status_code}",
                 )
             tree = response.json()
             # Download tree content under run_dir
@@ -480,10 +482,7 @@ class WESBackend(ABC):
 
                 if not skip_file_input_injection:
                     injected_dir = self._download_input_directory(
-                        input_param,
-                        secrets["access_token"],
-                        run_dir,
-                        filter_extensions
+                        input_param, secrets["access_token"], run_dir, filter_extensions
                     )
                 else:
                     injected_dir = input_param
@@ -540,7 +539,8 @@ class WESBackend(ABC):
         #  - Cromwell creates the `cromwell-executions` and `cromwell-workflow-logs` folders in the CWD, so we set the
         #    CWD of the subprocess to our WES temporary directory.
         runner_process = subprocess.Popen(
-            cmd, cwd=self.tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8")
+            cmd, cwd=self.tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8"
+        )
         c.execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run.run_id))
         self._update_run_state_and_commit(run.run_id, states.STATE_RUNNING)
 
@@ -573,8 +573,10 @@ class WESBackend(ABC):
 
         # -- Update run log with stdout/stderr, exit code --------------------------------------------------------------
         #     - Explicitly don't commit here; sync with state update
-        c.execute("UPDATE runs SET run_log__stdout = ?, run_log__stderr = ?, run_log__exit_code = ? WHERE id = ?",
-                  (stdout, stderr, exit_code, run.run_id))
+        c.execute(
+            "UPDATE runs SET run_log__stdout = ?, run_log__stderr = ?, run_log__exit_code = ? WHERE id = ?",
+            (stdout, stderr, exit_code, run.run_id),
+        )
 
         if timed_out:
             # TODO: Report error somehow

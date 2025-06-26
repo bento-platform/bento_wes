@@ -37,6 +37,7 @@ BENTO_VALIDATE_SSL: bool = _to_bool(os.environ.get("BENTO_VALIDATE_SSL", str(not
 if not BENTO_VALIDATE_SSL:
     # If we've turned off SSL validation, suppress insecure connection warnings
     import urllib3
+
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 AUTHZ_URL: str = _get_from_environ_or_fail("BENTO_AUTHZ_SERVICE_URL").strip().rstrip("/")
@@ -77,7 +78,8 @@ class Config:
     AUTHZ_ENABLED: bool = AUTHZ_ENABLED
     #  - ... for WES itself:
     BENTO_OPENID_CONFIG_URL: str = os.environ.get(
-        "BENTO_OPENID_CONFIG_URL", "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration")
+        "BENTO_OPENID_CONFIG_URL", "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration"
+    )
     WES_CLIENT_ID: str = os.environ.get("WES_CLIENT_ID", "bento_wes")
     WES_CLIENT_SECRET: str = os.environ.get("WES_CLIENT_SECRET", "")
 
