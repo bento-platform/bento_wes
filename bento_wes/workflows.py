@@ -105,7 +105,8 @@ class WorkflowManager:
             raise UnsupportedWorkflowType(f"Unsupported workflow type: {workflow_type}")
 
         workflow_name = str(urlsafe_b64encode(bytes(str(workflow_uri), encoding="utf-8")), encoding="utf-8").replace(
-            "=", "")
+            "=", ""
+        )
         return self.tmp_dir / f"workflow_{workflow_name}.{WORKFLOW_EXTENSIONS[workflow_type]}"
 
     def download_or_copy_workflow(
@@ -138,7 +139,8 @@ class WorkflowManager:
             if workflow_uri.scheme != "file" and workflow_uri.host not in self.workflow_host_allow_list:
                 # Dis-allowed workflow URL
                 self._error(
-                    f"Dis-allowed workflow host: {workflow_uri.host} (allow list: {self.workflow_host_allow_list})")
+                    f"Dis-allowed workflow host: {workflow_uri.host} (allow list: {self.workflow_host_allow_list})"
+                )
                 return states.STATE_EXECUTOR_ERROR
 
         self._info(f"Fetching workflow file from {workflow_uri}")
@@ -149,12 +151,14 @@ class WorkflowManager:
         use_auth_headers: bool = False
         if self.bento_url:
             parsed_bento_url = urlparse(self.bento_url)
-            use_auth_headers = all((
-                self.bento_url,
-                parsed_bento_url.scheme == workflow_uri.scheme,
-                parsed_bento_url.netloc == workflow_uri.host,
-                workflow_uri.path.startswith(parsed_bento_url.path),
-            ))
+            use_auth_headers = all(
+                (
+                    self.bento_url,
+                    parsed_bento_url.scheme == workflow_uri.scheme,
+                    parsed_bento_url.netloc == workflow_uri.host,
+                    workflow_uri.path.startswith(parsed_bento_url.path),
+                )
+            )
 
         # TODO: Better auth? May only be allowed to access specific workflows
         try:
@@ -187,5 +191,6 @@ class WorkflowManager:
             # Request issues
             self._error(
                 f"Error downloading workflow: {workflow_uri} (use_auth_headers={use_auth_headers}, "
-                f"wr.status_code={wr.status_code})")
+                f"wr.status_code={wr.status_code})"
+            )
             raise WorkflowDownloadError(f"WorkflowDownloadError: {workflow_path} does not exist")

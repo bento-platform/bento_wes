@@ -77,11 +77,14 @@ def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> I
 
     # /policy/evaluate returns a matrix of booleans of row: resource, col: permission. Thus, we can
     # return permission booleans by resource by flattening it, since there is only one column.
-    yield from (r[0] for r in authz_middleware.evaluate(
-        request,
-        [_get_resource_for_run_request(run_request) for run_request in run_requests],
-        [permission],
-    ))
+    yield from (
+        r[0]
+        for r in authz_middleware.evaluate(
+            request,
+            [_get_resource_for_run_request(run_request) for run_request in run_requests],
+            [permission],
+        )
+    )
 
 
 def _post_headers_getter(r: Request) -> dict[str, str]:
@@ -90,13 +93,17 @@ def _post_headers_getter(r: Request) -> dict[str, str]:
 
 def _check_single_run_permission_and_mark(run_req: RunRequest, permission: str, form_mode: bool = False) -> bool:
     # By calling this, the developer indicates that they will have handled permissions adequately:
-    return authz_middleware.evaluate_one(
-        request,
-        _get_resource_for_run_request(run_req),
-        permission,
-        headers_getter=_post_headers_getter if form_mode else None,
-        mark_authz_done=True,
-    ) if authz_enabled() else True
+    return (
+        authz_middleware.evaluate_one(
+            request,
+            _get_resource_for_run_request(run_req),
+            permission,
+            headers_getter=_post_headers_getter if form_mode else None,
+            mark_authz_done=True,
+        )
+        if authz_enabled()
+        else True
+    )
 
 
 def _config_for_run(run_dir: Path) -> dict[str, str | bool | None]:
@@ -104,7 +111,6 @@ def _config_for_run(run_dir: Path) -> dict[str, str | bool | None]:
         # In production, workflows should validate SSL (i.e., omit the curl -k flag).
         # In development, SSL certificates are usually self-signed, so they will not validate.
         "validate_ssl": current_app.config["BENTO_VALIDATE_SSL"],
-
         #  In export/analysis mode, as we rely on services located in different containers
         #  there is a need to have designated folders on shared volumes between
         #  WES and the other services, to write files to.
@@ -117,7 +123,7 @@ def _config_for_run(run_dir: Path) -> dict[str, str | bool | None]:
         #  These files are inaccessible to other containers in the context of a
         #  task unless they are written arbitrarily to run_dir
         "run_dir": str(run_dir),
-
+        # Variant effect predictor cache (large directory):
         "vep_cache_dir": current_app.config["VEP_CACHE_DIR"],
     }
 
@@ -165,7 +171,8 @@ def _create_run(db: Database, c: sqlite3.Cursor) -> Response:
 
     try:
         wm.download_or_copy_workflow(
-            run_req.workflow_url, WorkflowType(run_req.workflow_type), auth_headers=auth_header_dict)
+            run_req.workflow_url, WorkflowType(run_req.workflow_type), auth_headers=auth_header_dict
+        )
     except UnsupportedWorkflowType:
         return flask_bad_request_error(f"Unsupported workflow type: {run_req.workflow_type}")
     except (WorkflowDownloadError, requests.exceptions.ConnectionError) as e:
@@ -206,7 +213,8 @@ def _create_run(db: Database, c: sqlite3.Cursor) -> Response:
                 logger.error(err)
                 return flask_bad_request_error(err)
             logger.debug(
-                f"Injecting configuration parameter '{run_input.key}' into run {run_id}: {run_input.id}={config_value}")
+                f"Injecting configuration parameter '{run_input.key}' into run {run_id}: {run_input.id}={config_value}"
+            )
             run_params[input_key] = config_value
         elif isinstance(run_input, WorkflowServiceUrlInput):
             bento_services_data = bento_services_data or get_bento_services()
@@ -216,12 +224,12 @@ def _create_run(db: Database, c: sqlite3.Cursor) -> Response:
                 err = f"Could not find URL/service record for service kind '{sk}'"
                 logger.error(err)
                 return flask_bad_request_error(err)
-            logger.debug(
-                f"Injecting URL for service kind '{sk}' into run {run_id}: {run_input.id}={config_value}")
+            logger.debug(f"Injecting URL for service kind '{sk}' into run {run_id}: {run_input.id}={config_value}")
             run_params[input_key] = config_value
 
     # Will be updated to STATE_QUEUED once submitted
-    c.execute("""
+    c.execute(
+        """
         INSERT INTO runs (
             id,
             state,
@@ -236,20 +244,20 @@ def _create_run(db: Database, c: sqlite3.Cursor) -> Response:
 
             run_log__name
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        str(run_id),
-        states.STATE_UNKNOWN,
-        json.dumps({}),
-
-        json.dumps(run_params),
-        run_req.workflow_type,
-        run_req.workflow_type_version,
-        json.dumps(run_req.workflow_engine_parameters),
-        str(run_req.workflow_url),
-        run_req.tags.model_dump_json(),
-
-        run_req.tags.workflow_id,
-    ))
+    """,
+        (
+            str(run_id),
+            states.STATE_UNKNOWN,
+            json.dumps({}),
+            json.dumps(run_params),
+            run_req.workflow_type,
+            run_req.workflow_type_version,
+            json.dumps(run_req.workflow_engine_parameters),
+            str(run_req.workflow_url),
+            run_req.tags.model_dump_json(),
+            run_req.tags.workflow_id,
+        ),
+    )
     db.commit()
 
     # TODO: figure out timeout
@@ -319,19 +327,25 @@ def run_list():
         perms_list.append(run.request)
 
         if not public_endpoint or run.state == STATE_COMPLETE:
-            res_list.append({
-                **run.model_dump(mode="json", include={"run_id", "state"}),
-                **(
-                    {
-                        "details": run.model_dump(mode="json", include={
-                            "run_id": True,
-                            "state": True,
-                            **(PUBLIC_RUN_DETAILS_SHAPE if public_endpoint else PRIVATE_RUN_DETAILS_SHAPE),
-                        }),
-                    }
-                    if with_details else {}
-                ),
-            })
+            res_list.append(
+                {
+                    **run.model_dump(mode="json", include={"run_id", "state"}),
+                    **(
+                        {
+                            "details": run.model_dump(
+                                mode="json",
+                                include={
+                                    "run_id": True,
+                                    "state": True,
+                                    **(PUBLIC_RUN_DETAILS_SHAPE if public_endpoint else PRIVATE_RUN_DETAILS_SHAPE),
+                                },
+                            ),
+                        }
+                        if with_details
+                        else {}
+                    ),
+                }
+            )
 
     if not public_endpoint:
         # Filter runs to just those which we have permission to view
@@ -416,19 +430,24 @@ def run_download_artifact(run_id: uuid.UUID):
 def get_stream(c: sqlite3.Cursor, stream: RunStream, run_id: uuid.UUID):
     db: Database = get_db()
     run = db.get_run_with_details(c, run_id, stream_content=True)
-    return (current_app.response_class(
-        headers={
-            # If we've finished, we allow long-term (24h) caching of the stdout/stderr responses.
-            # Otherwise, no caching allowed!
-            "Cache-Control": (
-                "private, max-age=86400" if run.state in states.TERMINATED_STATES
-                else "no-cache, no-store, must-revalidate, max-age=0"
-            ),
-        },
-        response=run.run_log.stdout if stream == "stdout" else run.run_log.stderr,
-        mimetype="text/plain",
-        status=200,
-    ) if run is not None else flask_not_found_error(f"Stream {stream} not found for run {run_id}"))
+    return (
+        current_app.response_class(
+            headers={
+                # If we've finished, we allow long-term (24h) caching of the stdout/stderr responses.
+                # Otherwise, no caching allowed!
+                "Cache-Control": (
+                    "private, max-age=86400"
+                    if run.state in states.TERMINATED_STATES
+                    else "no-cache, no-store, must-revalidate, max-age=0"
+                ),
+            },
+            response=run.run_log.stdout if stream == "stdout" else run.run_log.stderr,
+            mimetype="text/plain",
+            status=200,
+        )
+        if run is not None
+        else flask_not_found_error(f"Stream {stream} not found for run {run_id}")
+    )
 
 
 def check_run_authz_then_return_response(

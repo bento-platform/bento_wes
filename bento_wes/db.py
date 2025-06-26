@@ -72,7 +72,7 @@ def task_log_dict(task_log: sqlite3.Row) -> dict:
         "end_time": task_log["end_time"],
         "stdout": task_log["stdout"],
         "stderr": task_log["stderr"],
-        "exit_code": task_log["exit_code"]
+        "exit_code": task_log["exit_code"],
     }
 
 
@@ -81,7 +81,6 @@ def run_from_row(run: sqlite3.Row) -> Run:
 
 
 class Database:
-
     def __init__(self):
         self._conn = sqlite3.connect(current_app.config["DATABASE"], detect_types=sqlite3.PARSE_DECLTYPES)
         self._conn.row_factory = sqlite3.Row
@@ -140,8 +139,8 @@ class Database:
                     title="WES Run Failed",
                     description=f"WES run '{run_id}' failed with state {state}",
                     notification_type=NOTIFICATION_WES_RUN_FAILED,
-                    action_target=run_id
-                )
+                    action_target=run_id,
+                ),
             )
 
         elif state in states.SUCCESS_STATES:
@@ -152,8 +151,8 @@ class Database:
                     title="WES Run Completed",
                     description=f"WES run '{run_id}' completed successfully",
                     notification_type=NOTIFICATION_WES_RUN_COMPLETED,
-                    action_target=run_id
-                )
+                    action_target=run_id,
+                ),
             )
 
     def update_stuck_runs(self):
@@ -176,7 +175,8 @@ class Database:
                 continue
 
             logger.info(
-                f"Found stuck run: {run.run_id} at state {run.state}. Setting state to {states.STATE_SYSTEM_ERROR}")
+                f"Found stuck run: {run.run_id} at state {run.state}. Setting state to {states.STATE_SYSTEM_ERROR}"
+            )
             self.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, cursor=c)
 
         self.commit()
@@ -193,14 +193,16 @@ class Database:
         run: sqlite3.Row,
         stream_content: bool,
     ) -> RunWithDetails:
-        return RunWithDetails.model_validate(dict(
-            run_id=run["id"],
-            state=run["state"],
-            request=run_request_from_row(run),
-            run_log=run_log_from_row(run, stream_content),
-            task_logs=cls.get_task_logs(c, run["id"]),
-            outputs=json.loads(run["outputs"]),
-        ))
+        return RunWithDetails.model_validate(
+            dict(
+                run_id=run["id"],
+                state=run["state"],
+                request=run_request_from_row(run),
+                run_log=run_log_from_row(run, stream_content),
+                task_logs=cls.get_task_logs(c, run["id"]),
+                outputs=json.loads(run["outputs"]),
+            )
+        )
 
     @staticmethod
     def _get_run_row(c: sqlite3.Cursor, run_id: uuid.UUID | str) -> sqlite3.Row | None:
@@ -231,7 +233,8 @@ class Database:
     def set_run_log_command_and_celery_id(self, run: Run, cmd: Command, celery_id: int):
         self.cursor().execute(
             "UPDATE runs SET run_log__cmd = ?, run_log__celery_id = ? WHERE id = ?",
-            (" ".join(cmd), celery_id, run.run_id))
+            (" ".join(cmd), celery_id, run.run_id),
+        )
         self.commit()
 
     @staticmethod

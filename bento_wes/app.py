@@ -43,11 +43,14 @@ application.register_error_handler(
     ),
 )
 application.register_error_handler(
-    BadRequest, flask_errors.flask_error_wrap(flask_errors.flask_bad_request_error, authz=authz_middleware))
+    BadRequest, flask_errors.flask_error_wrap(flask_errors.flask_bad_request_error, authz=authz_middleware)
+)
 application.register_error_handler(
-    Forbidden, flask_errors.flask_error_wrap(flask_errors.flask_forbidden_error, authz=authz_middleware))
+    Forbidden, flask_errors.flask_error_wrap(flask_errors.flask_forbidden_error, authz=authz_middleware)
+)
 application.register_error_handler(
-    NotFound, flask_errors.flask_error_wrap(flask_errors.flask_not_found_error, authz=authz_middleware))
+    NotFound, flask_errors.flask_error_wrap(flask_errors.flask_not_found_error, authz=authz_middleware)
+)
 
 
 def configure_celery(app):

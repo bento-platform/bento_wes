@@ -39,15 +39,14 @@ def run_workflow(self, run_id: uuid.UUID):
         tmp_dir=current_app.config["SERVICE_TEMP"],
         data_dir=current_app.config["SERVICE_DATA"],
         workflow_timeout=current_app.config["WORKFLOW_TIMEOUT"],
+        # Dependencies
         logger=logger,
         event_bus=event_bus,
-
         # Get list of allowed workflow hosts from configuration for any checks inside the runner
         workflow_host_allow_list=parse_workflow_host_allow_list(current_app.config["WORKFLOW_HOST_ALLOW_LIST"]),
-
         # Bento-specific stuff
         bento_url=(current_app.config["BENTO_URL"] or None),
-
+        # Debug/production flags (validate SSL must be ON in production; debug must be OFF)
         validate_ssl=validate_ssl,
         debug=current_app.config["BENTO_DEBUG"],
     )
@@ -56,8 +55,9 @@ def run_workflow(self, run_id: uuid.UUID):
 
     # If we have credentials, obtain access token for use inside workflow to ingest data
     try:
-        if (client_id := current_app.config["WES_CLIENT_ID"]) and \
-                (client_secret := current_app.config["WES_CLIENT_SECRET"]):
+        if (client_id := current_app.config["WES_CLIENT_ID"]) and (
+            client_secret := current_app.config["WES_CLIENT_SECRET"]
+        ):
             logger.info("Obtaining access token")
             # TODO: cache OpenID config
             # TODO: handle errors more elegantly/precisely
@@ -67,15 +67,20 @@ def run_workflow(self, run_id: uuid.UUID):
             #    48 hours, given out by the authorization service?
 
             openid_config = requests.get(current_app.config["BENTO_OPENID_CONFIG_URL"], verify=validate_ssl).json()
-            token_res = requests.post(openid_config["token_endpoint"], verify=validate_ssl, data={
-                "grant_type": "client_credentials",
-                "client_id": client_id,
-                "client_secret": client_secret,
-            })
+            token_res = requests.post(
+                openid_config["token_endpoint"],
+                verify=validate_ssl,
+                data={
+                    "grant_type": "client_credentials",
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                },
+            )
             secrets["access_token"] = token_res.json()["access_token"]
         else:
             logger.warning(
-                "Missing WES credentials: WES_CLIENT_ID and/or WES_CLIENT_SECRET; setting job access token to ''")
+                "Missing WES credentials: WES_CLIENT_ID and/or WES_CLIENT_SECRET; setting job access token to ''"
+            )
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while obtaining access token: {type(e).__name__} {e}")

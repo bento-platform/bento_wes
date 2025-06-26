@@ -15,7 +15,8 @@ def _add_workflow_response(r):
             "http://metadata.local/workflows/phenopackets_json.wdl",
             body=wf.read(),
             status=200,
-            content_type="text/plain")
+            content_type="text/plain",
+        )
 
 
 def _create_valid_run(client):
@@ -39,10 +40,7 @@ def test_runs_endpoint(client, mocked_responses):
     rv = client.get("/runs")
     assert rv.status_code == 200
     data = rv.get_json()
-    assert json.dumps(data, sort_keys=True) == json.dumps([{
-        **cr_data,
-        "state": STATE_QUEUED
-    }], sort_keys=True)
+    assert json.dumps(data, sort_keys=True) == json.dumps([{**cr_data, "state": STATE_QUEUED}], sort_keys=True)
 
     rv = client.get("/runs?with_details=true")
     assert rv.status_code == 200

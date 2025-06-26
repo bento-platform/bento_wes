@@ -23,8 +23,9 @@ EXAMPLE_RUN = {
         "workflow_id": "phenopackets_json",
         "workflow_metadata": {
             "name": "Bento Phenopackets-Compatible JSON",
-            "description": "This ingestion workflow will validate and import a Phenopackets schema-compatible "
-                           "JSON document.",
+            "description": (
+                "This ingestion workflow will validate and import a Phenopackets schema-compatible JSON document."
+            ),
             "type": "ingestion",
             "data_type": "phenopacket",
             "tags": ["phenopacket"],
@@ -42,9 +43,9 @@ EXAMPLE_RUN = {
                     "type": "file",
                     "required": True,
                     "pattern": r"^.json$",
-                }
+                },
             ],
-        }
+        },
     },
 }
 

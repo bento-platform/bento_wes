@@ -11,9 +11,8 @@ __all__ = [
     "STATE_SYSTEM_ERROR",
     "STATE_CANCELED",
     "STATE_CANCELING",
-
+    # -----------------------
     "FailureState",
-
     "FAILURE_STATES",
     "SUCCESS_STATES",
     "TERMINATED_STATES",
