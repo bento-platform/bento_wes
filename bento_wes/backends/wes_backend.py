@@ -1,4 +1,6 @@
+import os
 import re
+import requests
 import shutil
 import subprocess
 import uuid
@@ -6,18 +8,22 @@ import uuid
 from abc import ABC, abstractmethod
 from bento_lib.events import EventBus
 from bento_lib.events.types import EVENT_WES_RUN_FINISHED
-from bento_lib.workflows.models import WorkflowSecretInput
+from bento_lib.workflows.models import (
+    WorkflowSecretInput, WorkflowFileInput, WorkflowFileArrayInput, WorkflowDirectoryInput
+)
 from bento_lib.workflows.utils import namespaced_input
 from flask import current_app
 from pathlib import Path
+from typing import overload, Sequence
 
 from bento_wes import states
 from bento_wes.constants import SERVICE_ARTIFACT
 from bento_wes.db import Database, get_db
 from bento_wes.models import Run, RunWithDetails, RunOutput
+from bento_wes.service_registry import get_bento_service_kind_url
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
-from bento_wes.utils import iso_now
-from bento_wes.workflows import WorkflowType, WorkflowManager
+from bento_wes.utils import get_drop_box_resource_url, iso_now
+from bento_wes.workflows import WORKFLOW_IGNORE_FILE_PATH_INJECTION, WorkflowType, WorkflowManager
 
 from .backend_types import Command, ProcessResult
 from .exceptions import RunExceptionWithFailState
@@ -252,6 +258,119 @@ class WESBackend(ABC):
             # Invalid/non-workflow-specifying WDL file if false-y
             return workflow_id_match.group(1) if workflow_id_match else None
 
+    def _download_to_path(self, url: str, token: str, destination: Path | str):
+        """
+        Download a file from a URL to a destination directory.
+        Bearer token auth works with Drop-Box and DRS.
+        """
+        with requests.get(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            verify=self.validate_ssl,
+            stream=True
+        ) as response:
+            if response.status_code != 200:
+                raise RunExceptionWithFailState(
+                    STATE_EXECUTOR_ERROR,
+                    f"Download request to drop-box resulted in a non 200 status code: {response.status_code}"
+                )
+            with open(destination, "wb") as f:
+                # chunk_size=None to use the chunk size from the stream
+                for chunk in response.iter_content(chunk_size=None):
+                    f.write(chunk)
+        self.log_debug(f"Downloaded file at {url} to path {destination}")
+
+    @overload
+    def _download_input_files(self, inputs: str, token: str, run_dir: Path) -> str: ...
+
+    @overload
+    def _download_input_files(self, inputs: list[str], token: str, run_dir: Path) -> list[str]: ...
+
+    def _download_input_files(self, inputs: str | list[str], token: str, run_dir: Path) -> str | list[str]:
+        if not inputs:
+            # Ignore empty inputs
+            return inputs
+
+        if isinstance(inputs, list):
+            return [self._download_input_file(f, token, run_dir) for f in inputs]
+        else:
+            return self._download_input_file(inputs, token, run_dir)
+
+    def _download_input_file(self, obj_path: str, token: str, run_dir: Path) -> str:
+        """
+        Downloads an input file from Drop-Box in the run directory.
+        Returns the path to the temp file to inject in the workflow params.
+        """
+        if not obj_path:
+            # Ignore empty inputs (e.g. reference genome ingestion with no GFF3 files)
+            return obj_path
+
+        file_name = obj_path.split("/")[-1]
+        tmp_file_path = f"{run_dir}/{file_name}"
+
+        # Downloads file to /wes/tmp/<run_dir>/<file_name>
+        download_url = get_drop_box_resource_url(obj_path)
+        self._download_to_path(download_url, token, tmp_file_path)
+        return tmp_file_path
+
+    def _download_directory_tree(
+        self,
+        tree: list[dict],
+        token: str,
+        run_dir: Path,
+    ):
+        """
+        Downloads the contents of a given Drop Box tree or subtree to the temporary run_dir directory
+        e.g. /wes/tmp/<Run ID>/<Dir Tree>
+        """
+        for node in tree:
+            if contents := node.get("contents"):
+                # Node is a directory: go inside recursively to find files
+                self._download_directory_tree(contents, token, run_dir)
+            elif uri := node.get("uri"):
+                # Node is a file: download
+                tmp_path = run_dir.joinpath(node["filePath"])
+                os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
+                self._download_to_path(uri, token, tmp_path)
+
+    def _download_input_directory(
+        self,
+        directory: str,
+        token: str,
+        run_dir: Path,
+        ignore_extensions: Sequence[str] | None = None,
+    ) -> str:
+        drop_box_url = get_bento_service_kind_url("drop-box")
+
+        sub_tree = directory.lstrip("/")
+
+        ignore_param = ""
+        if ignore_extensions:
+            # build query params to ignore extensions
+            ignore_param = "&".join([f"ignore={ext}" for ext in ignore_extensions])
+
+        url = f"{drop_box_url}/tree/{sub_tree}"
+        if ignore_param:
+            # add ignore query params
+            url = f"{url}?{ignore_param}"
+
+        # Fetch directory subtree from Drop Box
+        with requests.get(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            verify=self.validate_ssl,
+            stream=True
+        ) as response:
+            if response.status_code != 200:
+                raise RunExceptionWithFailState(
+                    STATE_EXECUTOR_ERROR,
+                    f"Tree request to drop box resulted in a non 200 status code: {response.status_code}"
+                )
+            tree = response.json()
+            # Download tree content under run_dir
+            self._download_directory_tree(tree, token, run_dir)
+        return str(run_dir.joinpath(sub_tree))
+
     @abstractmethod
     def _get_command(self, workflow_path: Path, params_path: Path, run_dir: Path) -> Command:
         """
@@ -327,17 +446,57 @@ class WESBackend(ABC):
 
         # run_req.workflow_params now includes non-secret injected values since it was read from the database after
         # the run ID was passed to the runner:
-        workflow_params_with_secrets: ParamDict = {**run_req.workflow_params}
+        processed_workflow_params: ParamDict = {**run_req.workflow_params}
 
-        # -- Find which inputs are secrets, which need to be injected here (so they don't end up in the database) ------
+        # -- Check if file injection needed ----------------------------------------------------------------------------
+        # Most workflow with input files expect the files to be accessible locally (temp file inject)
+        # In some cases, the targeted service itself will obtain the file from Drop-Box (e.g. gohan VCFs ingestion)
+        # For such cases, file and directory inputs are passed as-is, and the service can retrieve the files from:
+        # Individual files:     https://<BENTO DOMAIN>/api/drop-box/objects/<OBJECT PATH>
+        # Directories:          https://<BENTO DOMAIN>/api/drop-box/tree/<DIRECTORY PATH>
+        skip_file_input_injection = run_req.tags.workflow_id in WORKFLOW_IGNORE_FILE_PATH_INJECTION
+
+        # -- Inject workflow inputs that should NOT be stored in DB (secrets, temporary files) -------------------------
         for run_input in run_req.tags.workflow_metadata.inputs:
             if isinstance(run_input, WorkflowSecretInput):
+                # Find which inputs are secrets, which need to be injected here (so they don't end up in the database)
                 secret_value = secrets.get(run_input.key)
                 if secret_value is None:
                     err = f"Could not find injectable secret for key {run_input.key}"
                     self.log_error(err)
                     return self._finish_run_and_clean_up(run, STATE_EXECUTOR_ERROR)
-                workflow_params_with_secrets[namespaced_input(run_req.tags.workflow_id, run_input.id)] = secret_value
+                processed_workflow_params[namespaced_input(run_req.tags.workflow_id, run_input.id)] = secret_value
+            elif isinstance(run_input, (WorkflowFileInput, WorkflowFileArrayInput)):
+                # Finds workflow inputs for drop-box file(s)
+                # Downloads the file(s) in a temp dir and injects the path(s)
+                param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
+                input_param = run_req.workflow_params.get(param_key)
+                if not skip_file_input_injection:
+                    # inject input(s) as temp files
+                    injected_input = self._download_input_files(input_param, secrets["access_token"], run_dir)
+                else:
+                    injected_input = input_param
+                processed_workflow_params[param_key] = injected_input
+            elif isinstance(run_input, WorkflowDirectoryInput):
+                # Finds workflow inputs for a drop-box directory
+                # Downloads the directory's contents to a temp directory and injects the path
+                param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
+                input_param = run_req.workflow_params.get(param_key)
+
+                # TODO: directory workflows should simply include a list of file extentions to filter out.
+                filter_vcfs = run_req.workflow_params.get("experiments_json_with_files.filter_out_vcf_files")
+                filter_extensions: tuple[str, ...] | None = (".vcf", ".vcf.gz") if filter_vcfs else None
+
+                if not skip_file_input_injection:
+                    injected_dir = self._download_input_directory(
+                        input_param,
+                        secrets["access_token"],
+                        run_dir,
+                        filter_extensions
+                    )
+                else:
+                    injected_dir = input_param
+                processed_workflow_params[param_key] = injected_dir
 
         # -- Validate the workflow -------------------------------------------------------------------------------------
 
@@ -358,7 +517,7 @@ class WESBackend(ABC):
 
         # -- Store input for the workflow in a file in the temporary folder --------------------------------------------
         with open(self._params_path(run), "w") as pf:
-            pf.write(self._serialize_params(workflow_params_with_secrets))
+            pf.write(self._serialize_params(processed_workflow_params))
 
         # -- Create the runner command based on inputs -----------------------------------------------------------------
         cmd = self._get_command(self.workflow_path(run), self._params_path(run), self.run_dir(run))
@@ -366,7 +525,7 @@ class WESBackend(ABC):
         # -- Update run log with command and Celery ID -----------------------------------------------------------------
         self.db.set_run_log_command_and_celery_id(run, cmd, celery_id)
 
-        return cmd, workflow_params_with_secrets
+        return cmd, processed_workflow_params
 
     @abstractmethod
     def get_workflow_outputs(self, run: RunWithDetails) -> dict[str, RunOutput]:
@@ -483,7 +642,7 @@ class WESBackend(ABC):
         # Initialization (loading / downloading files + secrets injection) ---------------------------------------------
         init_vals = self._initialize_run_and_get_command(run, celery_id, secrets)
         if init_vals is None:
-            return
+            return None
 
         cmd, params_with_secrets = init_vals
 

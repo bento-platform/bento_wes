@@ -4,6 +4,7 @@ from flask import current_app
 
 __all__ = [
     "get_bento_services",
+    "get_bento_service_kind_url",
 ]
 
 
@@ -32,3 +33,9 @@ def get_bento_services() -> dict:
         _bento_services_last_updated = datetime.now()
 
     return _bento_services_cache
+
+
+def get_bento_service_kind_url(kind: str) -> str | None:
+    # TODO: replace this with upcoming bento_lib service registry utils
+    service_details: dict | None = get_bento_services().get(kind)
+    return (service_details or {}).get("url")
