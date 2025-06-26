@@ -19,6 +19,7 @@ from bento_lib.responses.flask_errors import (
     flask_not_found_error,
     flask_forbidden_error,
 )
+from bento_lib.utils.headers import authz_bearer_header
 from flask import Blueprint, Request, Response, current_app, jsonify, request
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -84,8 +85,7 @@ def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> I
 
 
 def _post_headers_getter(r: Request) -> dict[str, str]:
-    token = r.form.get("token")
-    return {"Authorization": f"Bearer {token}"} if token else {}
+    return authz_bearer_header(r.form.get("token"))
 
 
 def _check_single_run_permission_and_mark(run_req: RunRequest, permission: str, form_mode: bool = False) -> bool:
@@ -408,7 +408,7 @@ def run_download_artifact(run_id: uuid.UUID):
                     break
 
     r = current_app.response_class(generate_bytes(), status=200, mimetype=MIME_OCTET_STREAM)
-    r.headers["Content-Length"] = p.stat().st_size
+    r.headers["Content-Length"] = str(p.stat().st_size)
     r.headers["Content-Disposition"] = f"attachment; filename*=UTF-8' '{urllib.parse.quote(p.name, encoding='utf-8')}"
     return r
 

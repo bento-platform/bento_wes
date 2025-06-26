@@ -8,6 +8,7 @@ import uuid
 from abc import ABC, abstractmethod
 from bento_lib.events import EventBus
 from bento_lib.events.types import EVENT_WES_RUN_FINISHED
+from bento_lib.utils.headers import authz_bearer_header
 from bento_lib.workflows.models import (
     WorkflowSecretInput, WorkflowFileInput, WorkflowFileArrayInput, WorkflowDirectoryInput
 )
@@ -263,12 +264,7 @@ class WESBackend(ABC):
         Download a file from a URL to a destination directory.
         Bearer token auth works with Drop-Box and DRS.
         """
-        with requests.get(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-            verify=self.validate_ssl,
-            stream=True
-        ) as response:
+        with requests.get(url, headers=authz_bearer_header(token), verify=self.validate_ssl, stream=True) as response:
             if response.status_code != 200:
                 raise RunExceptionWithFailState(
                     STATE_EXECUTOR_ERROR,
@@ -355,12 +351,7 @@ class WESBackend(ABC):
             url = f"{url}?{ignore_param}"
 
         # Fetch directory subtree from Drop Box
-        with requests.get(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-            verify=self.validate_ssl,
-            stream=True
-        ) as response:
+        with requests.get(url, headers=authz_bearer_header(token), verify=self.validate_ssl, stream=True) as response:
             if response.status_code != 200:
                 raise RunExceptionWithFailState(
                     STATE_EXECUTOR_ERROR,
