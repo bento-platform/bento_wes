@@ -26,6 +26,7 @@ from typing import Any, Callable, Iterator
 from werkzeug.utils import secure_filename
 
 from . import states
+from .config import config
 from .authz import authz_middleware
 from .celery import celery
 from .db import Database, get_db
@@ -67,7 +68,7 @@ def _get_resource_for_run_request(run_req: RunRequest) -> dict:
 
 
 def authz_enabled() -> bool:
-    return current_app.config["AUTHZ_ENABLED"]
+    return config.authz_enabled
 
 
 def _check_runs_permission(run_requests: list[RunRequest], permission: str) -> Iterator[bool]:
@@ -110,7 +111,7 @@ def _config_for_run(run_dir: Path) -> dict[str, str | bool | None]:
     return {
         # In production, workflows should validate SSL (i.e., omit the curl -k flag).
         # In development, SSL certificates are usually self-signed, so they will not validate.
-        "validate_ssl": current_app.config["BENTO_VALIDATE_SSL"],
+        "validate_ssl": config.bento_validate_ssl,
         #  In export/analysis mode, as we rely on services located in different containers
         #  there is a need to have designated folders on shared volumes between
         #  WES and the other services, to write files to.
@@ -124,7 +125,7 @@ def _config_for_run(run_dir: Path) -> dict[str, str | bool | None]:
         #  task unless they are written arbitrarily to run_dir
         "run_dir": str(run_dir),
         # Variant effect predictor cache (large directory):
-        "vep_cache_dir": current_app.config["VEP_CACHE_DIR"],
+        "vep_cache_dir": config.vep_cache_dir,
     }
 
 
@@ -146,23 +147,23 @@ def _create_run(db: Database, c: sqlite3.Cursor) -> Response:
 
     # Get list of allowed workflow hosts from configuration for any checks inside the runner
     # If it's blank, assume that means "any host is allowed" and pass None to the runner
-    workflow_host_allow_list = parse_workflow_host_allow_list(current_app.config["WORKFLOW_HOST_ALLOW_LIST"])
+    workflow_host_allow_list = parse_workflow_host_allow_list(config.workflow_host_allow_list)
 
     # Download workflow file, potentially using passed auth headers if they're present
     # and we're querying our own node.
 
     # TODO: Move this back to runner, since we'll need to handle the callback anyway with local URLs...
 
-    bento_url = current_app.config["BENTO_URL"]
+    bento_url = config.bento_url
 
     wm = WorkflowManager(
-        current_app.config["SERVICE_TEMP"],
-        service_base_url=current_app.config["SERVICE_BASE_URL"],
+        config.service_temp,
+        service_base_url=config.service_base_url,
         bento_url=bento_url,
         logger=logger,
         workflow_host_allow_list=workflow_host_allow_list,
-        validate_ssl=current_app.config["BENTO_VALIDATE_SSL"],
-        debug=current_app.config["BENTO_DEBUG"],
+        validate_ssl=config.bento_validate_ssl,
+        debug=config.bento_debug,
     )
 
     # Optional Authorization HTTP header to forward to nested requests
@@ -185,7 +186,7 @@ def _create_run(db: Database, c: sqlite3.Cursor) -> Response:
 
     # Create run directory
 
-    run_dir: Path = current_app.config["SERVICE_TEMP"] / str(run_id)
+    run_dir: Path = config.service_temp / str(run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
 
     # TODO: Delete run dir if something goes wrong...
@@ -522,8 +523,8 @@ def run_cancel(run_id: uuid.UUID):
         # TODO: wait for revocation / failure and update status...
 
         # TODO: Generalize clean-up code / fetch from back-end
-        run_dir = current_app.config["SERVICE_TEMP"] / run_id_str
-        if not current_app.config["BENTO_DEBUG"]:
+        run_dir = config.service_temp / run_id_str
+        if not config.bento_debug:
             shutil.rmtree(run_dir, ignore_errors=True)
 
         db.update_run_state_and_commit(c, run_id_str, states.STATE_CANCELED, event_bus=event_bus)
