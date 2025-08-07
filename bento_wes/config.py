@@ -1,16 +1,17 @@
 import os
 from pathlib import Path
+from pydantic import field_validator, ValidationError, Field, AliasChoices
+from bento_lib.config.pydantic import BentoFastAPIBaseConfig
+from bento_lib.service_info.types import BentoExtraServiceInfo
 
-from .constants import SERVICE_ID
+from .constants import SERVICE_ID, SERVICE_NAME, BENTO_SERVICE_KIND, GIT_REPOSITORY
 from .logger import logger
 
 
 __all__ = [
-    "AUTHZ_URL",
-    "AUTHZ_ENABLED",
-    "BENTO_DEBUG",
     "BENTO_EVENT_REDIS_URL",
-    "Config",
+    "flask_config"
+    "config"
 ]
 
 
@@ -50,7 +51,7 @@ if not SERVICE_BASE_URL.endswith("/"):
     SERVICE_BASE_URL += "/"
 
 
-class Config:
+class FlaskConfig():
     BENTO_URL: str = os.environ.get("BENTO_URL", "http://127.0.0.1:5000/")
 
     BENTO_DEBUG: bool = BENTO_DEBUG
@@ -95,3 +96,67 @@ class Config:
 
     # Enables interactive debug of Celery tasks locally, not possible with worker threads otherwise
     CELERY_ALWAYS_EAGER: bool = CELERY_DEBUG
+
+BENTO_EXTRA_SERVICE_INFO: BentoExtraServiceInfo = {
+    "serviceKind": BENTO_SERVICE_KIND,
+    "dataService": False,
+    "workflowProvider": True,
+    "gitRepository": GIT_REPOSITORY
+}
+
+class Config(BentoFastAPIBaseConfig):
+    bento_url: str = "http://127.0.0.1:5000/"
+
+    bento_debug: bool = Field(False, validation_alias=AliasChoices("BENTO_DEBUG", "FLASK_DEBUG"))
+    bento_container_local: bool = False
+    bento_validate_ssl: bool = not bento_debug
+
+    service_id: str = SERVICE_ID
+    service_name: str = SERVICE_NAME
+    service_data: Path = Path("data")
+    database: Path = service_data / "bento_wes.db"
+    service_temp: Path = Path("tmp")
+    service_base_url: str = SERVICE_BASE_URL
+
+    # WDL-file-related configuration
+    wom_tool_location: str | None
+    workflow_host_allow_list: str | None
+
+    # Backend configuration
+    cromwell_location: str = "/cromwell.jar"
+    
+    # CORS
+    cors_origins: list[str] | str = "*"
+
+    # Authn/z-related configuration
+    authz_url: str = Field(..., validation_alias="BENTO_AUTHZ_SERVICE_URL")
+    authz_enabled: bool = True
+    
+
+    #  - ... for WES itself:
+    bento_openid_config_url: str = "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration"
+    wes_client_id: str = "bento_wes"
+    wes_client_secret: str = ""
+
+    # Service registry URL, used for looking up service kinds to inject as workflow input
+    service_registry_url: str
+
+    # VEP-related configuration
+    vep_cache_dir: str | None = None
+
+    ingest_post_timeout: int = 60 * 60  # 1 hour
+    workflow_timeout: int = 60 * 60 * 48 # 2 days
+
+    # Enables interactive debug of Celery tasks locally, not possible with worker threads otherwise
+    celery_always_eager: bool = Field(False, validation_alias="CELERY_DEBUG")
+
+    @field_validator("authz_url", "service_registry_url", mode="before")
+    def required_and_skip_trailing_slash(cls, v:str, info) -> str:
+        if not v or not v.strip():
+            raise ValidationError(f"{info.field_name.upper()} must not be empty")
+        return v.strip().rstrip("/")
+
+
+
+config = Config()
+flask_config = FlaskConfig()
