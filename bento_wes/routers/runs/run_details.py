@@ -32,7 +32,6 @@ def run_stream(
     db: Annotated[Database, Depends(get_db)],
 ):
     # TODO: add auth
-    # TODO: validate run_id 
     return get_stream(db, stream, run_id)
 
 
