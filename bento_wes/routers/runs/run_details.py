@@ -6,9 +6,8 @@ import json
 
 from bento_wes.db import Database, get_db
 from bento_wes.types import RunStream
-from bento_wes.api_utils import get_stream
 
-from .deps import get_run_or_404 
+from .deps import get_run_or_404, get_stream
 
 detail_router = APIRouter(prefix="/{run_id}")
 detail_router.dependencies.append(Depends(get_run_or_404))
