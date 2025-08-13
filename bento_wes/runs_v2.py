@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Header, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
-from pydantic import BaseModel
-from typing import Annotated, List, Optional,Callable
+from typing import Annotated, List, Optional
 import requests # TODO: change to httpx
 import uuid
 from pathlib import Path
@@ -26,24 +25,9 @@ from .workflows import (
 from .utils import save_upload_files
 from .service_registry import get_bento_services
 from .runner import run_workflow
-from .types import RunStream
+from .types import RunStream, AuthHeaderModel
 
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
-
-
-class AuthHeaderModel(BaseModel):
-    Authorization: Optional[str] = None
-
-    def as_dict(self) -> dict:
-        return self.model_dump(exclude_none=True)
-    
-    @classmethod
-    def from_header(
-        cls,
-        Authorization: Annotated[str | None, Header()] = None
-    ) -> "AuthHeaderModel":
-        return cls(Authorization=Authorization)
-
 
 #TODO: add auth
 
