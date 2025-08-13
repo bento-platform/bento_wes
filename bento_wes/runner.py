@@ -8,8 +8,9 @@ from .backends.cromwell_local import CromwellLocalBackend
 from .backends.wes_backend import WESBackend
 from .celery import celery
 from .db import Database, get_db
-from .events import get_new_event_bus
+from .events import get_event_bus_per_request
 from .workflows import parse_workflow_host_allow_list
+from .config import config
 
 
 @celery.task(bind=True)
@@ -18,7 +19,7 @@ def run_workflow(self, run_id: uuid.UUID):
 
     db: Database = get_db()
     c = db.cursor()
-    event_bus = get_new_event_bus()
+    event_bus = get_event_bus_per_request()
 
     # Checks ------------------------------------------------------------------
 

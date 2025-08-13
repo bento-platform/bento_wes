@@ -1,0 +1,171 @@
+from fastapi import APIRouter, Depends, UploadFile, File, status, Header, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import Annotated, List, Optional, Iterable, Dict, Any
+import requests # TODO: change to httpx
+import uuid
+from pathlib import Path
+import json
+
+from bento_lib.workflows.utils import namespaced_input
+from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlInput
+
+from . import states
+from .models import RunRequest
+from .authz import authz_middleware
+from .logger import logger
+from .config import config
+from .db import Database, get_db
+from .workflows import (
+    parse_workflow_host_allow_list, 
+    WorkflowManager, 
+    WorkflowType, 
+    UnsupportedWorkflowType,
+    WorkflowDownloadError,
+)
+from .utils import save_upload_files
+from .service_registry import get_bento_services
+from .runner import run_workflow
+
+runs_router = APIRouter(prefix="/runs", tags=["runs"])
+
+
+class AuthHeaderModel(BaseModel):
+    Authorization: Optional[str] = None
+
+    def as_dict(self) -> dict:
+        return self.model_dump(exclude_none=True)
+    
+    @classmethod
+    def from_header(
+        cls,
+        Authorization: Annotated[str | None, Header()] = None
+    ) -> "AuthHeaderModel":
+        return cls(Authorization=Authorization)
+
+
+
+
+
+@runs_router.post("", dependencies=[authz_middleware.dep_public_endpoint()])
+async def create_run(
+    run: Annotated[RunRequest, Depends(RunRequest.as_form)],
+    authorization: Annotated[AuthHeaderModel, Depends(AuthHeaderModel.from_header)], 
+    db: Annotated[Database, Depends(get_db)],
+    workflow_attachment: Optional[List[UploadFile]] = File(None),
+):
+    logger.info(f"Starting run creation for workflow {run.tags.workflow_id}")
+
+    # Parse workflow host allow list from config
+    workflow_host_allow_list = parse_workflow_host_allow_list(config.workflow_host_allow_list)
+
+    wm = WorkflowManager(
+        config.service_temp,
+        service_base_url=config.service_base_url,
+        logger=logger,
+        workflow_host_allow_list=workflow_host_allow_list,
+        validate_ssl=config.bento_validate_ssl,
+        debug=config.bento_debug
+    )
+
+    auth_header = authorization.as_dict()
+    logger.info(f"Authorization header dict: {auth_header}")
+
+    try:
+        wm.download_or_copy_workflow(
+            run.workflow_url, WorkflowType(run.workflow_type), auth_headers=auth_header
+        )
+    except UnsupportedWorkflowType:
+        return HTTPException(status_code=400, detail=f"Unsupported workflow type: {run.workflow_type}")
+    except (WorkflowDownloadError, requests.exceptions.ConnectionError) as e:
+        return HTTPException(status_code=400, detail=f"Could not access workflow file: {run.workflow_url} (Python error: {e})")
+
+    run_id = uuid.uuid4()
+
+    run_dir: Path = config.service_temp / str(run_id)
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    if workflow_attachment:
+        for file in workflow_attachment:
+            contents = await file.read()
+            print(f"Received file: {file.filename} with size {len(contents)} bytes")
+        response = await save_upload_files(workflow_attachment, run_dir)
+        logger.info(response)
+    else: 
+        logger.info("No workflow attachments provided")
+    
+    run_injectable_config = {
+        "validate_ssl": config.bento_validate_ssl,
+        "run_dir": str(run_dir),
+        "vep_cache_dir": config.vep_cache_dir,
+    }
+    run_params = {**run.workflow_params}
+    bento_services_data = None
+    for run_input in run.tags.workflow_metadata.inputs:
+        input_key = namespaced_input(run.tags.workflow_id, run_input.id)
+        if isinstance(run_input, WorkflowConfigInput):
+            config_value =run_injectable_config.get(run_input.key)
+            if config_value is None:
+                err = f"Could not find injectable configuration value for key {run_input.key}"
+                logger.error(err)
+                return HTTPException(status_code=400, detail=err)
+            logger.debug(f"Injecting configuration parameter '{run_input.key}' into run {run_id}: {run_input.id}={config_value}")
+            run_params[input_key] = config_value
+        elif isinstance(run_input, WorkflowServiceUrlInput):
+            bento_services_data = bento_services_data or get_bento_services()
+            config_value: str | None = bento_services_data.get(run_input.service_kind).get("url")
+            sk = run_input.service_kind
+            if config_value is None:
+                err = f"Could not find URL/service record for service kind '{sk}'"
+                logger.error(err)
+                return HTTPException(status_code=400, detail=err)
+            logger.debug(f"Injecting URL for service kind '{sk}' into run {run_id}: {run_input.id}={config_value}")
+            run_params[input_key] = config_value
+    
+    c = db.cursor()
+    c.execute(
+        """
+        INSERT INTO runs (
+            id,
+            state,
+            outputs,
+
+            request__workflow_params,
+            request__workflow_type,
+            request__workflow_type_version,
+            request__workflow_engine_parameters,
+            request__workflow_url,
+            request__tags,
+
+            run_log__name
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """,
+        (
+            str(run_id),
+            states.STATE_UNKNOWN,
+            json.dumps({}),
+            json.dumps(run_params),
+            run.workflow_type,
+            run.workflow_type_version,
+            json.dumps(run.workflow_engine_parameters),
+            str(run.workflow_url),
+            run.tags.model_dump_json(),
+            run.tags.workflow_id,
+        ),
+    )
+    db.commit()
+    db.update_run_state_and_commit(c, run_id, states.STATE_QUEUED, publish_event=False)
+
+    run_workflow.delay(run_id)
+
+    return JSONResponse(
+        content={"run_id": str(run_id)}
+    )
+
+
+@runs_router.get("", dependencies=[authz_middleware.dep_public_endpoint()])
+async def list_runs(public: bool = False, with_details: bool = False):
+    return []
+
+
+

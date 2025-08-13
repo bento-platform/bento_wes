@@ -3,6 +3,10 @@ from pathlib import Path
 from pydantic import field_validator, ValidationError, Field, AliasChoices
 from bento_lib.config.pydantic import BentoFastAPIBaseConfig
 from bento_lib.service_info.types import BentoExtraServiceInfo
+import json
+from json import JSONDecodeError
+from typing import Any
+import re
 
 from .constants import SERVICE_ID, SERVICE_NAME, BENTO_SERVICE_KIND, GIT_REPOSITORY
 from .logger import logger
@@ -118,10 +122,13 @@ class Config(BentoFastAPIBaseConfig):
     service_temp: Path = Path("tmp")
     service_base_url: str = SERVICE_BASE_URL
 
+    # DB
+    DATABASE_PATH: str = os.getenv("DATABASE", "instance/bento.db")
+
     # WDL-file-related configuration
     wom_tool_location: str | None
     workflow_host_allow_list: str | None
-
+    
     # Backend configuration
     cromwell_location: str = "/cromwell.jar"
     

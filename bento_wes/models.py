@@ -1,7 +1,8 @@
 from bento_lib.workflows.models import WorkflowDefinition
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, AnyUrl, Json
-from typing import Literal
+from typing import Literal, Annotated
+from fastapi import Form
 
 __all__ = [
     "BentoRunRequestTags",
@@ -28,6 +29,24 @@ class RunRequest(BaseModel):
     workflow_url: AnyUrl
     tags: Json[BentoRunRequestTags]
 
+    @classmethod
+    def as_form(
+        cls,
+        workflow_params: Annotated[str, Form(...)],
+        workflow_type: Annotated[Literal["WDL"], Form(...)],
+        workflow_type_version: Annotated[Literal["1.0"], Form(...)],
+        workflow_engine_parameters: Annotated[str, Form(...)],
+        workflow_url: Annotated[str, Form(...)],
+        tags: Annotated[str, Form(...)],
+    ) -> "RunRequest":
+        return cls(
+            workflow_params=workflow_params,
+            workflow_type=workflow_type,
+            workflow_type_version=workflow_type_version,
+            workflow_engine_parameters=workflow_engine_parameters,
+            workflow_url=workflow_url,
+            tags=tags,
+        )
 
 class RunLog(BaseModel):
     name: str

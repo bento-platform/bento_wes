@@ -1,20 +1,20 @@
-import logging
 import json
 import sqlite3
 import uuid
+from typing import Any, Generator
+from urllib.parse import urljoin
 
 from bento_lib.events import EventBus
 from bento_lib.events.notifications import format_notification
 from bento_lib.events.types import EVENT_CREATE_NOTIFICATION, EVENT_WES_RUN_UPDATED
-from flask import current_app, g
-from typing import Any
-from urllib.parse import urljoin
 
 from . import states
 from .backends.backend_types import Command
+from .config import config
 from .constants import SERVICE_ARTIFACT
-from .events import get_flask_event_bus
-from .models import RunLog, RunRequest, Run, RunWithDetails
+from .events import get_event_bus_per_request
+from .logger import logger
+from .models import Run, RunLog, RunRequest, RunWithDetails
 from .types import RunStream
 from .utils import iso_now
 
@@ -22,9 +22,8 @@ from .utils import iso_now
 __all__ = [
     "Database",
     "get_db",
-    "close_db",
-    "init_db",
-    "update_db",
+    "setup_database_on_startup",
+    "repair_database_on_startup",
 ]
 
 
@@ -48,7 +47,7 @@ def _strip_first_slash(string: str) -> str:
 
 
 def _stream_url(run_id: uuid.UUID | str, stream: RunStream) -> str:
-    return urljoin(current_app.config["SERVICE_BASE_URL"], f"runs/{str(run_id)}/{stream}")
+    return urljoin(config.service_base_url, f"runs/{str(run_id)}/{stream}")
 
 
 def run_log_from_row(run: sqlite3.Row, stream_content: bool) -> RunLog:
@@ -82,22 +81,35 @@ def run_from_row(run: sqlite3.Row) -> Run:
 
 class Database:
     def __init__(self):
-        self._conn = sqlite3.connect(current_app.config["DATABASE"], detect_types=sqlite3.PARSE_DECLTYPES)
+        # One connection per request; okay for FastAPI threadpools
+        self._conn = sqlite3.connect(
+            config.database,
+            detect_types=sqlite3.PARSE_DECLTYPES,
+            check_same_thread=False,
+        )
         self._conn.row_factory = sqlite3.Row
+        self._apply_pragmas()
 
-    def cursor(self):
+    def _apply_pragmas(self) -> None:
+        # Good defaults for web workloads with SQLite
+        c = self._conn.cursor()
+        c.execute("PRAGMA foreign_keys=ON;")
+        c.execute("PRAGMA journal_mode=WAL;")
+        c.close()
+
+    def cursor(self) -> sqlite3.Cursor:
         return self._conn.cursor()
 
-    def commit(self):
+    def commit(self) -> None:
         self._conn.commit()
 
-    def close(self):
+    def close(self) -> None:
         self._conn.close()
 
-    def init(self):
-        with current_app.open_resource("schema.sql") as sf:
-            self.cursor().executescript(sf.read().decode("utf-8"))
-
+    def init_schema(self) -> None:
+        # Run once at startup (not per request!)
+        with open("schema.sql", "r", encoding="utf-8") as sf:
+            self.cursor().executescript(sf.read())
         self.commit()
 
     def finish_run(
@@ -106,19 +118,10 @@ class Database:
         run: Run,
         state: str,
         cursor: sqlite3.Cursor | None = None,
-        logger: logging.Logger | None = None,
     ) -> None:
         """
-        Updates a run's state, sets the run log's end time, and publishes an event corresponding with a run failure
-        or a run success, depending on the state.
-        :param event_bus: A bento_lib-defined event bus implementation for sending events
-        :param run: The run which just finished
-        :param state: The terminal state for the finished run
-        :param cursor: An SQLite connection cursor to re-use (optional)
-        :param logger: An optionally-provided logger object.
-        :return:
+        Update a run's state, set the run log's end time, and publish a success/failure notification.
         """
-
         c: sqlite3.Cursor = cursor or self.cursor()
 
         run_id = run.run_id
@@ -126,10 +129,9 @@ class Database:
 
         # Explicitly don't commit here to sync with state update
         c.execute("UPDATE runs SET run_log__end_time = ? WHERE id = ?", (end_time, run_id))
-        self.update_run_state_and_commit(c, run_id, state, event_bus=event_bus, logger=logger)
+        self.update_run_state_and_commit(c, run_id, state, event_bus=event_bus)
 
-        if logger:
-            logger.info(f"Run {run_id} finished with state {state} at {end_time}")
+        logger.info(f"Run {run_id} finished with state {state} at {end_time}")
 
         if state in states.FAILURE_STATES:
             event_bus.publish_service_event(
@@ -142,7 +144,6 @@ class Database:
                     action_target=run_id,
                 ),
             )
-
         elif state in states.SUCCESS_STATES:
             event_bus.publish_service_event(
                 SERVICE_ARTIFACT,
@@ -155,17 +156,18 @@ class Database:
                 ),
             )
 
-    def update_stuck_runs(self):
-        # Update all runs that have "stuck" states to have an error state instead on restart. This way, systems don't
-        # get stuck checking their status, and if they're in a weird state at boot they should receive an error status
-        # anyway.
-
-        event_bus = get_flask_event_bus()
-
+    def update_stuck_runs(self) -> None:
+        """
+        On process boot, convert initializing/running states into system error so
+        the UI/backend doesn't wait on orphaned work.
+        """
+        event_bus = get_event_bus_per_request()
         c = self.cursor()
-        logger: logging.Logger = current_app.logger
 
-        c.execute("SELECT id FROM runs WHERE state IN (?, ?)", (states.STATE_INITIALIZING, states.STATE_RUNNING))
+        c.execute(
+            "SELECT id FROM runs WHERE state IN (?, ?)",
+            (states.STATE_INITIALIZING, states.STATE_RUNNING),
+        )
         stuck_run_ids: list[sqlite3.Row] = c.fetchall()
 
         for r in stuck_run_ids:
@@ -175,7 +177,8 @@ class Database:
                 continue
 
             logger.info(
-                f"Found stuck run: {run.run_id} at state {run.state}. Setting state to {states.STATE_SYSTEM_ERROR}"
+                f"Found stuck run: {run.run_id} at state {run.state}. "
+                f"Setting state to {states.STATE_SYSTEM_ERROR}"
             )
             self.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, cursor=c)
 
@@ -225,12 +228,14 @@ class Database:
             return cls.run_with_details_from_row(c, run, stream_content)
         return None
 
-    def set_run_log_name(self, run: Run, workflow_name: str):
-        # TODO: To avoid having multiple names, we should maybe only set this once?
-        self.cursor().execute("UPDATE runs SET run_log__name = ? WHERE id = ?", (workflow_name, run.run_id))
+    def set_run_log_name(self, run: Run, workflow_name: str) -> None:
+        self.cursor().execute(
+            "UPDATE runs SET run_log__name = ? WHERE id = ?",
+            (workflow_name, run.run_id),
+        )
         self.commit()
 
-    def set_run_log_command_and_celery_id(self, run: Run, cmd: Command, celery_id: int):
+    def set_run_log_command_and_celery_id(self, run: Run, cmd: Command, celery_id: int) -> None:
         self.cursor().execute(
             "UPDATE runs SET run_log__cmd = ?, run_log__celery_id = ? WHERE id = ?",
             (" ".join(cmd), celery_id, run.run_id),
@@ -238,7 +243,7 @@ class Database:
         self.commit()
 
     @staticmethod
-    def set_run_outputs(c: sqlite3.Cursor, run_id: str, outputs: dict[str, Any]):
+    def set_run_outputs(c: sqlite3.Cursor, run_id: str, outputs: dict[str, Any]) -> None:
         c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(outputs), str(run_id)))
 
     def update_run_state_and_commit(
@@ -247,48 +252,49 @@ class Database:
         run_id: uuid.UUID | str,
         state: str,
         event_bus: EventBus | None = None,
-        logger: logging.Logger | None = None,
         publish_event: bool = True,
-    ):
-        if logger:
-            logger.info(f"Updating run state of {run_id} to {state}")
+    ) -> None:
+        logger.info(f"Updating run state of {run_id} to {state}")
         c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
         self.commit()
         if event_bus and publish_event:
-            event_bus.publish_service_event(
-                SERVICE_ARTIFACT,
-                EVENT_WES_RUN_UPDATED,
-                self.get_run_with_details(c, run_id, stream_content=False).model_dump(mode="json"),
-            )
+            payload = self.get_run_with_details(c, run_id, stream_content=False).model_dump(mode="json")
+            event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_UPDATED, payload)
 
 
-def get_db() -> Database:
-    if "db" not in g:
-        g.db = Database()
-
-    return g.db
-
-
-def close_db(_e=None):
-    db: Database | None = g.pop("db", None)
-    if db is not None:
+# === FastAPI dependency: one connection per request, auto-closed ===
+def get_db() -> Generator["Database", None, None]:
+    db = Database()
+    try:
+        yield db
+    finally:
         db.close()
 
 
-def init_db():
-    db: Database = get_db()
-    db.init()
+# === Startup helpers (call these from your FastAPI lifespan) ===
+def setup_database_on_startup() -> None:
+    """
+    Ensure schema exists and apply PRAGMAs once at startup.
+    Call from your FastAPI lifespan (startup phase).
+    """
+    db = Database()
+    try:
+        # If the 'runs' table isn't present, run full schema.sql
+        c = db.cursor()
+        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runs'")
+        if c.fetchone() is None:
+            db.init_schema()
+    finally:
+        db.close()
 
 
-def update_db():
-    db: Database = get_db()
-    c = db.cursor()
-
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runs'")
-    if c.fetchone() is None:
-        init_db()
-        return
-
-    db.update_stuck_runs()
-
-    # TODO: Migrations if needed
+def repair_database_on_startup() -> None:
+    """
+    Perform boot-time repairs (e.g., mark stuck runs as system error).
+    Call after setup_database_on_startup() during startup.
+    """
+    db = Database()
+    try:
+        db.update_stuck_runs()
+    finally:
+        db.close()

@@ -1,6 +1,7 @@
 import requests
 from datetime import datetime
-from flask import current_app
+
+from .config import config
 
 __all__ = [
     "get_bento_services",
@@ -25,9 +26,9 @@ def get_bento_services() -> dict:
         and _bento_services_last_updated
         and (datetime.now() - _bento_services_last_updated).total_seconds() < _cache_ttl
     ):
-        validate_ssl = current_app.config["BENTO_VALIDATE_SSL"]
+        validate_ssl = config.bento_validate_ssl
         res = requests.get(
-            current_app.config["SERVICE_REGISTRY_URL"].rstrip("/") + "/bento-services", verify=validate_ssl
+            config.service_registry_url.rstrip("/") + "/bento-services", verify=validate_ssl
         )
         res.raise_for_status()
         _bento_services_cache = {v["service_kind"]: v for v in res.json().values()}
