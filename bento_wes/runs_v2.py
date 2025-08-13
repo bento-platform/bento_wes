@@ -242,17 +242,19 @@ def get_stream(db: Database, stream: RunStream, run_id: uuid.UUID):
         }
     )
 
-@runs_router.get("/{run_id}/stdout", dependencies=[authz_middleware.dep_public_endpoint()])
-def run_stdout(run_id: uuid.UUID, db: Annotated[Database, Depends(get_db)]):
-    #TODO: add auth
-    #TODO: check if run id is valid
-    return get_stream(db, "stdout", run_id)
-
-@runs_router.get("/{run_id}/stderr",  dependencies=[authz_middleware.dep_public_endpoint()])
-def run_stderr(run_id: uuid.UUID, db: Annotated[Database, Depends(get_db)]):
-    #TODO: add auth
-    #TODO: check if run id is valid
-    return get_stream(db, "stderr", run_id)
+@runs_router.get(
+    "/{run_id}/{stream}",
+    response_class=PlainTextResponse,
+    dependencies=[Depends(authz_middleware.dep_public_endpoint)],
+)
+def run_stream(
+    run_id: uuid.UUID,
+    stream: RunStream,
+    db: Annotated[Database, Depends(get_db)],
+):
+    # TODO: add auth
+    # TODO: validate run_id 
+    return get_stream(db, stream, run_id)
 
 
 @runs_router.post("/{run_id}/cancel")
