@@ -7,15 +7,14 @@ import json
 from bento_wes.db import Database, get_db
 from bento_wes.types import RunStream
 
-from .deps import stash_run_or_404, get_stream
+from .deps import stash_run_or_404, get_stream, RunDep
 
 detail_router = APIRouter(prefix="/{run_id}")
 detail_router.dependencies.append(Depends(stash_run_or_404))
 
 @detail_router.get("")
-def get_run(run_id: uuid.UUID, db: Annotated[Database, Depends(get_db)]):
-    run_details = db.get_run_with_details(db.cursor(), run_id, stream_content=False)
-    return JSONResponse(json.loads(run_details.model_dump_json()))
+def get_run(run: RunDep):
+    return JSONResponse(json.loads(run.model_dump_json()))
 
 @detail_router.post("/download-artifact")
 def run_download_artifact(run_id: uuid.UUID):
@@ -36,12 +35,11 @@ def run_stream(
 
 
 @detail_router.post("/cancel")
-def cancel_run(run_id: uuid.UUID, db: Annotated[Database, Depends(get_db)]):
+def cancel_run(run_id: uuid.UUID, run: RunDep, db: Annotated[Database, Depends(get_db)]):
     # TODO: Check if already completed
     # TODO: Check if run log exists
     # TODO: from celery.task.control import revoke; revoke(celery_id, terminate=True)
     c = db.cursor()
-
     run_id_str = str(run_id)
     
 
