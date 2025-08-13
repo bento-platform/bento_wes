@@ -237,7 +237,7 @@ def run_stream(
 
 
 @runs_router.post("/{run_id}/cancel")
-def run_cancel(run_id: uuid.UUID, db: Annotated[Database, Depends(get_db)]):
+def cancel_run(run_id: uuid.UUID, db: Annotated[Database, Depends(get_db)]):
     pass
 
 @runs_router.get("/{run_id}/status")
