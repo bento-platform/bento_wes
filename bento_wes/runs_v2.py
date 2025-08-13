@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Response, Header, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, UploadFile, File, Header, HTTPException
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 from typing import Annotated, List, Optional,Callable
 import requests # TODO: change to httpx
@@ -250,9 +250,8 @@ def get_stream(db: Database, stream: RunStream, run_id: uuid.UUID):
 
     content = run.run_log.stdout if stream == "stdout" else run.run_log.stderr
 
-    return Response(
-        content=content,
-        media_type="text/plain",
+    return PlainTextResponse(
+        content,
         status_code=200,
         headers={
             "Cache-Control": cache_control
