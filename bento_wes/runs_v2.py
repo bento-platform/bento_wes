@@ -26,6 +26,7 @@ from .utils import save_upload_files
 from .service_registry import get_bento_services
 from .runner import run_workflow
 from .types import RunStream, AuthHeaderModel
+from .api_utils import get_stream
 
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -219,28 +220,6 @@ def get_run(run_id: uuid.UUID, db: Annotated[Database, Depends(get_db)]):
 def run_download_artifact(run_id: uuid.UUID):
     # TODO
     pass
-
-def get_stream(db: Database, stream: RunStream, run_id: uuid.UUID):
-    c = db.cursor()
-    run = db.get_run_with_details(c, run_id, stream_content=True)
-    if run is None:
-            raise HTTPException(f"Stream {stream} not found for run {run_id}")
-    
-    cache_control = (
-        "private, max-age=86400"
-        if run.state in states.TERMINATED_STATES
-        else "no-cache, no-store, must-revalidate, max-age=0"
-    )
-
-    content = run.run_log.stdout if stream == "stdout" else run.run_log.stderr
-
-    return PlainTextResponse(
-        content,
-        status_code=200,
-        headers={
-            "Cache-Control": cache_control
-        }
-    )
 
 @runs_router.get(
     "/{run_id}/{stream}",
