@@ -1,6 +1,7 @@
 import logging
 import shutil
 import httpx
+import asyncio
 
 from base64 import urlsafe_b64encode
 from pathlib import Path
@@ -38,6 +39,7 @@ ALLOWED_WORKFLOW_REQUEST_SCHEMES = ("http", "https")
 
 MAX_WORKFLOW_FILE_BYTES = 50000  # 50 KB
 
+# Workflow IDs for which input file(s) must be a URL reference.
 WORKFLOW_IGNORE_FILE_PATH_INJECTION = frozenset({"vcf_gz"})
 
 
@@ -90,21 +92,25 @@ class WorkflowManager:
         if workflow_type not in WES_SUPPORTED_WORKFLOW_TYPES:
             raise UnsupportedWorkflowType(f"Unsupported workflow type: {workflow_type}")
 
-        workflow_name = str(urlsafe_b64encode(bytes(str(workflow_uri), encoding="utf-8")), encoding="utf-8").replace(
-            "=", ""
-        )
+        workflow_name = str(
+            urlsafe_b64encode(bytes(str(workflow_uri), encoding="utf-8")),
+            encoding="utf-8",
+        ).replace("=", "")
         return self.tmp_dir / f"workflow_{workflow_name}.{WORKFLOW_EXTENSIONS[workflow_type]}"
 
-    def download_or_copy_workflow(
+    async def download_or_copy_workflow(
         self,
         workflow_uri: AnyUrl,
         workflow_type: WorkflowType,
         auth_headers: dict,
     ) -> str | None:
+        """
+        Async version using httpx.AsyncClient. Non-blocking file I/O via asyncio.to_thread.
+        """
         workflow_path = self.workflow_path(workflow_uri, workflow_type)
 
-        if workflow_uri.scheme not in ALLOWED_WORKFLOW_REQUEST_SCHEMES:  # file://
-            shutil.copyfile(workflow_uri.path, workflow_path)
+        if workflow_uri.scheme not in ALLOWED_WORKFLOW_REQUEST_SCHEMES:
+            await asyncio.to_thread(shutil.copyfile, workflow_uri.path, workflow_path)
             return
 
         if self.workflow_host_allow_list is not None:
@@ -130,8 +136,8 @@ class WorkflowManager:
 
         try:
             url = str(workflow_uri)
-            with httpx.Client(verify=self._validate_ssl, timeout=None) as client:
-                wr = client.get(
+            async with httpx.AsyncClient(verify=self._validate_ssl, timeout=None, follow_redirects=True) as client:
+                resp = await client.get(
                     url,
                     headers={
                         "Host": urlparse(url or "").netloc or "",
@@ -141,21 +147,19 @@ class WorkflowManager:
         except httpx.RequestError as e:
             if workflow_path.exists():
                 return
-            else:
-                raise e
+            raise e
 
-        if wr.status_code == 200 and len(wr.content) < MAX_WORKFLOW_FILE_BYTES:
+        content = await resp.aread()
+        if resp.status_code == 200 and len(content) < MAX_WORKFLOW_FILE_BYTES:
             if workflow_path.exists():
-                workflow_path.unlink()
+                await asyncio.to_thread(workflow_path.unlink)
 
-            with open(workflow_path, "wb") as nwf:
-                nwf.write(wr.content)
+            await asyncio.to_thread(workflow_path.write_bytes, content)
 
             self._info("Workflow file downloaded")
-
         elif not workflow_path.exists():
             self._error(
                 f"Error downloading workflow: {workflow_uri} (use_auth_headers={use_auth_headers}, "
-                f"wr.status_code={wr.status_code})"
+                f"wr.status_code={resp.status_code})"
             )
             raise WorkflowDownloadError(f"WorkflowDownloadError: {workflow_path} does not exist")

@@ -57,7 +57,7 @@ async def create_run(
     logger.info(f"Authorization header dict: {auth_header}")
 
     try:
-        wm.download_or_copy_workflow(
+        await wm.download_or_copy_workflow(
             run.workflow_url, WorkflowType(run.workflow_type), auth_headers=auth_header
         )
     except UnsupportedWorkflowType:
