@@ -76,9 +76,9 @@ async def create_run(
             run.workflow_url, WorkflowType(run.workflow_type), auth_headers=auth_header
         )
     except UnsupportedWorkflowType:
-        return HTTPException(status_code=400, detail=f"Unsupported workflow type: {run.workflow_type}")
+        raise HTTPException(status_code=400, detail=f"Unsupported workflow type: {run.workflow_type}")
     except (WorkflowDownloadError, requests.exceptions.ConnectionError) as e:
-        return HTTPException(status_code=400, detail=f"Could not access workflow file: {run.workflow_url} (Python error: {e})")
+        raise HTTPException(status_code=400, detail=f"Could not access workflow file: {run.workflow_url} (Python error: {e})")
 
     run_id = uuid.uuid4()
 
@@ -108,7 +108,7 @@ async def create_run(
             if config_value is None:
                 err = f"Could not find injectable configuration value for key {run_input.key}"
                 logger.error(err)
-                return HTTPException(status_code=400, detail=err)
+                raise HTTPException(status_code=400, detail=err)
             logger.debug(f"Injecting configuration parameter '{run_input.key}' into run {run_id}: {run_input.id}={config_value}")
             run_params[input_key] = config_value
         elif isinstance(run_input, WorkflowServiceUrlInput):
@@ -118,7 +118,7 @@ async def create_run(
             if config_value is None:
                 err = f"Could not find URL/service record for service kind '{sk}'"
                 logger.error(err)
-                return HTTPException(status_code=400, detail=err)
+                raise HTTPException(status_code=400, detail=err)
             logger.debug(f"Injecting URL for service kind '{sk}' into run {run_id}: {run_input.id}={config_value}")
             run_params[input_key] = config_value
     
@@ -221,5 +221,11 @@ async def list_runs(db: Annotated[Database, Depends(get_db)], public: bool = Fal
     
     return JSONResponse(res_list)
 
+@runs_router.get("/{run_id}",  dependencies=[authz_middleware.dep_public_endpoint()])
+def get_run(run_id: uuid.UUID, db: Annotated[Database, Depends(get_db)]):
+    run_details = db.get_run_with_details(db.cursor(), run_id, stream_content=False)
 
-
+    if run_details is None:
+        raise HTTPException(status_code=404, detail=f"Run {str(run_id)} not found")
+    
+    return JSONResponse(json.loads(run_details.model_dump_json()))
