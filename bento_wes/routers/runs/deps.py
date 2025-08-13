@@ -1,4 +1,6 @@
-from fastapi import Depends, HTTPException
+from fastapi import Depends
+from fastapi.responses import PlainTextResponse
+from fastapi.exceptions import HTTPException
 from typing import Annotated
 from uuid import UUID
 
@@ -6,6 +8,7 @@ from bento_wes import states
 from bento_wes.db import Database, get_db
 from bento_wes.models import RunWithDetails  
 from bento_wes.types import RunStream
+
 
 def get_run_or_404(
     run_id: UUID,
@@ -17,9 +20,7 @@ def get_run_or_404(
         raise HTTPException(status_code=404, detail="Run not found")
     return run
 
-from fastapi.responses import PlainTextResponse
-from fastapi.exceptions import HTTPException
-from uuid import UUID
+
 
 def get_stream(db: Database, stream: RunStream, run_id: UUID):
     c = db.cursor()
