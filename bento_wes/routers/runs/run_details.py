@@ -1,10 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, PlainTextResponse
 from typing import Annotated
 import uuid
 import json
 
-from bento_wes.authz import authz_middleware
 from bento_wes.db import Database, get_db
 from bento_wes.types import RunStream
 from bento_wes.api_utils import get_stream
@@ -14,7 +13,7 @@ from .deps import get_run_or_404
 detail_router = APIRouter(prefix="/{run_id}")
 detail_router.dependencies.append(Depends(get_run_or_404))
 
-@detail_router.get("",  dependencies=[authz_middleware.dep_public_endpoint()])
+@detail_router.get("")
 def get_run(run_id: uuid.UUID, db: Annotated[Database, Depends(get_db)]):
     run_details = db.get_run_with_details(db.cursor(), run_id, stream_content=False)
     return JSONResponse(json.loads(run_details.model_dump_json()))
@@ -26,8 +25,7 @@ def run_download_artifact(run_id: uuid.UUID):
 
 @detail_router.get(
     "/{stream}",
-    response_class=PlainTextResponse,
-    dependencies=[Depends(authz_middleware.dep_public_endpoint)],
+    response_class=PlainTextResponse
 )
 def run_stream(
     run_id: uuid.UUID,

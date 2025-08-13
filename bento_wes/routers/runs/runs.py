@@ -33,7 +33,7 @@ runs_router.dependencies.append(authz_middleware.dep_public_endpoint())
 #TODO: add auth
 
 
-@runs_router.post("", dependencies=[authz_middleware.dep_public_endpoint()])
+@runs_router.post("")
 async def create_run(
     run: Annotated[RunRequest, Depends(RunRequest.as_form)],
     authorization: Annotated[AuthHeaderModel, Depends(AuthHeaderModel.from_header)], 
@@ -174,7 +174,7 @@ PRIVATE_RUN_DETAILS_SHAPE = {
     "outputs": True,
 }
 
-@runs_router.get("", dependencies=[authz_middleware.dep_public_endpoint()])
+@runs_router.get("")
 async def list_runs(db: Annotated[Database, Depends(get_db)], public: bool = False, with_details: bool = False):
     res_list = []
     perms_list: list[RunRequest] = []
