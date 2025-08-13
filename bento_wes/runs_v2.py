@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, UploadFile, File, status, Header, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Response, Header, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Annotated, List, Optional, Iterable, Dict, Any
+from typing import Annotated, List, Optional,Callable
 import requests # TODO: change to httpx
 import uuid
 from pathlib import Path
@@ -26,6 +26,7 @@ from .workflows import (
 from .utils import save_upload_files
 from .service_registry import get_bento_services
 from .runner import run_workflow
+from .types import RunStream
 
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -44,7 +45,7 @@ class AuthHeaderModel(BaseModel):
         return cls(Authorization=Authorization)
 
 
-
+#TODO: add auth
 
 
 @runs_router.post("", dependencies=[authz_middleware.dep_public_endpoint()])
@@ -229,3 +230,52 @@ def get_run(run_id: uuid.UUID, db: Annotated[Database, Depends(get_db)]):
         raise HTTPException(status_code=404, detail=f"Run {str(run_id)} not found")
     
     return JSONResponse(json.loads(run_details.model_dump_json()))
+
+@runs_router.post("/{run_id}/download-artifact")
+def run_download_artifact(run_id: uuid.UUID):
+    # TODO
+    pass
+
+def get_stream(db: Database, stream: RunStream, run_id: uuid.UUID):
+    c = db.cursor()
+    run = db.get_run_with_details(c, run_id, stream_content=True)
+    if run is None:
+            raise HTTPException(f"Stream {stream} not found for run {run_id}")
+    
+    cache_control = (
+        "private, max-age=86400"
+        if run.state in states.TERMINATED_STATES
+        else "no-cache, no-store, must-revalidate, max-age=0"
+    )
+
+    content = run.run_log.stdout if stream == "stdout" else run.run_log.stderr
+
+    return Response(
+        content=content,
+        media_type="text/plain",
+        status_code=200,
+        headers={
+            "Cache-Control": cache_control
+        }
+    )
+
+@runs_router.get("/{run_id}/stdout", dependencies=[authz_middleware.dep_public_endpoint()])
+def run_stdout(run_id: uuid.UUID, db: Annotated[Database, Depends(get_db)]):
+    #TODO: add auth
+    #TODO: check if run id is valid
+    return get_stream(db, "stdout", run_id)
+
+@runs_router.get("/{run_id}/stderr",  dependencies=[authz_middleware.dep_public_endpoint()])
+def run_stderr(run_id: uuid.UUID, db: Annotated[Database, Depends(get_db)]):
+    #TODO: add auth
+    #TODO: check if run id is valid
+    return get_stream(db, "stderr", run_id)
+
+
+@runs_router.post("/{run_id}/cancel")
+def run_cancel(run_id: uuid.UUID, db: Annotated[Database, Depends(get_db)]):
+    pass
+
+@runs_router.get("/{run_id}/status")
+def run_status(run_id: uuid.UUID):
+    pass

@@ -42,10 +42,6 @@ def run_request_from_row(run: sqlite3.Row) -> RunRequest:
     )
 
 
-def _strip_first_slash(string: str) -> str:
-    return string[1:] if len(string) > 0 and string[0] == "/" else string
-
-
 def _stream_url(run_id: uuid.UUID | str, stream: RunStream) -> str:
     return urljoin(config.service_base_url, f"runs/{str(run_id)}/{stream}")
 
