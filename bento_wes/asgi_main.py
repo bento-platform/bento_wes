@@ -12,7 +12,7 @@ from .db import setup_database_on_startup, repair_database_on_startup
 # from .app import application as flask_app
 from .logger import logger
 from . import __version__
-from .runs_v2 import runs_router
+from .routers.runs.runs import runs_router
 from .events import startup_event_bus, shutdown_event_bus
 
 @asynccontextmanager

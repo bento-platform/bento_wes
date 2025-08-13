@@ -9,24 +9,24 @@ import json
 from bento_lib.workflows.utils import namespaced_input
 from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlInput
 
-from . import states
-from .models import RunRequest
-from .authz import authz_middleware
-from .logger import logger
-from .config import config
-from .db import Database, get_db
-from .workflows import (
+from bento_wes import states
+from bento_wes.models import RunRequest
+from bento_wes.authz import authz_middleware
+from bento_wes.logger import logger
+from bento_wes.config import config
+from bento_wes.db import Database, get_db
+from bento_wes.workflows import (
     parse_workflow_host_allow_list, 
     WorkflowManager, 
     WorkflowType, 
     UnsupportedWorkflowType,
     WorkflowDownloadError,
 )
-from .utils import save_upload_files
-from .service_registry import get_bento_services
-from .runner import run_workflow
-from .types import RunStream, AuthHeaderModel
-from .api_utils import get_stream
+from bento_wes.utils import save_upload_files
+from bento_wes.service_registry import get_bento_services
+from bento_wes.runner import run_workflow
+from bento_wes.types import RunStream, AuthHeaderModel
+from bento_wes.api_utils import get_stream
 
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
 
