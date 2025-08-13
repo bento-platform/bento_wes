@@ -1,4 +1,4 @@
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.exceptions import HTTPException
 from typing import Annotated
@@ -10,7 +10,7 @@ from bento_wes.models import RunWithDetails
 from bento_wes.types import RunStream
 
 
-def get_run_or_404(
+def stash_run_or_404(
     run_id: UUID,
     db: Annotated[Database, Depends(get_db)],
 ) -> "RunWithDetails":
@@ -20,6 +20,13 @@ def get_run_or_404(
         raise HTTPException(status_code=404, detail="Run not found")
     return run
 
+def get_run_from_state(request: Request) -> RunWithDetails:
+    try:
+        return request.state.run  # set by stash_run_or_404
+    except AttributeError:
+        raise RuntimeError("Run not initialized for this request")
+
+RunDep = Annotated[RunWithDetails, Depends(get_run_from_state)]
 
 
 def get_stream(db: Database, stream: RunStream, run_id: UUID):
