@@ -162,10 +162,64 @@ async def create_run(
         content={"run_id": str(run_id)}
     )
 
+PUBLIC_RUN_DETAILS_SHAPE = {
+    "request": {
+        "workflow_type": True,
+        "tags": {
+            "workflow_id": True,
+            "workflow_metadata": {
+                "data_type": True,
+            },
+            "project_id": True,
+            "dataset_id": True,
+        },
+    },
+    "run_log": {
+        "start_time": True,
+        "end_time": True,
+    },
+}
+
+
+PRIVATE_RUN_DETAILS_SHAPE = {
+    "request": True,
+    "run_log": True,
+    "task_logs": True,
+    "outputs": True,
+}
 
 @runs_router.get("", dependencies=[authz_middleware.dep_public_endpoint()])
-async def list_runs(public: bool = False, with_details: bool = False):
-    return []
+async def list_runs(db: Annotated[Database, Depends(get_db)], public: bool = False, with_details: bool = False):
+    res_list = []
+    perms_list: list[RunRequest] = []
+
+    c = db.cursor()
+    for r in c.execute("SELECT * FROM runs").fetchall():
+        run = db.run_with_details_from_row(c, r, stream_content=False)
+        perms_list.append(run.request)
+
+        if not public or run.state == states.STATE_COMPLETE:
+            res_list.append(
+                {
+                    **run.model_dump(mode="json", include={"run_id", "state"}),
+                    **(
+                        {
+                            "details": run.model_dump(
+                                mode="json",
+                                include={
+                                    "run_id": True,
+                                    "state": True,
+                                    **(PUBLIC_RUN_DETAILS_SHAPE if public else PRIVATE_RUN_DETAILS_SHAPE),
+                                },
+                            ),
+                        }
+                        if with_details
+                        else {}
+                    ),
+                }
+            )
+    
+    return JSONResponse(res_list)
 
 
 
