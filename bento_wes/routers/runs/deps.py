@@ -11,14 +11,16 @@ from bento_wes.types import RunStream
 
 
 def stash_run_or_404(
+    request: Request,
     run_id: UUID,
     db: Annotated[Database, Depends(get_db)],
-) -> "RunWithDetails":
+) -> None:
     c = db.cursor()
     run = db.get_run_with_details(c, run_id, stream_content=False)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    return run
+    request.state.run = run
+
 
 def get_run_from_state(request: Request) -> RunWithDetails:
     try:
