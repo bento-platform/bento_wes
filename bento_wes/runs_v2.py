@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 from typing import Annotated, List, Optional
-import requests # TODO: change to httpx
+import httpx
 import uuid
 from pathlib import Path
 import json
@@ -62,7 +62,7 @@ async def create_run(
         )
     except UnsupportedWorkflowType:
         raise HTTPException(status_code=400, detail=f"Unsupported workflow type: {run.workflow_type}")
-    except (WorkflowDownloadError, requests.exceptions.ConnectionError) as e:
+    except (WorkflowDownloadError, httpx.RequestError) as e:
         raise HTTPException(status_code=400, detail=f"Could not access workflow file: {run.workflow_url} (Python error: {e})")
 
     run_id = uuid.uuid4()
