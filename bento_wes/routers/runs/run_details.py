@@ -1,13 +1,19 @@
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.exceptions import HTTPException
 from typing import Annotated
 import uuid
 import json
+import shutil
 
+from bento_wes import states
 from bento_wes.db import Database, get_db
 from bento_wes.types import RunStream
+from bento_wes.events import get_event_bus_per_request
+from bento_wes.celery import celery
+from bento_wes.config import config
 
-from .deps import stash_run_or_404, get_stream, RunDep
+from .deps import stash_run_or_404, get_stream, RunDep, RUN_CANCEL_BAD_REQUEST_STATES
 
 detail_router = APIRouter(prefix="/{run_id}")
 detail_router.dependencies.append(Depends(stash_run_or_404))
@@ -35,14 +41,33 @@ def run_stream(
 
 
 @detail_router.post("/cancel")
-def cancel_run(run_id: uuid.UUID, run: RunDep, db: Annotated[Database, Depends(get_db)]):
+def cancel_run(run: RunDep, db: Annotated[Database, Depends(get_db)]):
     # TODO: Check if already completed
     # TODO: Check if run log exists
     # TODO: from celery.task.control import revoke; revoke(celery_id, terminate=True)
     c = db.cursor()
-    run_id_str = str(run_id)
     
+    for bad_req_states, bad_req_err in RUN_CANCEL_BAD_REQUEST_STATES:
+        if run.state in bad_req_states:
+            raise HTTPException(status_code=400, detail=bad_req_err)
+    
+    celery_id = run.run_log.celery_id
 
+    if celery_id is None:
+        raise HTTPException(status_code=500, detail=f"No Celery ID present for run {run.run_id}")
+
+    event_bus = get_event_bus_per_request()
+
+    db.update_run_state_and_commit(c, run.run_id, states.STATE_CANCELING, event_bus=event_bus)
+    celery.control.revoke(celery_id, terminate=True) 
+
+    run_dir = config.service_temp / str(run.run_id)
+    if not config.bento_debug:
+            shutil.rmtree(run_dir, ignore_errors=True)
+
+    db.update_run_state_and_commit(c, run.run_id, states.STATE_CANCELED, event_bus=event_bus)
+
+    return PlainTextResponse("Run Cancelled", status_code=204)
 
 
 @detail_router.get("/status")

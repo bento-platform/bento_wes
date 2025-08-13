@@ -30,6 +30,12 @@ def get_run_from_state(request: Request) -> RunWithDetails:
 
 RunDep = Annotated[RunWithDetails, Depends(get_run_from_state)]
 
+RUN_CANCEL_BAD_REQUEST_STATES = (
+    ((states.STATE_CANCELING, states.STATE_CANCELED), "Run already canceled"),
+    (states.FAILURE_STATES, "Run already terminated with error"),
+    (states.SUCCESS_STATES, "Run already completed"),
+)
+
 
 def get_stream(db: Database, stream: RunStream, run_id: UUID):
     c = db.cursor()
