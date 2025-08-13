@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse
 from typing import Annotated, List, Optional
 import httpx
 import uuid
@@ -25,10 +25,10 @@ from bento_wes.workflows import (
 from bento_wes.utils import save_upload_files
 from bento_wes.service_registry import get_bento_services
 from bento_wes.runner import run_workflow
-from bento_wes.types import RunStream, AuthHeaderModel
-from bento_wes.api_utils import get_stream
+from bento_wes.types import AuthHeaderModel
 
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
+runs_router.dependencies.append(authz_middleware.dep_public_endpoint())
 
 #TODO: add auth
 
@@ -206,40 +206,3 @@ async def list_runs(db: Annotated[Database, Depends(get_db)], public: bool = Fal
             )
     
     return JSONResponse(res_list)
-
-@runs_router.get("/{run_id}",  dependencies=[authz_middleware.dep_public_endpoint()])
-def get_run(run_id: uuid.UUID, db: Annotated[Database, Depends(get_db)]):
-    run_details = db.get_run_with_details(db.cursor(), run_id, stream_content=False)
-
-    if run_details is None:
-        raise HTTPException(status_code=404, detail=f"Run {str(run_id)} not found")
-    
-    return JSONResponse(json.loads(run_details.model_dump_json()))
-
-@runs_router.post("/{run_id}/download-artifact")
-def run_download_artifact(run_id: uuid.UUID):
-    # TODO
-    pass
-
-@runs_router.get(
-    "/{run_id}/{stream}",
-    response_class=PlainTextResponse,
-    dependencies=[Depends(authz_middleware.dep_public_endpoint)],
-)
-def run_stream(
-    run_id: uuid.UUID,
-    stream: RunStream,
-    db: Annotated[Database, Depends(get_db)],
-):
-    # TODO: add auth
-    # TODO: validate run_id 
-    return get_stream(db, stream, run_id)
-
-
-@runs_router.post("/{run_id}/cancel")
-def cancel_run(run_id: uuid.UUID, db: Annotated[Database, Depends(get_db)]):
-    pass
-
-@runs_router.get("/{run_id}/status")
-def run_status(run_id: uuid.UUID):
-    pass
