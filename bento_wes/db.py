@@ -117,20 +117,18 @@ class Database:
         self,
         event_bus: EventBus,
         run: Run,
-        state: str,
-        cursor: sqlite3.Cursor | None = None,
+        state: str
     ) -> None:
         """
         Update a run's state, set the run log's end time, and publish a success/failure notification.
         """
-        c: sqlite3.Cursor = cursor or self.cursor()
 
         run_id = run.run_id
         end_time = iso_now()
 
         # Explicitly don't commit here to sync with state update
-        c.execute("UPDATE runs SET run_log__end_time = ? WHERE id = ?", (end_time, run_id))
-        self.update_run_state_and_commit(c, run_id, state)
+        self.c.execute("UPDATE runs SET run_log__end_time = ? WHERE id = ?", (end_time, run_id))
+        self.update_run_state_and_commit(self.c, run_id, state)
 
         logger.info(f"Run {run_id} finished with state {state} at {end_time}")
 
@@ -181,7 +179,7 @@ class Database:
                 f"Found stuck run: {run.run_id} at state {run.state}. "
                 f"Setting state to {states.STATE_SYSTEM_ERROR}"
             )
-            self.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, cursor=c)
+            self.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR)
 
         self.commit()
 

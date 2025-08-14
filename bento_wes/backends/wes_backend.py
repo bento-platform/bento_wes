@@ -383,7 +383,7 @@ class WESBackend(ABC):
         :param state: The value to set the run's current state to
         """
         self.log_debug(f"Setting state of run {run_id} to {state}")
-        self.db.update_run_state_and_commit(self.db.cursor(), run_id, state)
+        self.db.update_run_state_and_commit(self.db.c, run_id, state)
 
     def _finish_run_and_clean_up(self, run: Run, state: str) -> None:
         """
@@ -531,7 +531,7 @@ class WESBackend(ABC):
         :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
         """
 
-        c = self.db.cursor()
+        self.db.c = self.db.c
 
         # Perform run ==================================================================================================
 
@@ -541,7 +541,7 @@ class WESBackend(ABC):
         runner_process = subprocess.Popen(
             cmd, cwd=self.tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8"
         )
-        c.execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run.run_id))
+        self.db.c.execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run.run_id))
         self._update_run_state_and_commit(run.run_id, states.STATE_RUNNING)
 
         # -- Wait for and capture output -------------------------------------------------------------------------------
@@ -573,7 +573,7 @@ class WESBackend(ABC):
 
         # -- Update run log with stdout/stderr, exit code --------------------------------------------------------------
         #     - Explicitly don't commit here; sync with state update
-        c.execute(
+        self.db.c.execute(
             "UPDATE runs SET run_log__stdout = ?, run_log__stderr = ?, run_log__exit_code = ? WHERE id = ?",
             (stdout, stderr, exit_code, run.run_id),
         )
@@ -595,7 +595,7 @@ class WESBackend(ABC):
         workflow_outputs = self.get_workflow_outputs(run)
 
         # Explicitly don't commit here; sync with state update
-        self.db.set_run_outputs(c, run.run_id, workflow_outputs)
+        self.db.set_run_outputs(self.db.c, run.run_id, workflow_outputs)
 
         # Emit event if possible
         self.event_bus.publish_service_event(
