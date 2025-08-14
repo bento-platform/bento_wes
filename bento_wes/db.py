@@ -110,7 +110,7 @@ class Database:
     def init_schema(self) -> None:
         # Run once at startup (not per request!)
         with open("schema.sql", "r", encoding="utf-8") as sf:
-            self.cursor().executescript(sf.read())
+            self.c.executescript(sf.read())
         self.commit()
 
     def finish_run(
@@ -161,16 +161,15 @@ class Database:
         the UI/backend doesn't wait on orphaned work.
         """
         event_bus = get_event_bus()
-        c = self.cursor()
 
-        c.execute(
+        self.c.execute(
             "SELECT id FROM runs WHERE state IN (?, ?)",
             (states.STATE_INITIALIZING, states.STATE_RUNNING),
         )
-        stuck_run_ids: list[sqlite3.Row] = c.fetchall()
+        stuck_run_ids: list[sqlite3.Row] = self.c.fetchall()
 
         for r in stuck_run_ids:
-            run = self.get_run_with_details(c, r["id"], stream_content=True)
+            run = self.get_run_with_details(self.c, r["id"], stream_content=True)
             if run is None:
                 logger.error(f"Missing run: {r['id']}")
                 continue
