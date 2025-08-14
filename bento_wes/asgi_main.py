@@ -13,18 +13,18 @@ from .db import setup_database_on_startup, repair_database_on_startup
 from .logger import logger
 from . import __version__
 from .routers.runs.runs import runs_router
-from .events import startup_event_bus, shutdown_event_bus
+from .events import init_event_bus, shutdown_event_bus
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up database...")
     try: 
-        startup_event_bus(app)
+        init_event_bus()
         setup_database_on_startup()
         repair_database_on_startup()
         yield
     finally:
-        shutdown_event_bus(app)
+        shutdown_event_bus()
     logger.info("Shutting down database...")
     logger.info("Finished shutting down database.")
 

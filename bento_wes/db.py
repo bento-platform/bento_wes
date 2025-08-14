@@ -12,7 +12,7 @@ from . import states
 from .backends.backend_types import Command
 from .config import config
 from .constants import SERVICE_ARTIFACT
-from .events import get_event_bus_per_request
+from .events import get_event_bus
 from .logger import logger
 from .models import Run, RunLog, RunRequest, RunWithDetails
 from .types import RunStream
@@ -125,7 +125,7 @@ class Database:
 
         # Explicitly don't commit here to sync with state update
         c.execute("UPDATE runs SET run_log__end_time = ? WHERE id = ?", (end_time, run_id))
-        self.update_run_state_and_commit(c, run_id, state, event_bus=event_bus)
+        self.update_run_state_and_commit(c, run_id, state)
 
         logger.info(f"Run {run_id} finished with state {state} at {end_time}")
 
@@ -157,7 +157,7 @@ class Database:
         On process boot, convert initializing/running states into system error so
         the UI/backend doesn't wait on orphaned work.
         """
-        event_bus = get_event_bus_per_request()
+        event_bus = get_event_bus()
         c = self.cursor()
 
         c.execute(
@@ -247,9 +247,10 @@ class Database:
         c: sqlite3.Cursor,
         run_id: uuid.UUID | str,
         state: str,
-        event_bus: EventBus | None = None,
         publish_event: bool = True,
     ) -> None:
+        event_bus = get_event_bus()
+        
         logger.info(f"Updating run state of {run_id} to {state}")
         c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
         self.commit()

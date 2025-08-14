@@ -9,7 +9,6 @@ import shutil
 from bento_wes import states
 from bento_wes.db import Database, get_db
 from bento_wes.types import RunStream
-from bento_wes.events import get_event_bus_per_request
 from bento_wes.celery import celery
 from bento_wes.config import config
 
@@ -56,16 +55,14 @@ def cancel_run(run: RunDep, db: Annotated[Database, Depends(get_db)]):
     if celery_id is None:
         raise HTTPException(status_code=500, detail=f"No Celery ID present for run {run.run_id}")
 
-    event_bus = get_event_bus_per_request()
-
-    db.update_run_state_and_commit(c, run.run_id, states.STATE_CANCELING, event_bus=event_bus)
+    db.update_run_state_and_commit(c, run.run_id, states.STATE_CANCELING)
     celery.control.revoke(celery_id, terminate=True) 
 
     run_dir = config.service_temp / str(run.run_id)
     if not config.bento_debug:
             shutil.rmtree(run_dir, ignore_errors=True)
 
-    db.update_run_state_and_commit(c, run.run_id, states.STATE_CANCELED, event_bus=event_bus)
+    db.update_run_state_and_commit(c, run.run_id, states.STATE_CANCELED)
 
     return PlainTextResponse("Run Cancelled", status_code=204)
 
