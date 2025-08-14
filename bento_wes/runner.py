@@ -17,13 +17,12 @@ def run_workflow(self, run_id: uuid.UUID):
     logger = get_task_logger(__name__)
 
     db: Database = get_db()
-    c = db.cursor()
     event_bus = get_event_bus()
 
     # Checks ------------------------------------------------------------------
 
     # Check that the run and its associated objects exist
-    run = db.get_run_with_details(c, run_id, stream_content=False)
+    run = db.get_run_with_details(db.c, run_id, stream_content=False)
     if run is None:
         logger.error(f"Cannot find run {run_id}")
         return
@@ -83,7 +82,7 @@ def run_workflow(self, run_id: uuid.UUID):
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while obtaining access token: {type(e).__name__} {e}")
-        db.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, cursor=c, logger=logger)
+        db.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, cursor=db.c, logger=logger)
         raise e
 
     # Perform the run
@@ -93,5 +92,5 @@ def run_workflow(self, run_id: uuid.UUID):
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while performing run: {type(e).__name__} {e}")
-        db.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, cursor=c, logger=logger)
+        db.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, cursor=db.c, logger=logger)
         raise e

@@ -3,10 +3,6 @@ from pathlib import Path
 from pydantic import field_validator, ValidationError, Field, AliasChoices
 from bento_lib.config.pydantic import BentoFastAPIBaseConfig
 from bento_lib.service_info.types import BentoExtraServiceInfo
-import json
-from json import JSONDecodeError
-from typing import Any
-import re
 
 from .constants import SERVICE_ID, SERVICE_NAME, BENTO_SERVICE_KIND, GIT_REPOSITORY
 from .logger import logger

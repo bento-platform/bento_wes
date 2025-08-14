@@ -1,6 +1,6 @@
 from bento_lib.auth.middleware.flask import FlaskAuthMiddleware
 from bento_lib.auth.middleware.fastapi import FastApiAuthMiddleware
-from .config import config, flask_config
+from .config import config
 from .logger import logger
 
 __all__ = [

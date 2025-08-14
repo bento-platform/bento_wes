@@ -1,8 +1,9 @@
 import json
 import sqlite3
 import uuid
-from typing import Any, Generator
+from typing import Any, Generator, Annotated
 from urllib.parse import urljoin
+from fastapi import Depends
 
 from bento_lib.events import EventBus
 from bento_lib.events.notifications import format_notification
@@ -85,6 +86,7 @@ class Database:
         )
         self._conn.row_factory = sqlite3.Row
         self._apply_pragmas()
+        self._cursor = None
 
     def _apply_pragmas(self) -> None:
         # Good defaults for web workloads with SQLite
@@ -93,8 +95,11 @@ class Database:
         c.execute("PRAGMA journal_mode=WAL;")
         c.close()
 
-    def cursor(self) -> sqlite3.Cursor:
-        return self._conn.cursor()
+    @property
+    def c(self):
+        if self._cursor is None or getattr(self._cursor, "closed", False):
+            self._cursor = self._conn.cursor()
+        return self._cursor
 
     def commit(self) -> None:
         self._conn.commit()
@@ -267,6 +272,7 @@ def get_db() -> Generator["Database", None, None]:
     finally:
         db.close()
 
+DatabaseDep = Annotated[Database, Depends(get_db)]
 
 # === Startup helpers (call these from your FastAPI lifespan) ===
 def setup_database_on_startup() -> None:
@@ -277,9 +283,8 @@ def setup_database_on_startup() -> None:
     db = Database()
     try:
         # If the 'runs' table isn't present, run full schema.sql
-        c = db.cursor()
-        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runs'")
-        if c.fetchone() is None:
+        db.c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runs'")
+        if db.c.fetchone() is None:
             db.init_schema()
     finally:
         db.close()

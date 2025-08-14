@@ -1,13 +1,12 @@
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.exceptions import HTTPException
-from typing import Annotated
 import uuid
 import json
 import shutil
 
 from bento_wes import states
-from bento_wes.db import Database, get_db
+from bento_wes.db import DatabaseDep
 from bento_wes.types import RunStream
 from bento_wes.celery import celery
 from bento_wes.config import config
@@ -33,18 +32,17 @@ def run_download_artifact(run_id: uuid.UUID):
 def run_stream(
     run_id: uuid.UUID,
     stream: RunStream,
-    db: Annotated[Database, Depends(get_db)],
+    db: DatabaseDep,
 ):
     # TODO: add auth
     return get_stream(db, stream, run_id)
 
 
 @detail_router.post("/cancel")
-def cancel_run(run: RunDep, db: Annotated[Database, Depends(get_db)]):
+def cancel_run(run: RunDep, db: DatabaseDep):
     # TODO: Check if already completed
     # TODO: Check if run log exists
     # TODO: from celery.task.control import revoke; revoke(celery_id, terminate=True)
-    c = db.cursor()
     
     for bad_req_states, bad_req_err in RUN_CANCEL_BAD_REQUEST_STATES:
         if run.state in bad_req_states:
@@ -55,14 +53,14 @@ def cancel_run(run: RunDep, db: Annotated[Database, Depends(get_db)]):
     if celery_id is None:
         raise HTTPException(status_code=500, detail=f"No Celery ID present for run {run.run_id}")
 
-    db.update_run_state_and_commit(c, run.run_id, states.STATE_CANCELING)
+    db.update_run_state_and_commit(db.c, run.run_id, states.STATE_CANCELING)
     celery.control.revoke(celery_id, terminate=True) 
 
     run_dir = config.service_temp / str(run.run_id)
     if not config.bento_debug:
             shutil.rmtree(run_dir, ignore_errors=True)
 
-    db.update_run_state_and_commit(c, run.run_id, states.STATE_CANCELED)
+    db.update_run_state_and_commit(db.c, run.run_id, states.STATE_CANCELED)
 
     return PlainTextResponse("Run Cancelled", status_code=204)
 

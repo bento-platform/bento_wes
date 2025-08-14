@@ -14,7 +14,7 @@ from bento_wes.models import RunRequest
 from bento_wes.authz import authz_middleware
 from bento_wes.logger import logger
 from bento_wes.config import config
-from bento_wes.db import Database, get_db
+from bento_wes.db import DatabaseDep
 from bento_wes.workflows import (
     parse_workflow_host_allow_list, 
     WorkflowManager, 
@@ -37,7 +37,7 @@ runs_router.dependencies.append(authz_middleware.dep_public_endpoint())
 async def create_run(
     run: Annotated[RunRequest, Depends(RunRequest.as_form)],
     authorization: Annotated[AuthHeaderModel, Depends(AuthHeaderModel.from_header)], 
-    db: Annotated[Database, Depends(get_db)],
+    db: DatabaseDep,
     workflow_attachment: Optional[List[UploadFile]] = File(None),
 ):
     logger.info(f"Starting run creation for workflow {run.tags.workflow_id}")
@@ -108,8 +108,7 @@ async def create_run(
             logger.debug(f"Injecting URL for service kind '{sk}' into run {run_id}: {run_input.id}={config_value}")
             run_params[input_key] = config_value
     
-    c = db.cursor()
-    c.execute(
+    db.c.execute(
         """
         INSERT INTO runs (
             id,
@@ -140,7 +139,7 @@ async def create_run(
         ),
     )
     db.commit()
-    db.update_run_state_and_commit(c, run_id, states.STATE_QUEUED, publish_event=False)
+    db.update_run_state_and_commit(db.c, run_id, states.STATE_QUEUED, publish_event=False)
 
     run_workflow.delay(run_id)
 
@@ -175,13 +174,12 @@ PRIVATE_RUN_DETAILS_SHAPE = {
 }
 
 @runs_router.get("")
-async def list_runs(db: Annotated[Database, Depends(get_db)], public: bool = False, with_details: bool = False):
+async def list_runs(db: DatabaseDep, public: bool = False, with_details: bool = False):
     res_list = []
     perms_list: list[RunRequest] = []
 
-    c = db.cursor()
-    for r in c.execute("SELECT * FROM runs").fetchall():
-        run = db.run_with_details_from_row(c, r, stream_content=False)
+    for r in db.c.execute("SELECT * FROM runs").fetchall():
+        run = db.run_with_details_from_row(db.c, r, stream_content=False)
         perms_list.append(run.request)
 
         if not public or run.state == states.STATE_COMPLETE:

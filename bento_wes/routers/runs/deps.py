@@ -5,7 +5,7 @@ from typing import Annotated
 from uuid import UUID
 
 from bento_wes import states
-from bento_wes.db import Database, get_db
+from bento_wes.db import Database, DatabaseDep
 from bento_wes.models import RunWithDetails  
 from bento_wes.types import RunStream
 
@@ -13,10 +13,9 @@ from bento_wes.types import RunStream
 def stash_run_or_404(
     request: Request,
     run_id: UUID,
-    db: Annotated[Database, Depends(get_db)],
+    db: DatabaseDep,
 ) -> None:
-    c = db.cursor()
-    run = db.get_run_with_details(c, run_id, stream_content=False)
+    run = db.get_run_with_details(db.c, run_id, stream_content=False)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     request.state.run = run
@@ -38,8 +37,7 @@ RUN_CANCEL_BAD_REQUEST_STATES = (
 
 
 def get_stream(db: Database, stream: RunStream, run_id: UUID):
-    c = db.cursor()
-    run = db.get_run_with_details(c, run_id, stream_content=True)
+    run = db.get_run_with_details(db.c, run_id, stream_content=True)
     if run is None:
             raise HTTPException(f"Stream {stream} not found for run {run_id}")
     
