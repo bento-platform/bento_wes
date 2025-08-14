@@ -1,4 +1,4 @@
-from fastapi import Depends, Request
+from fastapi import Depends
 from bento_lib.events import EventBus, types as et
 from typing import Annotated, Optional
 
