@@ -255,19 +255,19 @@ tests-mypy = ["mypy (>=1.11.1)", "pytest-mypy-plugins"]
 
 [[package]]
 name = "bento-lib"
-version = "13.5.0"
+version = "13.5.1"
 description = "A set of common utilities and helpers for Bento platform services."
 optional = false
 python-versions = "<4.0,>=3.10"
 files = [
-    {file = "bento_lib-13.5.0-py3-none-any.whl", hash = "sha256:f93f8e3c51f80637974641ee409abba80bd127a3703546dd55bbc2d125796704"},
-    {file = "bento_lib-13.5.0.tar.gz", hash = "sha256:44c3fcb05c90aeb1daa628d6c7670039e69185380e08c0751b73ea14d579f792"},
+    {file = "bento_lib-13.5.1-py3-none-any.whl", hash = "sha256:1ee31777a1e4c95fc04831501c73b71d9baa90da3e64c154727feb3cdaaeb67c"},
+    {file = "bento_lib-13.5.1.tar.gz", hash = "sha256:11de41d709f8fa6c30df60ab7c2275c13c258e1df748b138891d2fbe190402a8"},
 ]
 
 [package.dependencies]
 aiofiles = ">=24.1.0,<25"
 aiohttp = ">=3.10.10,<4"
-flask = {version = ">=3.0.3,<4", optional = true, markers = "extra == \"flask\""}
+fastapi = {version = ">=0.115.12,<0.117", optional = true, markers = "extra == \"fastapi\""}
 geojson-pydantic = ">=2.0.0,<3.0.0"
 jsonschema = ">=4.23.0,<5"
 psycopg2-binary = ">=2.9.9,<3.0"
@@ -278,12 +278,13 @@ requests = ">=2.32.3,<3"
 rich = ">=14.0.0,<15"
 structlog = ">=25.2.0,<26"
 typing-extensions = ">=4.13.2,<5.0.0"
+uvicorn = {version = "*", optional = true, markers = "extra == \"fastapi\""}
 werkzeug = ">=3.0.6,<4"
 
 [package.extras]
 asyncpg = ["asyncpg (>=0.29.0,<0.31.0)"]
 django = ["django (>=5.1.8,<5.3)", "djangorestframework (>=3.16.0,<3.17)"]
-fastapi = ["fastapi (>=0.115.12,<0.116)", "uvicorn"]
+fastapi = ["fastapi (>=0.115.12,<0.117)", "uvicorn"]
 flask = ["flask (>=3.0.3,<4)"]
 
 [[package]]
@@ -295,17 +296,6 @@ python-versions = ">=3.7"
 files = [
     {file = "billiard-4.2.1-py3-none-any.whl", hash = "sha256:40b59a4ac8806ba2c2369ea98d876bc6108b051c227baffd928c644d15d8f3cb"},
     {file = "billiard-4.2.1.tar.gz", hash = "sha256:12b641b0c539073fc8d3f5b8b7be998956665c4233c7c1fcd66a7e677c4fb36f"},
-]
-
-[[package]]
-name = "blinker"
-version = "1.9.0"
-description = "Fast, simple object-to-object and broadcast signaling"
-optional = false
-python-versions = ">=3.9"
-files = [
-    {file = "blinker-1.9.0-py3-none-any.whl", hash = "sha256:ba0efaa9080b619ff2f3459d1d500c57bddea4a6b424b60a91141db6fd2f08bc"},
-    {file = "blinker-1.9.0.tar.gz", hash = "sha256:b4ce2265a7abece45e7cc896e98dbebe6cead56bcf805a3d23136d145f5445bf"},
 ]
 
 [[package]]
@@ -758,44 +748,6 @@ testing = ["covdefaults (>=2.3)", "coverage (>=7.6.10)", "diff-cover (>=9.2.1)",
 typing = ["typing-extensions (>=4.12.2)"]
 
 [[package]]
-name = "flask"
-version = "3.1.1"
-description = "A simple framework for building complex web applications."
-optional = false
-python-versions = ">=3.9"
-files = [
-    {file = "flask-3.1.1-py3-none-any.whl", hash = "sha256:07aae2bb5eaf77993ef57e357491839f5fd9f4dc281593a81a9e4d79a24f295c"},
-    {file = "flask-3.1.1.tar.gz", hash = "sha256:284c7b8f2f58cb737f0cf1c30fd7eaf0ccfcde196099d24ecede3fc2005aa59e"},
-]
-
-[package.dependencies]
-blinker = ">=1.9.0"
-click = ">=8.1.3"
-itsdangerous = ">=2.2.0"
-jinja2 = ">=3.1.2"
-markupsafe = ">=2.1.1"
-werkzeug = ">=3.1.0"
-
-[package.extras]
-async = ["asgiref (>=3.2)"]
-dotenv = ["python-dotenv"]
-
-[[package]]
-name = "flask-cors"
-version = "6.0.1"
-description = "A Flask extension simplifying CORS support"
-optional = false
-python-versions = "<4.0,>=3.9"
-files = [
-    {file = "flask_cors-6.0.1-py3-none-any.whl", hash = "sha256:c7b2cbfb1a31aa0d2e5341eea03a6805349f7a61647daee1a15c46bbe981494c"},
-    {file = "flask_cors-6.0.1.tar.gz", hash = "sha256:d81bcb31f07b0985be7f48406247e9243aced229b7747219160a0559edd678db"},
-]
-
-[package.dependencies]
-flask = ">=0.9"
-Werkzeug = ">=0.7"
-
-[[package]]
 name = "frozenlist"
 version = "1.7.0"
 description = "A list-like structure which implements collections.abc.MutableSequence"
@@ -1007,34 +959,6 @@ files = [
     {file = "iniconfig-2.1.0-py3-none-any.whl", hash = "sha256:9deba5723312380e77435581c6bf4935c94cbfab9b1ed33ef8d238ea168eb760"},
     {file = "iniconfig-2.1.0.tar.gz", hash = "sha256:3abbd2e30b36733fee78f9c7f7308f2d0050e88f0087fd25c2645f63c773e1c7"},
 ]
-
-[[package]]
-name = "itsdangerous"
-version = "2.2.0"
-description = "Safely pass data to untrusted environments and back."
-optional = false
-python-versions = ">=3.8"
-files = [
-    {file = "itsdangerous-2.2.0-py3-none-any.whl", hash = "sha256:c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef"},
-    {file = "itsdangerous-2.2.0.tar.gz", hash = "sha256:e0050c0b7da1eea53ffaf149c0cfbb5c6e2e2b69c4bef22c81fa6eb73e5f6173"},
-]
-
-[[package]]
-name = "jinja2"
-version = "3.1.6"
-description = "A very fast and expressive template engine."
-optional = false
-python-versions = ">=3.7"
-files = [
-    {file = "jinja2-3.1.6-py3-none-any.whl", hash = "sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67"},
-    {file = "jinja2-3.1.6.tar.gz", hash = "sha256:0137fb05990d35f1275a587e9aee6d56da821fc83491a0fb838183be43f66d6d"},
-]
-
-[package.dependencies]
-MarkupSafe = ">=2.0"
-
-[package.extras]
-i18n = ["Babel (>=2.7)"]
 
 [[package]]
 name = "jsonschema"
@@ -2513,4 +2437,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10.0"
-content-hash = "d432fe71f0eb1d7bcff212f221f232b7033d39992dd89ad950ff4c868d10859d"
+content-hash = "5ece0adf59287e812af20ec675e730ad16158a467e0ffcb4d11c3a3b441ba9e4"
