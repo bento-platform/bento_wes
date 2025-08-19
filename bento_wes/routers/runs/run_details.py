@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi import APIRouter, Depends, Form
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.exceptions import HTTPException
-import uuid
-import json
 import shutil
+import json
+import urllib.parse
+from uuid import UUID
+from pathlib import Path
 
 from bento_wes import states
 from bento_wes.db import DatabaseDep
@@ -12,6 +14,8 @@ from bento_wes.celery import celery
 from bento_wes.config import config
 
 from .deps import stash_run_or_404, get_stream, RunDep, RUN_CANCEL_BAD_REQUEST_STATES
+from .utils import _denest_list
+from .constants import CHUNK_SIZE
 
 detail_router = APIRouter(prefix="/{run_id}")
 detail_router.dependencies.append(Depends(stash_run_or_404))
@@ -21,16 +25,43 @@ def get_run(run: RunDep):
     return JSONResponse(json.loads(run.model_dump_json()))
 
 @detail_router.post("/download-artifact")
-def run_download_artifact(run_id: uuid.UUID):
-    # TODO
-    pass
+def run_download_artifact(run_id: UUID, run: RunDep, path: str = Form(...)):
+
+    artifact_path = path.strip()
+    if not artifact_path:
+        raise HTTPException(status_code=400, detail="Requested artifact path is blank or unspecified")
+    
+    artifacts: set[str] = set()
+    for o in run.outputs.values():
+        if "File" in o.type:
+            artifacts.update(set(_denest_list(o.value)))
+
+    if run not in artifacts:
+        raise HTTPException(status_code=404, detail=f"Requested artifact path not found in run {run_id}")
+
+    p = Path(artifact_path)
+    if not p.exists():
+        raise HTTPException(status_code=500, detail=f"Artifact path does not exist on filesystem: {artifact_path}")
+    
+    def iterfile():
+        with open(p, "rb") as fh:
+            while chunk := fh.read(CHUNK_SIZE):
+                yield chunk
+
+    resp = StreamingResponse(iterfile(), media_type="application/octet-stream")
+    resp.headers["Content-Length"] = str(p.stat().st_size)
+    resp.headers["Content-Disposition"] = (
+        f"attachment; filename*=UTF-8''{urllib.parse.quote(p.name, encoding='utf-8')}"
+    )
+    return resp
+
 
 @detail_router.get(
     "/{stream}",
     response_class=PlainTextResponse
 )
 def run_stream(
-    run_id: uuid.UUID,
+    run_id: UUID,
     stream: RunStream,
     db: DatabaseDep,
 ):
@@ -65,6 +96,6 @@ def cancel_run(run: RunDep, db: DatabaseDep):
     return PlainTextResponse("Run Cancelled", status_code=204)
 
 @detail_router.get("/status")
-def run_status(run_id: uuid.UUID, db: DatabaseDep):
+def run_status(run_id: UUID, db: DatabaseDep):
     run = db.get_run(db.c, run_id)
     return JSONResponse(run.model_dump())
