@@ -64,7 +64,7 @@ def cancel_run(run: RunDep, db: DatabaseDep):
 
     return PlainTextResponse("Run Cancelled", status_code=204)
 
-
 @detail_router.get("/status")
-def run_status(run_id: uuid.UUID):
-    pass
+def run_status(run_id: uuid.UUID, db: DatabaseDep):
+    run = db.get_run(db.c, run_id)
+    return JSONResponse(run.model_dump())
