@@ -13,9 +13,9 @@ from bento_wes.types import RunStream
 from bento_wes.celery import celery
 from bento_wes.config import config
 
-from .deps import stash_run_or_404, get_stream, RunDep, RUN_CANCEL_BAD_REQUEST_STATES
+from .deps import stash_run_or_404, get_stream, RunDep
 from .utils import _denest_list
-from .constants import CHUNK_SIZE
+from .constants import CHUNK_SIZE, RUN_CANCEL_BAD_REQUEST_STATES
 
 detail_router = APIRouter(prefix="/{run_id}")
 detail_router.dependencies.append(Depends(stash_run_or_404))

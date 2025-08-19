@@ -9,7 +9,7 @@ from bento_wes.db import Database, DatabaseDep
 from bento_wes.models import RunWithDetails  
 from bento_wes.types import RunStream
 
-
+# TODO: middleware just to check if run_id is valid
 def stash_run_or_404(
     request: Request,
     run_id: UUID,
@@ -28,12 +28,6 @@ def get_run_from_state(request: Request) -> RunWithDetails:
         raise RuntimeError("Run not initialized for this request")
 
 RunDep = Annotated[RunWithDetails, Depends(get_run_from_state)]
-
-RUN_CANCEL_BAD_REQUEST_STATES = (
-    ((states.STATE_CANCELING, states.STATE_CANCELED), "Run already canceled"),
-    (states.FAILURE_STATES, "Run already terminated with error"),
-    (states.SUCCESS_STATES, "Run already completed"),
-)
 
 
 def get_stream(db: Database, stream: RunStream, run_id: UUID):

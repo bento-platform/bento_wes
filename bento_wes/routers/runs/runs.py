@@ -27,6 +27,8 @@ from bento_wes.service_registry import get_bento_services
 from bento_wes.runner import run_workflow
 from bento_wes.types import AuthHeaderModel
 
+from .constants import PUBLIC_RUN_DETAILS_SHAPE, PRIVATE_RUN_DETAILS_SHAPE
+
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
 runs_router.dependencies.append(authz_middleware.dep_public_endpoint())
 
@@ -147,31 +149,6 @@ async def create_run(
         content={"run_id": str(run_id)}
     )
 
-PUBLIC_RUN_DETAILS_SHAPE = {
-    "request": {
-        "workflow_type": True,
-        "tags": {
-            "workflow_id": True,
-            "workflow_metadata": {
-                "data_type": True,
-            },
-            "project_id": True,
-            "dataset_id": True,
-        },
-    },
-    "run_log": {
-        "start_time": True,
-        "end_time": True,
-    },
-}
-
-
-PRIVATE_RUN_DETAILS_SHAPE = {
-    "request": True,
-    "run_log": True,
-    "task_logs": True,
-    "outputs": True,
-}
 
 @runs_router.get("")
 async def list_runs(db: DatabaseDep, public: bool = False, with_details: bool = False):
