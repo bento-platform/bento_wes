@@ -16,11 +16,11 @@ from bento_lib.workflows.models import (
     WorkflowDirectoryInput,
 )
 from bento_lib.workflows.utils import namespaced_input
-from flask import current_app
 from pathlib import Path
 from typing import overload, Sequence
 
 from bento_wes import states
+from bento_wes.config import config
 from bento_wes.constants import SERVICE_ARTIFACT
 from bento_wes.db import Database, get_db
 from bento_wes.models import Run, RunWithDetails, RunOutput
@@ -76,7 +76,7 @@ class WESBackend(ABC):
 
         self._workflow_manager: WorkflowManager = WorkflowManager(
             self.tmp_dir,
-            service_base_url=current_app.config["SERVICE_BASE_URL"],
+            service_base_url=config.service_base_url,
             bento_url=self.bento_url,
             logger=self.logger,
             workflow_host_allow_list=self.workflow_host_allow_list,
@@ -174,7 +174,7 @@ class WESBackend(ABC):
 
     @staticmethod
     def get_womtool_path_or_raise() -> str:
-        womtool_path = current_app.config["WOM_TOOL_LOCATION"]
+        womtool_path = config.wom_tool_location
         if not womtool_path:
             raise RunExceptionWithFailState(
                 STATE_SYSTEM_ERROR,

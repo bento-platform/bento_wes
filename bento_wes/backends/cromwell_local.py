@@ -1,9 +1,10 @@
 import re
 
-from flask import current_app, json
+import json
 from pathlib import Path
 from typing import TypeVar
 
+from bento_wes.config import config
 from bento_wes.models import Run, RunWithDetails
 from bento_wes.workflows import WorkflowType, WES_WORKFLOW_TYPE_WDL
 
@@ -63,7 +64,7 @@ class CromwellLocalBackend(WESBackend):
         :return: The command, in the form of a tuple of strings, to be passed to subprocess.run
         """
 
-        cromwell = current_app.config["CROMWELL_LOCATION"]
+        cromwell = config.cromwell_location
 
         # Create workflow options file
         options_file = run_dir / "_workflow_options.json"
