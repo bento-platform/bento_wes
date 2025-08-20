@@ -1,15 +1,11 @@
 from fastapi import FastAPI
 from bento_lib.apps.fastapi import BentoFastAPI
-# from a2wsgi import WSGIMiddleware
 from contextlib import asynccontextmanager
-# import os
 
-# from .events import close_event_bus
 from .authz import authz_middleware
 from .config import config, BENTO_EXTRA_SERVICE_INFO
 from .constants import  SERVICE_TYPE
 from .db import setup_database_on_startup, repair_database_on_startup
-# from .app import application as flask_app
 from .logger import logger
 from . import __version__
 from .routers.runs.runs import runs_router
@@ -39,7 +35,5 @@ app = BentoFastAPI(
     configure_structlog_access_logger=True,
     lifespan = lifespan
 )
-
-# app.mount("/", WSGIMiddleware(flask_app))
 
 app.include_router(runs_router)
