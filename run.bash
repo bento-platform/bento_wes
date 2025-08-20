@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# TODO: Make a fast api version.
+
 # Set default internal port to 5000
 : "${INTERNAL_PORT:=5000}"
 
