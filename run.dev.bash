@@ -4,8 +4,6 @@
 # /poetry_user_install_dev.bash
 poetry install
 
-export FLASK_APP="bento_wes.app:application"
-
 # Create temporary directory if needed
 mkdir -p /wes/tmp
 
