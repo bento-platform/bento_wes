@@ -12,7 +12,7 @@ from .routers.runs.runs import runs_router
 from .events import init_event_bus, shutdown_event_bus
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: BentoFastAPI):
     logger.info("Starting up database...")
     try: 
         init_event_bus()
@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
 
 
 app = BentoFastAPI(
-    authz_middleware,
+    authz_middleware if config.authz_enabled else None,
     config,
     logger,
     BENTO_EXTRA_SERVICE_INFO,

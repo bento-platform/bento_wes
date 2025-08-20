@@ -30,7 +30,7 @@ from bento_wes.types import AuthHeaderModel
 from .constants import PUBLIC_RUN_DETAILS_SHAPE, PRIVATE_RUN_DETAILS_SHAPE
 
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
-runs_router.dependencies.append(authz_middleware.dep_public_endpoint())
+# runs_router.dependencies.append(authz_middleware.dep_public_endpoint())
 
 #TODO: add auth
 
