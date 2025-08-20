@@ -51,51 +51,6 @@ if not SERVICE_BASE_URL.endswith("/"):
     SERVICE_BASE_URL += "/"
 
 
-class FlaskConfig():
-    BENTO_URL: str = os.environ.get("BENTO_URL", "http://127.0.0.1:5000/")
-
-    BENTO_DEBUG: bool = BENTO_DEBUG
-    BENTO_CONTAINER_LOCAL: bool = BENTO_CONTAINER_LOCAL
-    BENTO_VALIDATE_SSL: bool = BENTO_VALIDATE_SSL
-
-    SERVICE_ID = SERVICE_ID
-    SERVICE_DATA: Path = Path(os.environ.get("SERVICE_DATA", "data"))
-    DATABASE: Path = Path(os.environ.get("DATABASE", str(SERVICE_DATA / "bento_wes.db")))
-    SERVICE_TEMP: Path = Path(os.environ.get("SERVICE_TEMP", "tmp"))
-    SERVICE_BASE_URL: str = SERVICE_BASE_URL
-
-    # WDL-file-related configuration
-    WOM_TOOL_LOCATION: str | None = os.environ.get("WOM_TOOL_LOCATION")
-    WORKFLOW_HOST_ALLOW_LIST: str | None = os.environ.get("WORKFLOW_HOST_ALLOW_LIST")
-
-    # Backend configuration
-    CROMWELL_LOCATION: str = os.environ.get("CROMWELL_LOCATION", "/cromwell.jar")
-
-    # CORS
-    CORS_ORIGINS: list[str] | str = [x for x in os.environ.get("CORS_ORIGINS", "").split(";") if x] or "*"
-
-    # Authn/z-related configuration
-    AUTHZ_URL: str = AUTHZ_URL
-    AUTHZ_ENABLED: bool = AUTHZ_ENABLED
-    #  - ... for WES itself:
-    BENTO_OPENID_CONFIG_URL: str = os.environ.get(
-        "BENTO_OPENID_CONFIG_URL", "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration"
-    )
-    WES_CLIENT_ID: str = os.environ.get("WES_CLIENT_ID", "bento_wes")
-    WES_CLIENT_SECRET: str = os.environ.get("WES_CLIENT_SECRET", "")
-
-    # Service registry URL, used for looking up service kinds to inject as workflow input
-    SERVICE_REGISTRY_URL: str = SERVICE_REGISTRY_URL
-
-    # VEP-related configuration
-    VEP_CACHE_DIR: str | None = os.environ.get("VEP_CACHE_DIR")
-
-    INGEST_POST_TIMEOUT: int = 60 * 60  # 1 hour
-    # Timeout for workflow runs themselves, in seconds - default to 48 hours
-    WORKFLOW_TIMEOUT: int = int(os.environ.get("WORKFLOW_TIMEOUT", str(60 * 60 * 48)))
-
-    # Enables interactive debug of Celery tasks locally, not possible with worker threads otherwise
-    CELERY_ALWAYS_EAGER: bool = CELERY_DEBUG
 
 BENTO_EXTRA_SERVICE_INFO: BentoExtraServiceInfo = {
     "serviceKind": BENTO_SERVICE_KIND,
@@ -162,4 +117,3 @@ class Config(BentoFastAPIBaseConfig):
 
 
 config = Config()
-flask_config = FlaskConfig()
