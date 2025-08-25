@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request
 from fastapi.responses import JSONResponse
 from typing import Annotated, List, Optional
 import httpx
@@ -7,11 +7,14 @@ from pathlib import Path
 import json
 
 from bento_lib.workflows.utils import namespaced_input
-from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlInput
+from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlInput, WorkflowProjectDatasetInput
+from bento_lib.auth.permissions import P_VIEW_RUNS, P_INGEST_DATA
+from bento_lib.auth.resources import RESOURCE_EVERYTHING, build_resource
+from bento_lib.utils.headers import authz_bearer_header
 
 from bento_wes import states
-from bento_wes.models import RunRequest
 from bento_wes.authz import authz_middleware
+from bento_wes.models import RunRequest
 from bento_wes.logger import logger
 from bento_wes.config import config
 from bento_wes.db import DatabaseDep
@@ -30,18 +33,45 @@ from bento_wes.types import AuthHeaderModel
 from .constants import PUBLIC_RUN_DETAILS_SHAPE, PRIVATE_RUN_DETAILS_SHAPE
 
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
-# runs_router.dependencies.append(authz_middleware.dep_public_endpoint())
 
 #TODO: add auth
 
+def _get_resource_for_run_request(run_req: RunRequest) -> dict:
+    wi, wm = run_req.tags.workflow_id, run_req.tags.workflow_metadata
+    resource = RESOURCE_EVERYTHING
+
+    inp = next((i for i in wm.inputs if isinstance(i, WorkflowProjectDatasetInput)), None)
+    if inp and (val := run_req.workflow_params.get(namespaced_input(wi, inp.id))):
+        project, dataset = val.split(":")
+        resource = build_resource(project, dataset, data_type=wm.data_type)
+
+    return resource
+
+def _check_single_run_permission_and_mark(run_req: RunRequest, permission: str, request: Request, authz_header_from_form: AuthHeaderModel = None) -> bool:
+    return (
+        authz_middleware.evaluate_one(
+            request,
+            _get_resource_for_run_request(run_req),
+            permission,
+            headers_getter=authz_header_from_form,
+            mark_authz_done=True,
+        )
+        if config.authz_enabled
+        else True
+    )
 
 @runs_router.post("")
 async def create_run(
     run: Annotated[RunRequest, Depends(RunRequest.as_form)],
     authorization: Annotated[AuthHeaderModel, Depends(AuthHeaderModel.from_header)], 
     db: DatabaseDep,
+    request: Request,
     workflow_attachment: Optional[List[UploadFile]] = File(None),
 ):
+    
+    if not _check_single_run_permission_and_mark(run, P_INGEST_DATA, request):
+        return HTTPException(status_code=403, detail="Forbidden: insufficient permissions.")
+
     logger.info(f"Starting run creation for workflow {run.tags.workflow_id}")
 
     # Parse workflow host allow list from config
@@ -57,7 +87,6 @@ async def create_run(
     )
 
     auth_header = authorization.as_dict()
-    logger.info(f"Authorization header dict: {auth_header}")
 
     try:
         await wm.download_or_copy_workflow(

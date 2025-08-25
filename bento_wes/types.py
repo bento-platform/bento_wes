@@ -1,4 +1,4 @@
-from fastapi import Header
+from fastapi import Header, Form
 from pydantic import BaseModel
 from typing import Literal, Optional, Annotated
 
@@ -20,3 +20,10 @@ class AuthHeaderModel(BaseModel):
         Authorization: Annotated[str | None, Header()] = None
     ) -> "AuthHeaderModel":
         return cls(Authorization=Authorization)
+    
+    @classmethod
+    def from_form(
+        cls,
+        token: Annotated[str, Form(...)] = None
+    ) -> "AuthHeaderModel":
+        return cls(Authorization=token)
