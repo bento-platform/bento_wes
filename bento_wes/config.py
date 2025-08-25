@@ -89,6 +89,7 @@ class Config(BentoFastAPIBaseConfig):
     # Authn/z-related configuration
     authz_url: str = Field(..., validation_alias="BENTO_AUTHZ_SERVICE_URL")
     authz_enabled: bool = True
+    bento_authz_enabled = authz_enabled # for authz middlware to self recognize
     
 
     #  - ... for WES itself:

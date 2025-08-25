@@ -26,7 +26,7 @@ async def lifespan(app: BentoFastAPI):
 
 
 app = BentoFastAPI(
-    authz_middleware if config.authz_enabled else None,
+    authz_middleware,
     config,
     logger,
     BENTO_EXTRA_SERVICE_INFO,
