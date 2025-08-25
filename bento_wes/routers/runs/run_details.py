@@ -2,16 +2,18 @@ from fastapi import APIRouter, Depends, Form
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.exceptions import HTTPException
 import shutil
-import json
 import urllib.parse
 from uuid import UUID
 from pathlib import Path
+
+from bento_lib.auth.permissions import P_VIEW_RUNS
 
 from bento_wes import states
 from bento_wes.db import DatabaseDep
 from bento_wes.types import RunStream
 from bento_wes.celery import celery
 from bento_wes.config import config
+from bento_wes.authz import authz_middleware
 
 from .deps import stash_run_or_404, get_stream, RunDep
 from .utils import _denest_list
@@ -22,7 +24,8 @@ detail_router.dependencies.append(Depends(stash_run_or_404))
 
 @detail_router.get("")
 def get_run(run: RunDep):
-    return JSONResponse(json.loads(run.model_dump_json()))
+    authz_middleware.dep_require_permissions_on_resource(P_VIEW_RUNS, run.request.get_authz_resource)
+    return JSONResponse(run.model_dump(mode="json"))
 
 @detail_router.post("/download-artifact")
 def run_download_artifact(run_id: UUID, run: RunDep, path: str = Form(...)):

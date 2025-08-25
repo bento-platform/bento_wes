@@ -154,6 +154,7 @@ async def list_runs(db: DatabaseDep, request: Request, public: bool = False, wit
 
     if public:
         authz_middleware.dep_public_endpoint()
+        ## TODO: provide a wrapper for such database call
         for r in db.c.execute(f"SELECT * FROM runs WHERE state = {states.STATE_COMPLETE}").fetchall():
             run = db.run_with_details_from_row(db.c, r, stream_content=False)
             res_list.append(run.list_format(public, with_details))
