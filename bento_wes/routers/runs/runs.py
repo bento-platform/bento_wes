@@ -34,8 +34,6 @@ from .constants import PUBLIC_RUN_DETAILS_SHAPE, PRIVATE_RUN_DETAILS_SHAPE
 
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
 
-#TODO: add auth
-
 def _get_resource_for_run_request(run_req: RunRequest) -> dict:
     wi, wm = run_req.tags.workflow_id, run_req.tags.workflow_metadata
     resource = RESOURCE_EVERYTHING
@@ -70,7 +68,7 @@ async def create_run(
 ):
     
     if not _check_single_run_permission_and_mark(run, P_INGEST_DATA, request):
-        return HTTPException(status_code=403, detail="Forbidden: insufficient permissions.")
+        raise HTTPException(status_code=403, detail="Forbidden: insufficient permissions.")
 
     logger.info(f"Starting run creation for workflow {run.tags.workflow_id}")
 
@@ -179,6 +177,7 @@ async def create_run(
     )
 
 
+#TODO: add auth
 @runs_router.get("")
 async def list_runs(db: DatabaseDep, public: bool = False, with_details: bool = False):
     res_list = []
