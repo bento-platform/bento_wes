@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, AnyUrl, Json
 from typing import Literal, Annotated
 from fastapi import Form
 
+from .constants import PUBLIC_RUN_DETAILS_SHAPE, PRIVATE_RUN_DETAILS_SHAPE
+
 __all__ = [
     "BentoRunRequestTags",
     "RunRequest",
@@ -88,3 +90,22 @@ class RunWithDetails(Run):
     run_log: RunLog
     task_logs: list[dict]  # TODO: model
     outputs: dict[str, RunOutput]
+
+    def list_format(self, is_public: bool, with_details: bool) -> dict:
+        return {
+            **self.request.model_dump(mode="json", include={"run_id", "state"}),
+            **(
+                {
+                    "details": self.model_dump(
+                        mode="json",
+                        include={
+                            "run_id": True,
+                            "state": True,
+                            **(PUBLIC_RUN_DETAILS_SHAPE if is_public else PRIVATE_RUN_DETAILS_SHAPE),
+                        },
+                    ),
+                }
+                if with_details
+                else {}
+            ),
+        }

@@ -9,6 +9,7 @@ import json
 from bento_lib.workflows.utils import namespaced_input
 from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlInput
 from bento_lib.auth.permissions import P_VIEW_RUNS, P_INGEST_DATA
+from bento_lib.auth.exceptions import BentoAuthException
 
 from bento_wes import states
 from bento_wes.authz import authz_middleware
@@ -27,9 +28,6 @@ from bento_wes.utils import save_upload_files
 from bento_wes.service_registry import get_bento_services
 from bento_wes.runner import run_workflow
 from bento_wes.types import AuthHeaderModel
-
-from .constants import PUBLIC_RUN_DETAILS_SHAPE, PRIVATE_RUN_DETAILS_SHAPE
-from .authz_util import check_runs_permission
 
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -153,37 +151,22 @@ async def create_run(
 @runs_router.get("")
 async def list_runs(db: DatabaseDep, request: Request, public: bool = False, with_details: bool = False):
     res_list = []
-    perms_list: list[RunRequest] = []
 
-    for r in db.c.execute("SELECT * FROM runs").fetchall():
-        run = db.run_with_details_from_row(db.c, r, stream_content=False)
-        perms_list.append(run.request)
+    if public:
+        authz_middleware.dep_public_endpoint()
+        for r in db.c.execute(f"SELECT * FROM runs WHERE state = {states.STATE_COMPLETE}").fetchall():
+            run = db.run_with_details_from_row(db.c, r, stream_content=False)
+            res_list.append(run.list_format(public, with_details))
+    else:
+        for r in db.c.execute("SELECT * FROM runs").fetchall():
+            run = db.run_with_details_from_row(db.c, r, stream_content=False)
 
-        if not public or run.state == states.STATE_COMPLETE:
-            res_list.append(
-                {
-                    **run.model_dump(mode="json", include={"run_id", "state"}),
-                    **(
-                        {
-                            "details": run.model_dump(
-                                mode="json",
-                                include={
-                                    "run_id": True,
-                                    "state": True,
-                                    **(PUBLIC_RUN_DETAILS_SHAPE if public else PRIVATE_RUN_DETAILS_SHAPE),
-                                },
-                            ),
-                        }
-                        if with_details
-                        else {}
-                    ),
-                }
-            )
-    
-    if not public:
-        # Filter runs to just those which we have permission to view
-        res_list = [v for v, p in zip(res_list, check_runs_permission(perms_list, P_VIEW_RUNS, request)) if p]
-    
-    authz_middleware.mark_authz_done(request)
+            try:
+                authz_middleware.dep_require_permissions_on_resource(P_VIEW_RUNS, run.request.get_authz_resource)
+                res_list.append(run.list_format(public, with_details))
+            except BentoAuthException:
+                pass
+        
+        authz_middleware.mark_authz_done(request)
 
     return JSONResponse(res_list)
