@@ -24,12 +24,12 @@ detail_router.dependencies.append(Depends(stash_run_or_404))
 
 @detail_router.get("")
 def get_run(run: RunDep):
-    authz_middleware.dep_require_permissions_on_resource(P_VIEW_RUNS, run.request.get_authz_resource)
+    authz_middleware.dep_require_permissions_on_resource(P_VIEW_RUNS, run.request.get_authz_resource())
     return JSONResponse(run.model_dump(mode="json"))
 
 @detail_router.post("/download-artifact")
 def run_download_artifact(run_id: UUID, run: RunDep, path: str = Form(...)):
-
+    authz_middleware.dep_require_permissions_on_resource(P_VIEW_RUNS, run.request.get_authz_resource())
     artifact_path = path.strip()
     if not artifact_path:
         raise HTTPException(status_code=400, detail="Requested artifact path is blank or unspecified")
@@ -65,10 +65,11 @@ def run_download_artifact(run_id: UUID, run: RunDep, path: str = Form(...)):
 )
 def run_stream(
     run_id: UUID,
+    run: RunDep,
     stream: RunStream,
     db: DatabaseDep,
 ):
-    # TODO: add auth
+    authz_middleware.dep_require_permissions_on_resource(P_VIEW_RUNS, run.request.get_authz_resource())
     return get_stream(db, stream, run_id)
 
 
