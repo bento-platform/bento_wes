@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request
 from fastapi.responses import JSONResponse
-from typing import Annotated, List, Optional
+from typing import Annotated, List, Optional, Iterator
 import httpx
 import uuid
 from pathlib import Path
@@ -34,6 +34,10 @@ from .constants import PUBLIC_RUN_DETAILS_SHAPE, PRIVATE_RUN_DETAILS_SHAPE
 
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
 
+#================================================
+#                AUTH UTILS
+#================================================
+
 def _get_resource_for_run_request(run_req: RunRequest) -> dict:
     wi, wm = run_req.tags.workflow_id, run_req.tags.workflow_metadata
     resource = RESOURCE_EVERYTHING
@@ -57,6 +61,27 @@ def _check_single_run_permission_and_mark(run_req: RunRequest, permission: str, 
         if config.authz_enabled
         else True
     )
+
+def _check_runs_permission(run_requests: list[RunRequest], permission: str, request: Request) -> Iterator[bool]:
+    if not config.authz_enabled:
+        yield from [True] * len(run_requests)  # Assume we have permission for everything if authz disabled
+        return
+
+    # /policy/evaluate returns a matrix of booleans of row: resource, col: permission. Thus, we can
+    # return permission booleans by resource by flattening it, since there is only one column.
+    yield from (
+        r[0]
+        for r in authz_middleware.evaluate(
+            request,
+            [_get_resource_for_run_request(run_request) for run_request in run_requests],
+            [permission],
+        )
+    )
+
+
+#================================================
+#                ROUTER HANDLERS
+#================================================
 
 @runs_router.post("")
 async def create_run(
@@ -177,9 +202,8 @@ async def create_run(
     )
 
 
-#TODO: add auth
 @runs_router.get("")
-async def list_runs(db: DatabaseDep, public: bool = False, with_details: bool = False):
+async def list_runs(db: DatabaseDep, request: Request, public: bool = False, with_details: bool = False):
     res_list = []
     perms_list: list[RunRequest] = []
 
@@ -208,4 +232,10 @@ async def list_runs(db: DatabaseDep, public: bool = False, with_details: bool = 
                 }
             )
     
+    if not public:
+        # Filter runs to just those which we have permission to view
+        res_list = [v for v, p in zip(res_list, _check_runs_permission(perms_list, P_VIEW_RUNS, request)) if p]
+    
+    authz_middleware.mark_authz_done(request)
+
     return JSONResponse(res_list)
