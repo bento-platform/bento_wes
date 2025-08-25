@@ -1,6 +1,8 @@
 from bento_lib.workflows.models import WorkflowDefinition, WorkflowProjectDatasetInput
 from bento_lib.workflows.utils import namespaced_input
 from bento_lib.auth.resources import RESOURCE_EVERYTHING, build_resource
+from bento_lib.auth.permissions import P_ANALYZE_DATA, P_INGEST_DATA, P_EXPORT_DATA
+from bento_lib.workflows.models import WorkflowType
 
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, AnyUrl, Json
@@ -63,6 +65,16 @@ class RunRequest(BaseModel):
             resource = build_resource(project, dataset, data_type=wm.data_type)
 
         return resource
+
+    def get_workflow_permission(self) -> str:
+        match self.tags.workflow_metadata.type:
+            case "ingestion":
+                return P_INGEST_DATA
+            case "analysis":
+                return P_ANALYZE_DATA
+            case "export": 
+                return P_EXPORT_DATA
+
 
 class RunLog(BaseModel):
     name: str

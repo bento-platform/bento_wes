@@ -39,7 +39,7 @@ async def create_run(
     workflow_attachment: Optional[List[UploadFile]] = File(None),
 ):
     # authz
-    authz_middleware.dep_require_permissions_on_resource(P_INGEST_DATA, run.get_authz_resource)
+    authz_middleware.dep_require_permissions_on_resource(run.get_workflow_permission(), run.get_authz_resource())
 
     logger.info(f"Starting run creation for workflow {run.tags.workflow_id}")
 
@@ -163,7 +163,7 @@ async def list_runs(db: DatabaseDep, request: Request, public: bool = False, wit
             run = db.run_with_details_from_row(db.c, r, stream_content=False)
 
             try:
-                authz_middleware.dep_require_permissions_on_resource(P_VIEW_RUNS, run.request.get_authz_resource)
+                authz_middleware.dep_require_permissions_on_resource(P_VIEW_RUNS, run.request.get_authz_resource())
                 res_list.append(run.list_format(public, with_details))
             except BentoAuthException:
                 pass
