@@ -1,4 +1,7 @@
-from bento_lib.workflows.models import WorkflowDefinition
+from bento_lib.workflows.models import WorkflowDefinition, WorkflowProjectDatasetInput
+from bento_lib.workflows.utils import namespaced_input
+from bento_lib.auth.resources import RESOURCE_EVERYTHING, build_resource
+
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, AnyUrl, Json
 from typing import Literal, Annotated
@@ -47,6 +50,17 @@ class RunRequest(BaseModel):
             workflow_url=workflow_url,
             tags=tags,
         )
+    
+    def get_authz_resource(self):
+        wi, wm = self.tags.workflow_id, self.tags.workflow_metadata
+        resource = RESOURCE_EVERYTHING
+
+        inp = next((i for i in wm.inputs if isinstance(i, WorkflowProjectDatasetInput)), None)
+        if inp and (val := self.workflow_params.get(namespaced_input(wi, inp.id))):
+            project, dataset = val.split(":")
+            resource = build_resource(project, dataset, data_type=wm.data_type)
+
+        return resource
 
 class RunLog(BaseModel):
     name: str

@@ -29,7 +29,7 @@ from bento_wes.runner import run_workflow
 from bento_wes.types import AuthHeaderModel
 
 from .constants import PUBLIC_RUN_DETAILS_SHAPE, PRIVATE_RUN_DETAILS_SHAPE
-from .authz_util import check_single_run_permission_and_mark, check_runs_permission
+from .authz_util import check_runs_permission
 
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -38,11 +38,10 @@ async def create_run(
     run: Annotated[RunRequest, Depends(RunRequest.as_form)],
     authorization: Annotated[AuthHeaderModel, Depends(AuthHeaderModel.from_header)], 
     db: DatabaseDep,
-    request: Request,
     workflow_attachment: Optional[List[UploadFile]] = File(None),
 ):
     # authz
-    check_single_run_permission_and_mark(run, P_INGEST_DATA, request)
+    authz_middleware.dep_require_permissions_on_resource(P_INGEST_DATA, run.get_authz_resource)
 
     logger.info(f"Starting run creation for workflow {run.tags.workflow_id}")
 
