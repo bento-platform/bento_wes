@@ -1,16 +1,14 @@
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request
 from fastapi.responses import JSONResponse
-from typing import Annotated, List, Optional, Iterator
+from typing import Annotated, List, Optional
 import httpx
 import uuid
 from pathlib import Path
 import json
 
 from bento_lib.workflows.utils import namespaced_input
-from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlInput, WorkflowProjectDatasetInput
+from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlInput
 from bento_lib.auth.permissions import P_VIEW_RUNS, P_INGEST_DATA
-from bento_lib.auth.resources import RESOURCE_EVERYTHING, build_resource
-from bento_lib.utils.headers import authz_bearer_header
 
 from bento_wes import states
 from bento_wes.authz import authz_middleware
@@ -31,57 +29,9 @@ from bento_wes.runner import run_workflow
 from bento_wes.types import AuthHeaderModel
 
 from .constants import PUBLIC_RUN_DETAILS_SHAPE, PRIVATE_RUN_DETAILS_SHAPE
+from .authz_util import check_single_run_permission_and_mark, check_runs_permission
 
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
-
-#================================================
-#                AUTH UTILS
-#================================================
-
-def _get_resource_for_run_request(run_req: RunRequest) -> dict:
-    wi, wm = run_req.tags.workflow_id, run_req.tags.workflow_metadata
-    resource = RESOURCE_EVERYTHING
-
-    inp = next((i for i in wm.inputs if isinstance(i, WorkflowProjectDatasetInput)), None)
-    if inp and (val := run_req.workflow_params.get(namespaced_input(wi, inp.id))):
-        project, dataset = val.split(":")
-        resource = build_resource(project, dataset, data_type=wm.data_type)
-
-    return resource
-
-def _check_single_run_permission_and_mark(run_req: RunRequest, permission: str, request: Request, authz_header_from_form: AuthHeaderModel = None) -> bool:
-    return (
-        authz_middleware.evaluate_one(
-            request,
-            _get_resource_for_run_request(run_req),
-            permission,
-            headers_getter=authz_header_from_form,
-            mark_authz_done=True,
-        )
-        if config.authz_enabled
-        else True
-    )
-
-def _check_runs_permission(run_requests: list[RunRequest], permission: str, request: Request) -> Iterator[bool]:
-    if not config.authz_enabled:
-        yield from [True] * len(run_requests)  # Assume we have permission for everything if authz disabled
-        return
-
-    # /policy/evaluate returns a matrix of booleans of row: resource, col: permission. Thus, we can
-    # return permission booleans by resource by flattening it, since there is only one column.
-    yield from (
-        r[0]
-        for r in authz_middleware.evaluate(
-            request,
-            [_get_resource_for_run_request(run_request) for run_request in run_requests],
-            [permission],
-        )
-    )
-
-
-#================================================
-#                ROUTER HANDLERS
-#================================================
 
 @runs_router.post("")
 async def create_run(
@@ -91,9 +41,8 @@ async def create_run(
     request: Request,
     workflow_attachment: Optional[List[UploadFile]] = File(None),
 ):
-    
-    if not _check_single_run_permission_and_mark(run, P_INGEST_DATA, request):
-        raise HTTPException(status_code=403, detail="Forbidden: insufficient permissions.")
+    # authz
+    check_single_run_permission_and_mark(run, P_INGEST_DATA, request)
 
     logger.info(f"Starting run creation for workflow {run.tags.workflow_id}")
 
@@ -234,7 +183,7 @@ async def list_runs(db: DatabaseDep, request: Request, public: bool = False, wit
     
     if not public:
         # Filter runs to just those which we have permission to view
-        res_list = [v for v, p in zip(res_list, _check_runs_permission(perms_list, P_VIEW_RUNS, request)) if p]
+        res_list = [v for v, p in zip(res_list, check_runs_permission(perms_list, P_VIEW_RUNS, request)) if p]
     
     authz_middleware.mark_authz_done(request)
 
