@@ -11,7 +11,7 @@ from .routers.runs.runs import runs_router
 from .events import init_event_bus, shutdown_event_bus
 
 @asynccontextmanager
-async def lifespan():
+async def lifespan(_app: BentoFastAPI):
     logger.info("Starting up database...")
     try: 
         init_event_bus()
