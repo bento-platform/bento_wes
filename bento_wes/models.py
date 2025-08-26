@@ -105,7 +105,7 @@ class RunWithDetails(Run):
 
     def list_format(self, is_public: bool, with_details: bool) -> dict:
         return {
-            **self.request.model_dump(mode="json", include={"run_id", "state"}),
+            **self.model_dump(mode="json", include={"run_id", "state"}),
             **(
                 {
                     "details": self.model_dump(
