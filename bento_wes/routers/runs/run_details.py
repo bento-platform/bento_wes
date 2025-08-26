@@ -78,6 +78,8 @@ def cancel_run(run: RunDep, db: DatabaseDep):
     # TODO: Check if already completed
     # TODO: Check if run log exists
     # TODO: from celery.task.control import revoke; revoke(celery_id, terminate=True)
+    authz_middleware.dep_require_permissions_on_resource(run.request.get_workflow_permission(), run.request.get_authz_resource())
+
     
     for bad_req_states, bad_req_err in RUN_CANCEL_BAD_REQUEST_STATES:
         if run.state in bad_req_states:
@@ -100,6 +102,8 @@ def cancel_run(run: RunDep, db: DatabaseDep):
     return PlainTextResponse("Run Cancelled", status_code=204)
 
 @detail_router.get("/status")
-def run_status(run_id: UUID, db: DatabaseDep):
+def run_status(run_id: UUID, run: RunDep, db: DatabaseDep):
+    authz_middleware.dep_require_permissions_on_resource(P_VIEW_RUNS, run.request.get_authz_resource())
+
     run = db.get_run(db.c, run_id)
     return JSONResponse(run.model_dump())
