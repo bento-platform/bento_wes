@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Form
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.exceptions import HTTPException
 import shutil
@@ -13,9 +13,8 @@ from bento_wes.db import DatabaseDep
 from bento_wes.types import RunStream
 from bento_wes.celery import celery
 from bento_wes.config import config
-from bento_wes.authz import authz_middleware
 
-from .deps import stash_run_or_404, get_stream, RunDep
+from .deps import stash_run_or_404, get_stream, RunDep, AuthzDep
 from .utils import _denest_list
 from .constants import CHUNK_SIZE, RUN_CANCEL_BAD_REQUEST_STATES
 
@@ -23,13 +22,20 @@ detail_router = APIRouter(prefix="/{run_id}")
 detail_router.dependencies.append(Depends(stash_run_or_404))
 
 @detail_router.get("")
-def get_run(run: RunDep):
-    authz_middleware.dep_require_permissions_on_resource(P_VIEW_RUNS, run.request.get_authz_resource())
+async def get_run(run: RunDep, authz_check: AuthzDep):
+    await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
     return JSONResponse(run.model_dump(mode="json"))
 
+@detail_router.get("/status")
+async def run_status(run_id: UUID, run: RunDep, db: DatabaseDep, authz_check: AuthzDep):
+    await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
+
+    run = db.get_run(db.c, run_id)
+    return JSONResponse(run.model_dump())
+
 @detail_router.post("/download-artifact")
-def run_download_artifact(run_id: UUID, run: RunDep, path: str = Form(...)):
-    authz_middleware.dep_require_permissions_on_resource(P_VIEW_RUNS, run.request.get_authz_resource())
+async def run_download_artifact(run_id: UUID, run: RunDep, authz_check: AuthzDep, path: str = Form(...)):
+    await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
     artifact_path = path.strip()
     if not artifact_path:
         raise HTTPException(status_code=400, detail="Requested artifact path is blank or unspecified")
@@ -59,26 +65,24 @@ def run_download_artifact(run_id: UUID, run: RunDep, path: str = Form(...)):
     return resp
 
 
-@detail_router.get(
-    "/{stream}",
-    response_class=PlainTextResponse
-)
-def run_stream(
+@detail_router.get("/{stream}", response_class=PlainTextResponse)
+async def run_stream(
+    stream: RunStream,
     run_id: UUID,
     run: RunDep,
-    stream: RunStream,
     db: DatabaseDep,
+    authz_check: AuthzDep
 ):
-    authz_middleware.dep_require_permissions_on_resource(P_VIEW_RUNS, run.request.get_authz_resource())
+    await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
     return get_stream(db, stream, run_id)
 
 
 @detail_router.post("/cancel")
-def cancel_run(run: RunDep, db: DatabaseDep):
+async def cancel_run(run: RunDep, db: DatabaseDep, authz_check: AuthzDep):
     # TODO: Check if already completed
     # TODO: Check if run log exists
     # TODO: from celery.task.control import revoke; revoke(celery_id, terminate=True)
-    authz_middleware.dep_require_permissions_on_resource(run.request.get_workflow_permission(), run.request.get_authz_resource())
+    await authz_check(run.request.get_workflow_permission(), run.request.get_authz_resource())
 
     
     for bad_req_states, bad_req_err in RUN_CANCEL_BAD_REQUEST_STATES:
@@ -101,9 +105,3 @@ def cancel_run(run: RunDep, db: DatabaseDep):
 
     return PlainTextResponse("Run Cancelled", status_code=204)
 
-@detail_router.get("/status")
-def run_status(run_id: UUID, run: RunDep, db: DatabaseDep):
-    authz_middleware.dep_require_permissions_on_resource(P_VIEW_RUNS, run.request.get_authz_resource())
-
-    run = db.get_run(db.c, run_id)
-    return JSONResponse(run.model_dump())

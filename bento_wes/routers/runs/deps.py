@@ -1,13 +1,17 @@
 from fastapi import Depends, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.exceptions import HTTPException
-from typing import Annotated
+from typing import Awaitable, Callable, FrozenSet, Annotated
 from uuid import UUID
+
+from bento_lib.auth.permissions import Permission
 
 from bento_wes import states
 from bento_wes.db import Database, DatabaseDep
 from bento_wes.models import RunWithDetails  
 from bento_wes.types import RunStream
+from bento_wes.authz import authz_middleware
+from bento_wes.config import config
 
 # TODO: middleware just to check if run_id is valid
 def stash_run_or_404(
@@ -50,3 +54,19 @@ def get_stream(db: Database, stream: RunStream, run_id: UUID):
             "Cache-Control": cache_control
         }
     )
+
+AuthzCallable = Callable[[Permission, dict], Awaitable[None]]
+
+def evaluate_run_permissions_function(request: Request) -> AuthzCallable:
+    async def _inner(permission: Permission, resource: dict) -> None:
+        if not config.authz_enabled:
+            return None 
+
+        p: FrozenSet[Permission] = frozenset({permission})
+        await authz_middleware.async_check_authz_evaluate(
+            request, p, resource, set_authz_flag=True
+        )
+
+    return _inner
+
+AuthzDep = Annotated[AuthzCallable, Depends(evaluate_run_permissions_function)]

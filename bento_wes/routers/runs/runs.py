@@ -8,7 +8,7 @@ import json
 
 from bento_lib.workflows.utils import namespaced_input
 from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlInput
-from bento_lib.auth.permissions import P_VIEW_RUNS, P_INGEST_DATA
+from bento_lib.auth.permissions import P_VIEW_RUNS
 from bento_lib.auth.exceptions import BentoAuthException
 
 from bento_wes import states
@@ -29,6 +29,8 @@ from bento_wes.service_registry import get_bento_services
 from bento_wes.runner import run_workflow
 from bento_wes.types import AuthHeaderModel
 
+from .deps import AuthzDep
+
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
 
 @runs_router.post("")
@@ -36,10 +38,11 @@ async def create_run(
     run: Annotated[RunRequest, Depends(RunRequest.as_form)],
     authorization: Annotated[AuthHeaderModel, Depends(AuthHeaderModel.from_header)], 
     db: DatabaseDep,
+    authz_check: AuthzDep,
     workflow_attachment: Optional[List[UploadFile]] = File(None),
 ):
     # authz
-    authz_middleware.dep_require_permissions_on_resource(run.get_workflow_permission(), run.get_authz_resource())
+    await authz_check(run.get_workflow_permission(), run.get_authz_resource())
 
     logger.info(f"Starting run creation for workflow {run.tags.workflow_id}")
 
@@ -149,13 +152,14 @@ async def create_run(
 
 
 @runs_router.get("")
-async def list_runs(db: DatabaseDep, request: Request, public: bool = False, with_details: bool = False):
+async def list_runs(db: DatabaseDep, request: Request, authz_check: AuthzDep, public: bool = False, with_details: bool = False):
     res_list = []
 
     if public:
-        authz_middleware.dep_public_endpoint()
+        authz_middleware.mark_authz_done(request)
         ## TODO: provide a wrapper for such database call
-        for r in db.c.execute(f"SELECT * FROM runs WHERE state = {states.STATE_COMPLETE}").fetchall():
+        query = "SELECT * FROM runs WHERE state = ?"
+        for r in db.c.execute(query, (states.STATE_COMPLETE,)).fetchall():
             run = db.run_with_details_from_row(db.c, r, stream_content=False)
             res_list.append(run.list_format(public, with_details))
     else:
@@ -163,7 +167,7 @@ async def list_runs(db: DatabaseDep, request: Request, public: bool = False, wit
             run = db.run_with_details_from_row(db.c, r, stream_content=False)
 
             try:
-                authz_middleware.dep_require_permissions_on_resource(P_VIEW_RUNS, run.request.get_authz_resource())
+                await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
                 res_list.append(run.list_format(public, with_details))
             except BentoAuthException:
                 pass
