@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import uuid
+from pathlib import Path
 from typing import Any, Generator, Annotated
 from urllib.parse import urljoin
 from fastapi import Depends
@@ -109,7 +110,8 @@ class Database:
 
     def init_schema(self) -> None:
         # Run once at startup (not per request!)
-        with open("schema.sql", "r", encoding="utf-8") as sf:
+        schema_path = Path(__file__).with_name("schema.sql")
+        with schema_path.open("r", encoding="utf-8") as sf:
             self.c.executescript(sf.read())
         self.commit()
 
