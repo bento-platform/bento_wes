@@ -73,9 +73,6 @@ class Config(BentoFastAPIBaseConfig):
     service_temp: Path = Path("tmp")
     service_base_url: str = SERVICE_BASE_URL
 
-    # DB
-    DATABASE_PATH: str = os.getenv("DATABASE", "instance/bento.db")
-
     # WDL-file-related configuration
     wom_tool_location: str | None
     workflow_host_allow_list: str | None
