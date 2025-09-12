@@ -14,9 +14,6 @@ import importlib
 test_dir = Path(__file__).resolve().parent
 database_path = test_dir / "test.db"
 
-if database_path.exists():
-    os.unlink(database_path)
-
 ## has issues if placed inside a fixture
 mp = MonkeyPatch()
 mp.setenv("BENTO_AUTHZ_ENABLED", "False")
@@ -34,6 +31,12 @@ importlib.reload(cfg)
 #--------------------------------------------------------------------------
 #                                  FIXTURES
 #--------------------------------------------------------------------------
+
+@pytest.fixture(scope="session", autouse=True)
+def cleanup_env():
+    yield
+    if database_path.exists():
+        os.unlink(database_path)
 
 @pytest.fixture()
 def app():
