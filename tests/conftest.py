@@ -65,3 +65,13 @@ def _mocked_responses_with_workflow():
 
         yield respx_mock
 
+
+@pytest.fixture
+def db_session():
+    from bento_wes.db import get_db
+    gen = get_db()
+    db = next(gen)
+    try:
+        yield db
+    finally:
+        gen.close()
