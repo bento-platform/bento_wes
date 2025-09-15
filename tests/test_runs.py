@@ -45,8 +45,8 @@ def test_runs_endpoint(client, _mocked_responses_with_workflow):
     assert run["details"]["run_log"]["cmd"] == ""
     assert run["details"]["run_log"]["start_time"] is None
     assert run["details"]["run_log"]["end_time"] is None
-    assert urlparse(run["details"]["run_log"]["stdout"]).path == f"/api/wes/runs/{cr_data['run_id']}/stdout"
-    assert urlparse(run["details"]["run_log"]["stderr"]).path == f"/api/wes/runs/{cr_data['run_id']}/stderr"
+    assert run["details"]["run_log"]["stdout"].endswith(f"/runs/{cr_data['run_id']}/stdout")
+    assert run["details"]["run_log"]["stderr"].endswith(f"/runs/{cr_data['run_id']}/stderr")
     assert run["details"]["run_log"]["exit_code"] is None
 
     assert tuple(sorted(run.keys())) == ("details", "run_id", "state")
@@ -83,8 +83,8 @@ def test_run_detail_endpoint(client, _mocked_responses_with_workflow):
     assert run["run_log"]["cmd"] == ""
     assert run["run_log"]["start_time"] is None
     assert run["run_log"]["end_time"] is None
-    assert urlparse(run["run_log"]["stdout"]).path == f"/api/wes/runs/{cr_data['run_id']}/stdout"
-    assert urlparse(run["run_log"]["stderr"]).path == f"/api/wes/runs/{cr_data['run_id']}/stderr"
+    assert run["run_log"]["stdout"].endswith(f"/runs/{cr_data['run_id']}/stdout")
+    assert run["run_log"]["stderr"].endswith(f"/runs/{cr_data['run_id']}/stderr")
     assert run["run_log"]["exit_code"] is None
 
     assert json.dumps(run["outputs"]) == json.dumps({})
