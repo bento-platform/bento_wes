@@ -53,7 +53,7 @@ class RunRequest(BaseModel):
             workflow_url=workflow_url,
             tags=tags,
         )
-    
+
     def get_authz_resource(self):
         wi, wm = self.tags.workflow_id, self.tags.workflow_metadata
         resource = RESOURCE_EVERYTHING
@@ -71,7 +71,7 @@ class RunRequest(BaseModel):
                 return P_INGEST_DATA
             case "analysis":
                 return P_ANALYZE_DATA
-            case "export": 
+            case "export":
                 return P_EXPORT_DATA
 
 

@@ -20,7 +20,9 @@ def get_drop_box_resource_url(path: str, resource: Literal["objects", "tree"] = 
     clean_path = path.lstrip("/")
     return f"{drop_box_url}/{resource}/{clean_path}"
 
+
 CHUNK_SIZE = 1024 * 1024  # 1 MiB
+
 
 async def save_upload_files(
     files: Iterable[UploadFile],
@@ -46,10 +48,12 @@ async def save_upload_files(
 
         # content-type check
         if allowed_content_types and f.content_type not in allowed_content_types:
-            results.append({
-                "filename": safe_name,
-                "error": f"Unsupported content type: {f.content_type}",
-            })
+            results.append(
+                {
+                    "filename": safe_name,
+                    "error": f"Unsupported content type: {f.content_type}",
+                }
+            )
             await f.close()
             continue
 
@@ -87,12 +91,14 @@ async def save_upload_files(
             except Exception:
                 pass
 
-        results.append({
-            "filename": safe_name,
-            "path": None if error else str(dest),
-            "content_type": f.content_type,
-            "size": None if error else size,
-            "error": error,
-        })
+        results.append(
+            {
+                "filename": safe_name,
+                "path": None if error else str(dest),
+                "content_type": f.content_type,
+                "size": None if error else size,
+                "error": error,
+            }
+        )
 
     return results

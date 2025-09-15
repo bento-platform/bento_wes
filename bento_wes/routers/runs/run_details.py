@@ -21,10 +21,12 @@ from .constants import CHUNK_SIZE, RUN_CANCEL_BAD_REQUEST_STATES
 detail_router = APIRouter(prefix="/{run_id}")
 detail_router.dependencies.append(Depends(stash_run_or_404))
 
+
 @detail_router.get("")
 async def get_run(run: RunDep, authz_check: AuthzDep):
     await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
     return JSONResponse(run.model_dump(mode="json"))
+
 
 @detail_router.get("/status")
 async def run_status(run_id: UUID, run: RunDep, db: DatabaseDep, authz_check: AuthzDep):
@@ -33,13 +35,14 @@ async def run_status(run_id: UUID, run: RunDep, db: DatabaseDep, authz_check: Au
     run = db.get_run(db.c, run_id)
     return JSONResponse(run.model_dump())
 
+
 @detail_router.post("/download-artifact")
 async def run_download_artifact(run_id: UUID, run: RunDep, authz_check: AuthzDep, path: str = Form(...)):
     await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
     artifact_path = path.strip()
     if not artifact_path:
         raise HTTPException(status_code=400, detail="Requested artifact path is blank or unspecified")
-    
+
     artifacts: set[str] = set()
     for o in run.outputs.values():
         if "File" in o.type:
@@ -51,7 +54,7 @@ async def run_download_artifact(run_id: UUID, run: RunDep, authz_check: AuthzDep
     p = Path(artifact_path)
     if not p.exists():
         raise HTTPException(status_code=500, detail=f"Artifact path does not exist on filesystem: {artifact_path}")
-    
+
     def iterfile():
         with open(p, "rb") as fh:
             while chunk := fh.read(CHUNK_SIZE):
@@ -59,20 +62,12 @@ async def run_download_artifact(run_id: UUID, run: RunDep, authz_check: AuthzDep
 
     resp = StreamingResponse(iterfile(), media_type="application/octet-stream")
     resp.headers["Content-Length"] = str(p.stat().st_size)
-    resp.headers["Content-Disposition"] = (
-        f"attachment; filename*=UTF-8''{urllib.parse.quote(p.name, encoding='utf-8')}"
-    )
+    resp.headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{urllib.parse.quote(p.name, encoding='utf-8')}"
     return resp
 
 
 @detail_router.get("/{stream}", response_class=PlainTextResponse)
-async def run_stream(
-    stream: RunStream,
-    run_id: UUID,
-    run: RunDep,
-    db: DatabaseDep,
-    authz_check: AuthzDep
-):
+async def run_stream(stream: RunStream, run_id: UUID, run: RunDep, db: DatabaseDep, authz_check: AuthzDep):
     await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
     return get_stream(db, stream, run_id)
 
@@ -84,24 +79,22 @@ async def cancel_run(run: RunDep, db: DatabaseDep, authz_check: AuthzDep, settin
     # TODO: from celery.task.control import revoke; revoke(celery_id, terminate=True)
     await authz_check(run.request.get_workflow_permission(), run.request.get_authz_resource())
 
-    
     for bad_req_states, bad_req_err in RUN_CANCEL_BAD_REQUEST_STATES:
         if run.state in bad_req_states:
             raise HTTPException(status_code=400, detail=bad_req_err)
-    
+
     celery_id = run.run_log.celery_id
 
     if celery_id is None:
         raise HTTPException(status_code=500, detail=f"No Celery ID present for run {run.run_id}")
 
     db.update_run_state_and_commit(run.run_id, states.STATE_CANCELING)
-    celery.control.revoke(celery_id, terminate=True) 
+    celery.control.revoke(celery_id, terminate=True)
 
     run_dir = settings.service_temp / str(run.run_id)
     if not settings.bento_debug:
-            shutil.rmtree(run_dir, ignore_errors=True)
+        shutil.rmtree(run_dir, ignore_errors=True)
 
     db.update_run_state_and_commit(run.run_id, states.STATE_CANCELED)
 
     return PlainTextResponse("Run Cancelled", status_code=204)
-

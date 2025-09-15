@@ -7,10 +7,7 @@ class CeleryConfig(BaseSettings):
     celery_result_backend: str = "redis://"
     celery_broker_url: str = "redis://"
 
-    model_config = ConfigDict(
-        env_prefix="CELERY_",
-        case_sensitive=False
-    )
+    model_config = ConfigDict(env_prefix="CELERY_", case_sensitive=False)
 
 
 config = CeleryConfig()

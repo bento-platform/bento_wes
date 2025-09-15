@@ -16,9 +16,9 @@ from bento_wes.logger import logger
 from bento_wes.config import SettingsDep
 from bento_wes.db import DatabaseDep
 from bento_wes.workflows import (
-    parse_workflow_host_allow_list, 
-    WorkflowManager, 
-    WorkflowType, 
+    parse_workflow_host_allow_list,
+    WorkflowManager,
+    WorkflowType,
     UnsupportedWorkflowType,
     WorkflowDownloadError,
 )
@@ -31,10 +31,11 @@ from .deps import AuthzDep, AuthzCompletionDep
 
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
 
+
 @runs_router.post("")
 async def create_run(
     run: Annotated[RunRequest, Depends(RunRequest.as_form)],
-    authorization: Annotated[AuthHeaderModel, Depends(AuthHeaderModel.from_header)], 
+    authorization: Annotated[AuthHeaderModel, Depends(AuthHeaderModel.from_header)],
     db: DatabaseDep,
     authz_check: AuthzDep,
     settings: SettingsDep,
@@ -54,19 +55,19 @@ async def create_run(
         logger=logger,
         workflow_host_allow_list=workflow_host_allow_list,
         validate_ssl=settings.bento_validate_ssl,
-        debug=settings.bento_debug
+        debug=settings.bento_debug,
     )
 
     auth_header = authorization.as_dict()
 
     try:
-        await wm.download_or_copy_workflow(
-            run.workflow_url, WorkflowType(run.workflow_type), auth_headers=auth_header
-        )
+        await wm.download_or_copy_workflow(run.workflow_url, WorkflowType(run.workflow_type), auth_headers=auth_header)
     except UnsupportedWorkflowType:
         raise HTTPException(status_code=400, detail=f"Unsupported workflow type: {run.workflow_type}")
     except (WorkflowDownloadError, httpx.RequestError) as e:
-        raise HTTPException(status_code=400, detail=f"Could not access workflow file: {run.workflow_url} (Python error: {e})")
+        raise HTTPException(
+            status_code=400, detail=f"Could not access workflow file: {run.workflow_url} (Python error: {e})"
+        )
 
     run_id = uuid.uuid4()
 
@@ -79,9 +80,9 @@ async def create_run(
             print(f"Received file: {file.filename} with size {len(contents)} bytes")
         response = await save_upload_files(workflow_attachment, run_dir)
         logger.info(response)
-    else: 
+    else:
         logger.info("No workflow attachments provided")
-    
+
     run_injectable_config = {
         "validate_ssl": settings.bento_validate_ssl,
         "run_dir": str(run_dir),
@@ -92,12 +93,14 @@ async def create_run(
     for run_input in run.tags.workflow_metadata.inputs:
         input_key = namespaced_input(run.tags.workflow_id, run_input.id)
         if isinstance(run_input, WorkflowConfigInput):
-            config_value =run_injectable_config.get(run_input.key)
+            config_value = run_injectable_config.get(run_input.key)
             if config_value is None:
                 err = f"Could not find injectable configuration value for key {run_input.key}"
                 logger.error(err)
                 raise HTTPException(status_code=400, detail=err)
-            logger.debug(f"Injecting configuration parameter '{run_input.key}' into run {run_id}: {run_input.id}={config_value}")
+            logger.debug(
+                f"Injecting configuration parameter '{run_input.key}' into run {run_id}: {run_input.id}={config_value}"
+            )
             run_params[input_key] = config_value
         elif isinstance(run_input, WorkflowServiceUrlInput):
             bento_services_data = bento_services_data or get_bento_services()
@@ -109,19 +112,23 @@ async def create_run(
                 raise HTTPException(status_code=400, detail=err)
             logger.debug(f"Injecting URL for service kind '{sk}' into run {run_id}: {run_input.id}={config_value}")
             run_params[input_key] = config_value
-    
+
     db.insert_run(run_id, run, run_params)
     db.update_run_state_and_commit(run_id, states.STATE_QUEUED, publish_event=False)
 
     run_workflow.delay(run_id)
 
-    return JSONResponse(
-        content={"run_id": str(run_id)}
-    )
+    return JSONResponse(content={"run_id": str(run_id)})
 
 
 @runs_router.get("")
-async def list_runs(db: DatabaseDep, mark_authz_done: AuthzCompletionDep, authz_check: AuthzDep, public: bool = False, with_details: bool = False):
+async def list_runs(
+    db: DatabaseDep,
+    mark_authz_done: AuthzCompletionDep,
+    authz_check: AuthzDep,
+    public: bool = False,
+    with_details: bool = False,
+):
     res_list = []
 
     if public:
@@ -135,7 +142,7 @@ async def list_runs(db: DatabaseDep, mark_authz_done: AuthzCompletionDep, authz_
                 res_list.append(run.list_format(public, with_details))
             except BentoAuthException:
                 pass
-        
+
         await mark_authz_done()
 
     return JSONResponse(res_list)

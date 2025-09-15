@@ -23,7 +23,7 @@ def app_with_test_settings():
     monkeypatch.setenv("SERVICE_REGISTRY_URL", "http://bento-sr.local")
     monkeypatch.setenv("DATABASE", str(database_path))
     monkeypatch.setenv("TESTING", "True")
-    monkeypatch.setenv("WORKFLOW_HOST_ALLOW_LIST", "metadata.local") 
+    monkeypatch.setenv("WORKFLOW_HOST_ALLOW_LIST", "metadata.local")
 
     monkeypatch.delenv("WORKFLOW_TIMEOUT", raising=False)
 
@@ -32,22 +32,18 @@ def app_with_test_settings():
 
     test_settings = Settings()
 
-    monkeypatch.setattr(
-        "bento_wes.config.get_settings",
-        lambda: test_settings,
-        raising=True
-    )
+    monkeypatch.setattr("bento_wes.config.get_settings", lambda: test_settings, raising=True)
     yield create_app()
 
     if database_path.exists():
         os.unlink(database_path)
-    
+
 
 @pytest.fixture
 def client(app_with_test_settings):
-    
     with TestClient(app_with_test_settings) as c:
         yield c
+
 
 @pytest.fixture
 def _mocked_responses_with_workflow():
@@ -70,6 +66,7 @@ def _mocked_responses_with_workflow():
 @pytest.fixture
 def db_session():
     from bento_wes.db import get_db
+
     gen = get_db()
     db = next(gen)
     try:

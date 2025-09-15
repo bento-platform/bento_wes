@@ -95,13 +95,9 @@ class Settings(BentoFastAPIBaseConfig):  # if BentoFastAPIBaseConfig is BaseSett
     service_registry_url: AnyHttpUrl = Field(..., alias="SERVICE_REGISTRY_URL")
 
     # OIDC / WES client
-    bento_openid_config_url: AnyHttpUrl = (
-        "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration"
-    )
+    bento_openid_config_url: AnyHttpUrl = "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration"
     wes_client_id: str = "bento_wes"
-    wes_client_secret: SecretStr | None = Field(
-        default=None, alias="WES_CLIENT_SECRET"
-    )
+    wes_client_secret: SecretStr | None = Field(default=None, alias="WES_CLIENT_SECRET")
 
     # --- Workflow backend / WDL ---
     cromwell_location: Path = Path("/cromwell.jar")
@@ -117,7 +113,6 @@ class Settings(BentoFastAPIBaseConfig):  # if BentoFastAPIBaseConfig is BaseSett
     # --- Timeouts as timedeltas for semantics ---
     ingest_post_timeout: timedelta = timedelta(hours=1)
     workflow_timeout: timedelta = timedelta(days=2)
-    
 
     @field_validator("ingest_post_timeout", "workflow_timeout", mode="before")
     @classmethod
@@ -140,9 +135,7 @@ class Settings(BentoFastAPIBaseConfig):  # if BentoFastAPIBaseConfig is BaseSett
         except Exception:
             pass
         # You can add ISO-8601 parsing here if you want (e.g., via isodate)
-        raise ValueError(
-            "Invalid timeout; use timedelta, seconds (int), 'HH:MM:SS', or ISO-8601 like 'P2D'."
-        )
+        raise ValueError("Invalid timeout; use timedelta, seconds (int), 'HH:MM:SS', or ISO-8601 like 'P2D'.")
 
     # --- Celery / local debug ---
     celery_always_eager: bool = Field(False, validation_alias="CELERY_DEBUG")
@@ -160,9 +153,11 @@ class Settings(BentoFastAPIBaseConfig):  # if BentoFastAPIBaseConfig is BaseSett
     def _normalize_redis(cls, v: str) -> str:
         return str(v).strip()
 
+
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()
     return settings
+
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]

@@ -116,12 +116,7 @@ class Database:
             self.c.executescript(sf.read())
         self.commit()
 
-    def finish_run(
-        self,
-        event_bus: EventBus,
-        run: Run,
-        state: str
-    ) -> None:
+    def finish_run(self, event_bus: EventBus, run: Run, state: str) -> None:
         """
         Update a run's state, set the run log's end time, and publish a success/failure notification.
         """
@@ -178,13 +173,12 @@ class Database:
                 continue
 
             logger.info(
-                f"Found stuck run: {run.run_id} at state {run.state}. "
-                f"Setting state to {states.STATE_SYSTEM_ERROR}"
+                f"Found stuck run: {run.run_id} at state {run.state}. Setting state to {states.STATE_SYSTEM_ERROR}"
             )
             self.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR)
 
         self.commit()
-    
+
     def insert_run(self, run_id: UUID, run: RunRequest, run_params: dict) -> None:
         """
         Insert a new run into the database.
@@ -233,7 +227,7 @@ class Database:
         """
         rows = self.c.execute("SELECT * FROM runs").fetchall()
         return [self.run_with_details_from_row(r, False) for r in rows]
-    
+
     def fetch_runs_by_state(self, state: str) -> list[RunWithDetails]:
         """
         Fetch all runs from the database with a given state.
@@ -263,7 +257,7 @@ class Database:
                 outputs=json.loads(run["outputs"]),
             )
         )
-    
+
     @staticmethod
     def get_task_logs(c: sqlite3.Cursor, run_id: UUID | str) -> list:
         c.execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
@@ -313,7 +307,7 @@ class Database:
         publish_event: bool = True,
     ) -> None:
         event_bus = get_event_bus()
-        
+
         logger.info(f"Updating run state of {run_id} to {state}")
         self.c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
         self.commit()
@@ -330,7 +324,9 @@ def get_db() -> Generator["Database", None, None]:
     finally:
         db.close()
 
+
 DatabaseDep = Annotated[Database, Depends(get_db)]
+
 
 # === Startup helpers (call these from your FastAPI lifespan) ===
 def setup_database_on_startup() -> None:

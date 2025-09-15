@@ -48,16 +48,14 @@ def run_workflow(self, run_id: uuid.UUID):
         # Debug/production flags (validate SSL must be ON in production; debug must be OFF)
         validate_ssl=validate_ssl,
         debug=settings.bento_debug,
-        settings=settings
+        settings=settings,
     )
 
     secrets: dict[str, str] = {"access_token": ""}
 
     # If we have credentials, obtain access token for use inside workflow to ingest data
     try:
-        if (client_id := settings.wes_client_id) and (
-            client_secret := settings.wes_client_secret
-        ):
+        if (client_id := settings.wes_client_id) and (client_secret := settings.wes_client_secret):
             logger.info("Obtaining access token")
             # TODO: cache OpenID config
             # TODO: handle errors more elegantly/precisely

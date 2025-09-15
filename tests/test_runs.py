@@ -6,11 +6,13 @@ from constants import EXAMPLE_RUN, EXAMPLE_RUN_BODY
 
 from bento_wes.states import STATE_QUEUED, STATE_COMPLETE
 
+
 def _create_valid_run(client):
     rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
     data = rv.json()
     assert rv.status_code == 200  # 200 is WES spec, even though 201 would be better (?)
     return data
+
 
 def test_runs_endpoint(client, _mocked_responses_with_workflow):
     rv = client.get("/runs")
@@ -49,6 +51,7 @@ def test_runs_endpoint(client, _mocked_responses_with_workflow):
 
     assert tuple(sorted(run.keys())) == ("details", "run_id", "state")
 
+
 def test_run_create_errors(client):
     bad_body_1 = EXAMPLE_RUN_BODY.copy()
     del bad_body_1["workflow_params"]
@@ -57,11 +60,10 @@ def test_run_create_errors(client):
     assert rv.status_code == 400
     error = rv.json()
     assert len(error["errors"]) == 1
-    assert 'Field required' in error["errors"][0]["message"]
+    assert "Field required" in error["errors"][0]["message"]
 
 
 def test_run_detail_endpoint(client, _mocked_responses_with_workflow):
-
     cr_data = _create_valid_run(client)
 
     rv = client.get(f"/runs/{uuid.uuid4()}")
@@ -91,7 +93,6 @@ def test_run_detail_endpoint(client, _mocked_responses_with_workflow):
 
 
 def test_run_status_endpoint(client, _mocked_responses_with_workflow):
-
     cr_data = _create_valid_run(client)
 
     rv = client.get(f"/runs/{uuid.uuid4()}/status")
@@ -103,7 +104,6 @@ def test_run_status_endpoint(client, _mocked_responses_with_workflow):
 
 
 def test_run_streams(client, _mocked_responses_with_workflow):
-
     cr_data = _create_valid_run(client)
 
     rv = client.get(f"/runs/{uuid.uuid4()}/stdout")
@@ -122,7 +122,6 @@ def test_run_streams(client, _mocked_responses_with_workflow):
 
 
 def test_run_cancel_endpoint(client, _mocked_responses_with_workflow):
-
     cr_data = _create_valid_run(client)
 
     rv = client.post(f"/runs/{uuid.uuid4()}/cancel")
