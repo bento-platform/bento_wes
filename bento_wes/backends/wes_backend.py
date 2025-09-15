@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import overload, Sequence
 
 from bento_wes import states
-from bento_wes.config import config
+from bento_wes.config import get_settings, Settings
 from bento_wes.constants import SERVICE_ARTIFACT
 from bento_wes.db import Database, get_db
 from bento_wes.models import Run, RunWithDetails, RunOutput
@@ -46,6 +46,7 @@ class WESBackend(ABC):
         tmp_dir: Path,
         data_dir: Path,
         workflow_timeout: int,  # Workflow timeout, in seconds
+        settings: Settings,
         logger=None,
         event_bus: EventBus | None = None,
         workflow_host_allow_list: set | None = None,
@@ -53,6 +54,7 @@ class WESBackend(ABC):
         validate_ssl: bool = True,
         debug: bool = False,
     ):
+        self.settings = settings
         self._workflow_timeout: int = workflow_timeout
 
         self.db: Database = get_db()
@@ -76,7 +78,7 @@ class WESBackend(ABC):
 
         self._workflow_manager: WorkflowManager = WorkflowManager(
             self.tmp_dir,
-            service_base_url=config.service_base_url,
+            service_base_url=settings.service_base_url,
             bento_url=self.bento_url,
             logger=self.logger,
             workflow_host_allow_list=self.workflow_host_allow_list,
@@ -174,7 +176,8 @@ class WESBackend(ABC):
 
     @staticmethod
     def get_womtool_path_or_raise() -> str:
-        womtool_path = config.wom_tool_location
+        settings = get_settings()
+        womtool_path = settings.wom_tool_location
         if not womtool_path:
             raise RunExceptionWithFailState(
                 STATE_SYSTEM_ERROR,

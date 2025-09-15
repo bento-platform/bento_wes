@@ -1,7 +1,7 @@
 import requests
 from datetime import datetime
 
-from .config import config
+from .config import get_settings
 
 __all__ = [
     "get_bento_services",
@@ -18,6 +18,8 @@ _cache_ttl: int = 30  # seconds
 
 
 def get_bento_services() -> dict:
+    settings = get_settings()
+
     global _bento_services_cache
     global _bento_services_last_updated
 
@@ -26,9 +28,9 @@ def get_bento_services() -> dict:
         and _bento_services_last_updated
         and (datetime.now() - _bento_services_last_updated).total_seconds() < _cache_ttl
     ):
-        validate_ssl = config.bento_validate_ssl
+        validate_ssl = settings.bento_validate_ssl
         res = requests.get(
-            config.service_registry_url.rstrip("/") + "/bento-services", verify=validate_ssl
+            settings.service_registry_url.rstrip("/") + "/bento-services", verify=validate_ssl
         )
         res.raise_for_status()
         _bento_services_cache = {v["service_kind"]: v for v in res.json().values()}

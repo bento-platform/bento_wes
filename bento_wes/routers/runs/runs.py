@@ -12,10 +12,9 @@ from bento_lib.auth.permissions import P_VIEW_RUNS
 from bento_lib.auth.exceptions import BentoAuthException
 
 from bento_wes import states
-from bento_wes.authz import authz_middleware
 from bento_wes.models import RunRequest
 from bento_wes.logger import logger
-from bento_wes.config import config
+from bento_wes.config import SettingsDep
 from bento_wes.db import DatabaseDep
 from bento_wes.workflows import (
     parse_workflow_host_allow_list, 
@@ -29,7 +28,7 @@ from bento_wes.service_registry import get_bento_services
 from bento_wes.runner import run_workflow
 from bento_wes.types import AuthHeaderModel
 
-from .deps import AuthzDep
+from .deps import AuthzDep, AuthzCompletionDep
 
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -39,6 +38,7 @@ async def create_run(
     authorization: Annotated[AuthHeaderModel, Depends(AuthHeaderModel.from_header)], 
     db: DatabaseDep,
     authz_check: AuthzDep,
+    settings: SettingsDep,
     workflow_attachment: Optional[List[UploadFile]] = File(None),
 ):
     # authz
@@ -47,15 +47,15 @@ async def create_run(
     logger.info(f"Starting run creation for workflow {run.tags.workflow_id}")
 
     # Parse workflow host allow list from config
-    workflow_host_allow_list = parse_workflow_host_allow_list(config.workflow_host_allow_list)
+    workflow_host_allow_list = parse_workflow_host_allow_list(settings.workflow_host_allow_list)
 
     wm = WorkflowManager(
-        config.service_temp,
-        service_base_url=config.service_base_url,
+        settings.service_temp,
+        service_base_url=settings.service_base_url,
         logger=logger,
         workflow_host_allow_list=workflow_host_allow_list,
-        validate_ssl=config.bento_validate_ssl,
-        debug=config.bento_debug
+        validate_ssl=settings.bento_validate_ssl,
+        debug=settings.bento_debug
     )
 
     auth_header = authorization.as_dict()
@@ -71,7 +71,7 @@ async def create_run(
 
     run_id = uuid.uuid4()
 
-    run_dir: Path = config.service_temp / str(run_id)
+    run_dir: Path = settings.service_temp / str(run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
 
     if workflow_attachment:
@@ -84,9 +84,9 @@ async def create_run(
         logger.info("No workflow attachments provided")
     
     run_injectable_config = {
-        "validate_ssl": config.bento_validate_ssl,
+        "validate_ssl": settings.bento_validate_ssl,
         "run_dir": str(run_dir),
-        "vep_cache_dir": config.vep_cache_dir,
+        "vep_cache_dir": settings.vep_cache_dir,
     }
     run_params = {**run.workflow_params}
     bento_services_data = None
@@ -152,11 +152,11 @@ async def create_run(
 
 
 @runs_router.get("")
-async def list_runs(db: DatabaseDep, request: Request, authz_check: AuthzDep, public: bool = False, with_details: bool = False):
+async def list_runs(db: DatabaseDep, request: Request, mark_authz_done: AuthzCompletionDep, authz_check: AuthzDep, public: bool = False, with_details: bool = False):
     res_list = []
 
     if public:
-        authz_middleware.mark_authz_done(request)
+        await mark_authz_done()
         ## TODO: provide a wrapper for such database call
         query = "SELECT * FROM runs WHERE state = ?"
         for r in db.c.execute(query, (states.STATE_COMPLETE,)).fetchall():
@@ -172,6 +172,6 @@ async def list_runs(db: DatabaseDep, request: Request, authz_check: AuthzDep, pu
             except BentoAuthException:
                 pass
         
-        authz_middleware.mark_authz_done(request)
+        await mark_authz_done()
 
     return JSONResponse(res_list)

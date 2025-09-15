@@ -1,117 +1,168 @@
-import os
+from __future__ import annotations
+
+from fastapi import Depends
+from functools import lru_cache
+from datetime import timedelta
 from pathlib import Path
-from pydantic import field_validator, ValidationError, Field, AliasChoices
+from typing import Literal, Annotated
+
+from pydantic import (
+    AnyHttpUrl,
+    Field,
+    AliasChoices,
+    model_validator,
+    field_validator,
+    SecretStr,
+)
+from pydantic.networks import RedisDsn
+from pydantic_settings import SettingsConfigDict
+
 from bento_lib.config.pydantic import BentoFastAPIBaseConfig
 from bento_lib.service_info.types import BentoExtraServiceInfo
 
 from .constants import SERVICE_ID, SERVICE_NAME, BENTO_SERVICE_KIND, GIT_REPOSITORY
-from .logger import logger
 
-
-__all__ = [
-    "BENTO_EVENT_REDIS_URL",
-    "flask_config"
-    "config"
-]
-
-
-def _get_from_environ_or_fail(var: str) -> str:
-    if (val := os.environ.get(var, "")) == "":
-        logger.critical(f"{var} must be set")
-        exit(1)
-    return val
-
-
-def _to_bool(val: str) -> bool:
-    return val.strip().lower() in TRUTH_VALUES
-
-
-TRUTH_VALUES = ("true", "1")
-
-AUTHZ_ENABLED = os.environ.get("AUTHZ_ENABLED", "true").strip().lower() in TRUTH_VALUES
-
-BENTO_DEBUG: bool = _to_bool(os.environ.get("BENTO_DEBUG", os.environ.get("FLASK_DEBUG", "false")))
-CELERY_DEBUG: bool = _to_bool(os.environ.get("CELERY_DEBUG", ""))
-BENTO_CONTAINER_LOCAL: bool = _to_bool(os.environ.get("BENTO_CONTAINER_LOCAL", "false"))
-BENTO_VALIDATE_SSL: bool = _to_bool(os.environ.get("BENTO_VALIDATE_SSL", str(not BENTO_DEBUG)))
-
-if not BENTO_VALIDATE_SSL:
-    # If we've turned off SSL validation, suppress insecure connection warnings
-    import urllib3
-
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-AUTHZ_URL: str = _get_from_environ_or_fail("BENTO_AUTHZ_SERVICE_URL").strip().rstrip("/")
-SERVICE_REGISTRY_URL: str = _get_from_environ_or_fail("SERVICE_REGISTRY_URL").strip().rstrip("/")
-
-BENTO_EVENT_REDIS_URL = os.environ.get("BENTO_EVENT_REDIS_URL", "redis://localhost:6379")
-
-SERVICE_BASE_URL: str = os.environ.get("SERVICE_BASE_URL", "http://127.0.0.1:5000/")
-if not SERVICE_BASE_URL.endswith("/"):
-    SERVICE_BASE_URL += "/"
-
-
+__all__ = ["Settings", "get_settings", "SettingsDep"]
 
 BENTO_EXTRA_SERVICE_INFO: BentoExtraServiceInfo = {
     "serviceKind": BENTO_SERVICE_KIND,
     "dataService": False,
     "workflowProvider": True,
-    "gitRepository": GIT_REPOSITORY
+    "gitRepository": GIT_REPOSITORY,
 }
 
-class Config(BentoFastAPIBaseConfig):
-    bento_url: str = "http://127.0.0.1:5000/"
 
-    bento_debug: bool = Field(False, validation_alias=AliasChoices("BENTO_DEBUG", "FLASK_DEBUG"))
-    bento_container_local: bool = False
-    bento_validate_ssl: bool = not bento_debug
+class Settings(BentoFastAPIBaseConfig):  # if BentoFastAPIBaseConfig is BaseSettings; else use BaseSettings
+    """
+    Centralized application configuration.
 
+    Loads from environment variables (optionally .env), provides type-safety,
+    and normalizes values (e.g., URLs without trailing slashes, base URL with trailing slash).
+    """
+
+    # --- Pydantic/Settings config ---
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    # --- Core / Bento ---
+    bento_url: AnyHttpUrl = Field("http://127.0.0.1:5000/")
+    bento_debug: bool = Field(
+        False,
+        validation_alias=AliasChoices("BENTO_DEBUG", "FLASK_DEBUG"),
+        description="Debug mode (BENTO_DEBUG takes precedence over FLASK_DEBUG).",
+    )
+    bento_container_local: bool = Field(False, alias="BENTO_CONTAINER_LOCAL")
+
+    @model_validator(mode="after")
+    def _derive_bento_validate_ssl_if_unset(self):
+        if "bento_validate_ssl" not in self.model_fields_set:
+            object.__setattr__(self, "bento_validate_ssl", not self.bento_debug)
+        return self
+
+    # --- Service identity & paths ---
     service_id: str = SERVICE_ID
     service_name: str = SERVICE_NAME
     service_data: Path = Path("data")
     database: Path = service_data / "bento_wes.db"
     service_temp: Path = Path("tmp")
-    service_base_url: str = SERVICE_BASE_URL
 
-    # WDL-file-related configuration
-    wom_tool_location: str | None
-    workflow_host_allow_list: str | None
-    
-    # Backend configuration
-    cromwell_location: str = "/cromwell.jar"
-    
-    # CORS
-    cors_origins: list[str] | str = "*"
+    service_base_url: AnyHttpUrl | str = Field(
+        "http://127.0.0.1:5000/",
+        alias="SERVICE_BASE_URL",
+        description="Public base URL of this service (normalized to include trailing slash).",
+    )
 
-    # Authn/z-related configuration
-    authz_url: str = Field(..., validation_alias="BENTO_AUTHZ_SERVICE_URL")
-    authz_enabled: bool = True
-    bento_authz_enabled: bool = authz_enabled # for authz middlware to self recognize
-    
+    @field_validator("service_base_url", mode="after")
+    def _ensure_trailing_slash(cls, v: str | AnyHttpUrl) -> str:
+        s = str(v)
+        return s if s.endswith("/") else s + "/"
 
-    #  - ... for WES itself:
-    bento_openid_config_url: str = "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration"
+    # --- Event bus / Redis ---
+    bento_event_redis_url: RedisDsn | str = Field(
+        "redis://localhost:6379",
+        alias="BENTO_EVENT_REDIS_URL",
+    )
+
+    # --- AuthN/Z + Service registry ---
+    authz_url: AnyHttpUrl = Field(..., validation_alias="BENTO_AUTHZ_SERVICE_URL")
+    authz_enabled: bool = Field(True, alias="AUTHZ_ENABLED")
+    bento_authz_enabled: bool = True  # consumed by middleware
+
+    service_registry_url: AnyHttpUrl = Field(..., alias="SERVICE_REGISTRY_URL")
+
+    # OIDC / WES client
+    bento_openid_config_url: AnyHttpUrl = (
+        "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration"
+    )
     wes_client_id: str = "bento_wes"
-    wes_client_secret: str = ""
+    wes_client_secret: SecretStr | None = Field(
+        default=None, alias="WES_CLIENT_SECRET"
+    )
 
-    # Service registry URL, used for looking up service kinds to inject as workflow input
-    service_registry_url: str
+    # --- Workflow backend / WDL ---
+    cromwell_location: Path = Path("/cromwell.jar")
+    wom_tool_location: str | None = None
+    workflow_host_allow_list: str | None = None
 
-    # VEP-related configuration
-    vep_cache_dir: str | None = None
+    # --- CORS ---
+    cors_origins: list[str] | Literal["*"] = "*"
 
-    ingest_post_timeout: int = 60 * 60  # 1 hour
-    workflow_timeout: int = 60 * 60 * 48 # 2 days
+    # --- VEP / optional data ---
+    vep_cache_dir: Path | None = None
 
-    # Enables interactive debug of Celery tasks locally, not possible with worker threads otherwise
+    # --- Timeouts as timedeltas for semantics ---
+    ingest_post_timeout: timedelta = timedelta(hours=1)
+    workflow_timeout: timedelta = timedelta(days=2)
+    
+
+    @field_validator("ingest_post_timeout", "workflow_timeout", mode="before")
+    @classmethod
+    def _coerce_timeout(cls, v):
+        if v is None or isinstance(v, timedelta):
+            return v
+        # ints/floats -> seconds
+        if isinstance(v, (int, float)):
+            return timedelta(seconds=float(v))
+        s = str(v).strip()
+        # numeric string -> seconds
+        if s.isdigit():
+            return timedelta(seconds=int(s))
+        # HH:MM:SS
+        try:
+            parts = s.split(":")
+            if len(parts) == 3:
+                h, m, sec = parts
+                return timedelta(hours=int(h), minutes=int(m), seconds=float(sec))
+        except Exception:
+            pass
+        # You can add ISO-8601 parsing here if you want (e.g., via isodate)
+        raise ValueError(
+            "Invalid timeout; use timedelta, seconds (int), 'HH:MM:SS', or ISO-8601 like 'P2D'."
+        )
+
+    # --- Celery / local debug ---
     celery_always_eager: bool = Field(False, validation_alias="CELERY_DEBUG")
 
+    # --- Normalizers / guards ---
     @field_validator("authz_url", "service_registry_url", mode="before")
-    def required_and_skip_trailing_slash(cls, v:str, info) -> str:
-        if not v or not v.strip():
-            raise ValidationError(f"{info.field_name.upper()} must not be empty")
-        return v.strip().rstrip("/")
+    @classmethod
+    def _require_non_empty_and_strip(cls, v: str) -> str:
+        if not v or not str(v).strip():
+            raise ValueError("This URL must not be empty")
+        return str(v).strip().rstrip("/")
 
+    @field_validator("bento_event_redis_url", mode="before")
+    @classmethod
+    def _normalize_redis(cls, v: str) -> str:
+        return str(v).strip()
 
+@lru_cache
+def get_settings() -> Settings:
+    settings = Settings()
+    return settings
 
-config = Config()
+SettingsDep = Annotated[Settings, Depends(get_settings)]

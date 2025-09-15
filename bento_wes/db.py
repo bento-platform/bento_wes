@@ -12,7 +12,7 @@ from bento_lib.events.types import EVENT_CREATE_NOTIFICATION, EVENT_WES_RUN_UPDA
 
 from . import states
 from .backends.backend_types import Command
-from .config import config
+from .config import get_settings, Settings
 from .constants import SERVICE_ARTIFACT
 from .events import get_event_bus
 from .logger import logger
@@ -45,7 +45,8 @@ def run_request_from_row(run: sqlite3.Row) -> RunRequest:
 
 
 def _stream_url(run_id: uuid.UUID | str, stream: RunStream) -> str:
-    return urljoin(config.service_base_url, f"runs/{str(run_id)}/{stream}")
+    settings = get_settings()
+    return urljoin(settings.service_base_url, f"runs/{str(run_id)}/{stream}")
 
 
 def run_log_from_row(run: sqlite3.Row, stream_content: bool) -> RunLog:
@@ -78,10 +79,10 @@ def run_from_row(run: sqlite3.Row) -> Run:
 
 
 class Database:
-    def __init__(self):
+    def __init__(self, settings: Settings):
         # One connection per request; okay for FastAPI threadpools
         self._conn = sqlite3.connect(
-            config.database,
+            settings.database,
             detect_types=sqlite3.PARSE_DECLTYPES,
             check_same_thread=False,
         )
@@ -265,7 +266,7 @@ class Database:
 
 # === FastAPI dependency: one connection per request, auto-closed ===
 def get_db() -> Generator["Database", None, None]:
-    db = Database()
+    db = Database(settings=get_settings())
     try:
         yield db
     finally:
@@ -279,7 +280,7 @@ def setup_database_on_startup() -> None:
     Ensure schema exists and apply PRAGMAs once at startup.
     Call from your FastAPI lifespan (startup phase).
     """
-    db = Database()
+    db = Database(settings=get_settings())
     try:
         # If the 'runs' table isn't present, run full schema.sql
         db.c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runs'")
@@ -294,7 +295,7 @@ def repair_database_on_startup() -> None:
     Perform boot-time repairs (e.g., mark stuck runs as system error).
     Call after setup_database_on_startup() during startup.
     """
-    db = Database()
+    db = Database(settings=get_settings())
     try:
         db.update_stuck_runs()
     finally:

@@ -5,7 +5,9 @@ import respx
 import httpx
 import os
 from pathlib import Path
-import importlib
+
+from bento_wes.config import Settings
+from bento_wes.app_factory import create_app
 
 #--------------------------------------------------------------------------
 #                              CONFTEST SETUP
@@ -15,17 +17,17 @@ test_dir = Path(__file__).resolve().parent
 database_path = test_dir / "test.db"
 
 ## has issues if placed inside a fixture
-mp = MonkeyPatch()
-mp.setenv("BENTO_AUTHZ_ENABLED", "False")
-mp.setenv("AUTHZ_ENABLED", "False")
-mp.setenv("BENTO_AUTHZ_SERVICE_URL", "http://bento-authz.local")
-mp.setenv("SERVICE_REGISTRY_URL", "http://bento-sr.local")
-mp.setenv("DATABASE", str(database_path))
-mp.setenv("TESTING", "True")
-mp.setenv("WORKFLOW_HOST_ALLOW_LIST", "metadata.local") 
+# mp = MonkeyPatch()
+# mp.setenv("BENTO_AUTHZ_ENABLED", "False")
+# mp.setenv("AUTHZ_ENABLED", "False")
+# mp.setenv("BENTO_AUTHZ_SERVICE_URL", "http://bento-authz.local")
+# mp.setenv("SERVICE_REGISTRY_URL", "http://bento-sr.local")
+# mp.setenv("DATABASE", str(database_path))
+# mp.setenv("TESTING", "True")
+# mp.setenv("WORKFLOW_HOST_ALLOW_LIST", "metadata.local") 
 
-import bento_wes.config as cfg
-importlib.reload(cfg) 
+# import bento_wes.config as cfg
+# importlib.reload(cfg) 
 
 
 #--------------------------------------------------------------------------
@@ -38,17 +40,37 @@ def cleanup_env():
     if database_path.exists():
         os.unlink(database_path)
 
-@pytest.fixture()
-def app():
-    from bento_wes.asgi_main import app as fastapi_app
-    yield fastapi_app
-    
+@pytest.fixture(scope="session", autouse=True)
+def app_with_test_settings():
+    monkeypatch = MonkeyPatch()
+
+    monkeypatch.setenv("BENTO_AUTHZ_ENABLED", "False")
+    monkeypatch.setenv("AUTHZ_ENABLED", "False")
+    monkeypatch.setenv("BENTO_AUTHZ_SERVICE_URL", "http://bento-authz.local")
+    monkeypatch.setenv("SERVICE_REGISTRY_URL", "http://bento-sr.local")
+    monkeypatch.setenv("DATABASE", str(database_path))
+    monkeypatch.setenv("TESTING", "True")
+    monkeypatch.setenv("WORKFLOW_HOST_ALLOW_LIST", "metadata.local") 
+
+    monkeypatch.delenv("WORKFLOW_TIMEOUT", raising=False)
+
+    monkeypatch.setenv("WORKFLOW_TIMEOUT", "48:00:00")
+    monkeypatch.setenv("INGEST_POST_TIMEOUT", "01:00:00")
+
+    test_settings = Settings()
+
+    monkeypatch.setattr(
+        "bento_wes.config.get_settings",
+        lambda: test_settings,
+        raising=True
+    )
+    return create_app()
     
 
 @pytest.fixture
-def client(app):
+def client(app_with_test_settings):
     
-    with TestClient(app) as c:
+    with TestClient(app_with_test_settings) as c:
         yield c
 
 @pytest.fixture

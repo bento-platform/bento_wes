@@ -2,7 +2,7 @@ from fastapi import Depends
 from bento_lib.events import EventBus, types as et
 from typing import Annotated, Optional
 
-from .config import BENTO_EVENT_REDIS_URL
+from .config import get_settings
 
 __all__ = [
     "create_event_bus",
@@ -14,7 +14,8 @@ __all__ = [
 _BUS: Optional[EventBus] = None
 
 def create_event_bus() -> EventBus:
-    bus = EventBus(url=BENTO_EVENT_REDIS_URL, allow_fake=True)
+    settings = get_settings()
+    bus = EventBus(url=settings.bento_event_redis_url, allow_fake=True)
     bus.register_service_event_type(et.EVENT_WES_RUN_UPDATED,   et.EVENT_WES_RUN_UPDATED_SCHEMA)
     bus.register_service_event_type(et.EVENT_WES_RUN_FINISHED,  et.EVENT_WES_RUN_FINISHED_SCHEMA)
     bus.register_service_event_type(et.EVENT_CREATE_NOTIFICATION, et.EVENT_CREATE_NOTIFICATION_SCHEMA)

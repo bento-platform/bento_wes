@@ -12,7 +12,7 @@ from bento_wes import states
 from bento_wes.db import DatabaseDep
 from bento_wes.types import RunStream
 from bento_wes.celery import celery
-from bento_wes.config import config
+from bento_wes.config import SettingsDep
 
 from .deps import stash_run_or_404, get_stream, RunDep, AuthzDep
 from .utils import _denest_list
@@ -78,7 +78,7 @@ async def run_stream(
 
 
 @detail_router.post("/cancel")
-async def cancel_run(run: RunDep, db: DatabaseDep, authz_check: AuthzDep):
+async def cancel_run(run: RunDep, db: DatabaseDep, authz_check: AuthzDep, settings: SettingsDep):
     # TODO: Check if already completed
     # TODO: Check if run log exists
     # TODO: from celery.task.control import revoke; revoke(celery_id, terminate=True)
@@ -97,8 +97,8 @@ async def cancel_run(run: RunDep, db: DatabaseDep, authz_check: AuthzDep):
     db.update_run_state_and_commit(db.c, run.run_id, states.STATE_CANCELING)
     celery.control.revoke(celery_id, terminate=True) 
 
-    run_dir = config.service_temp / str(run.run_id)
-    if not config.bento_debug:
+    run_dir = settings.service_temp / str(run.run_id)
+    if not settings.bento_debug:
             shutil.rmtree(run_dir, ignore_errors=True)
 
     db.update_run_state_and_commit(db.c, run.run_id, states.STATE_CANCELED)

@@ -10,8 +10,8 @@ from bento_wes import states
 from bento_wes.db import Database, DatabaseDep
 from bento_wes.models import RunWithDetails  
 from bento_wes.types import RunStream
-from bento_wes.authz import authz_middleware
-from bento_wes.config import config
+from bento_wes.authz import AuthzMiddlewareDep
+from bento_wes.config import SettingsDep
 
 # TODO: middleware just to check if run_id is valid
 def stash_run_or_404(
@@ -57,9 +57,9 @@ def get_stream(db: Database, stream: RunStream, run_id: UUID):
 
 AuthzCallable = Callable[[Permission, dict], Awaitable[None]]
 
-def evaluate_run_permissions_function(request: Request) -> AuthzCallable:
+def evaluate_run_permissions_function(request: Request, settings: SettingsDep, authz_middleware: AuthzMiddlewareDep) -> AuthzCallable:
     async def _inner(permission: Permission, resource: dict) -> None:
-        if not config.authz_enabled:
+        if not settings.authz_enabled:
             return None 
 
         p: FrozenSet[Permission] = frozenset({permission})
@@ -70,3 +70,13 @@ def evaluate_run_permissions_function(request: Request) -> AuthzCallable:
     return _inner
 
 AuthzDep = Annotated[AuthzCallable, Depends(evaluate_run_permissions_function)]
+
+AuthzCompletionCallable = Callable[[], Awaitable[None]]
+
+def mark_authz_done(authz_middleware: AuthzMiddlewareDep, request: Request):
+    async def _inner():
+        authz_middleware.mark_authz_done(request)
+    
+    return _inner
+
+AuthzCompletionDep = Annotated[AuthzCompletionCallable, Depends(mark_authz_done)]

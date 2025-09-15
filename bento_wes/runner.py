@@ -9,11 +9,12 @@ from .celery import celery
 from .db import Database, get_db
 from .events import get_event_bus
 from .workflows import parse_workflow_host_allow_list
-from .config import config
+from .config import get_settings
 
 
 @celery.task(bind=True)
 def run_workflow(self, run_id: uuid.UUID):
+    settings = get_settings()
     logger = get_task_logger(__name__)
 
     db: Database = get_db()
@@ -32,29 +33,30 @@ def run_workflow(self, run_id: uuid.UUID):
     # TODO: Change based on workflow type / what's supported - get first runner
     #  'enabled' (somehow) which supports the type
     logger.info("Initializing backend")
-    validate_ssl = config.bento_validate_ssl
+    validate_ssl = settings.bento_validate_ssl
     backend: WESBackend = CromwellLocalBackend(
-        tmp_dir=config.service_temp,
-        data_dir=config.service_data,
-        workflow_timeout=config["WORKFLOW_TIMEOUT"],
+        tmp_dir=settings.service_temp,
+        data_dir=settings.service_data,
+        workflow_timeout=settings["WORKFLOW_TIMEOUT"],
         # Dependencies
         logger=logger,
         event_bus=event_bus,
         # Get list of allowed workflow hosts from configuration for any checks inside the runner
-        workflow_host_allow_list=parse_workflow_host_allow_list(config.workflow_host_allow_list),
+        workflow_host_allow_list=parse_workflow_host_allow_list(settings.workflow_host_allow_list),
         # Bento-specific stuff
-        bento_url=(config.bento_url or None),
+        bento_url=(settings.bento_url or None),
         # Debug/production flags (validate SSL must be ON in production; debug must be OFF)
         validate_ssl=validate_ssl,
-        debug=config.bento_debug,
+        debug=settings.bento_debug,
+        settings=settings
     )
 
     secrets: dict[str, str] = {"access_token": ""}
 
     # If we have credentials, obtain access token for use inside workflow to ingest data
     try:
-        if (client_id := config.wes_client_id) and (
-            client_secret := config.wes_client_secret
+        if (client_id := settings.wes_client_id) and (
+            client_secret := settings.wes_client_secret
         ):
             logger.info("Obtaining access token")
             # TODO: cache OpenID config
@@ -64,7 +66,7 @@ def run_workflow(self, run_id: uuid.UUID):
             #  - perhaps exchange the user's token for some type of limited-scope token (ingest only) which lasts
             #    48 hours, given out by the authorization service?
 
-            openid_config = requests.get(config.bento_openid_config_url, verify=validate_ssl).json()
+            openid_config = requests.get(settings.bento_openid_config_url, verify=validate_ssl).json()
             token_res = requests.post(
                 openid_config["token_endpoint"],
                 verify=validate_ssl,
