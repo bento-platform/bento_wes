@@ -1,6 +1,5 @@
 import json
 import uuid
-from urllib.parse import urlparse
 
 from constants import EXAMPLE_RUN, EXAMPLE_RUN_BODY
 
