@@ -9,39 +9,12 @@ from pathlib import Path
 from bento_wes.config import Settings
 from bento_wes.app_factory import create_app
 
-#--------------------------------------------------------------------------
-#                              CONFTEST SETUP
-#--------------------------------------------------------------------------
-
-test_dir = Path(__file__).resolve().parent
-database_path = test_dir / "test.db"
-
-## has issues if placed inside a fixture
-# mp = MonkeyPatch()
-# mp.setenv("BENTO_AUTHZ_ENABLED", "False")
-# mp.setenv("AUTHZ_ENABLED", "False")
-# mp.setenv("BENTO_AUTHZ_SERVICE_URL", "http://bento-authz.local")
-# mp.setenv("SERVICE_REGISTRY_URL", "http://bento-sr.local")
-# mp.setenv("DATABASE", str(database_path))
-# mp.setenv("TESTING", "True")
-# mp.setenv("WORKFLOW_HOST_ALLOW_LIST", "metadata.local") 
-
-# import bento_wes.config as cfg
-# importlib.reload(cfg) 
-
-
-#--------------------------------------------------------------------------
-#                                  FIXTURES
-#--------------------------------------------------------------------------
-
-@pytest.fixture(scope="session", autouse=True)
-def cleanup_env():
-    yield
-    if database_path.exists():
-        os.unlink(database_path)
 
 @pytest.fixture(scope="session", autouse=True)
 def app_with_test_settings():
+    test_dir = Path(__file__).resolve().parent
+    database_path = test_dir / "test.db"
+
     monkeypatch = MonkeyPatch()
 
     monkeypatch.setenv("BENTO_AUTHZ_ENABLED", "False")
@@ -64,7 +37,10 @@ def app_with_test_settings():
         lambda: test_settings,
         raising=True
     )
-    return create_app()
+    yield create_app()
+
+    if database_path.exists():
+        os.unlink(database_path)
     
 
 @pytest.fixture
