@@ -2,7 +2,6 @@ from bento_lib.workflows.models import WorkflowDefinition, WorkflowProjectDatase
 from bento_lib.workflows.utils import namespaced_input
 from bento_lib.auth.resources import RESOURCE_EVERYTHING, build_resource
 from bento_lib.auth.permissions import P_ANALYZE_DATA, P_INGEST_DATA, P_EXPORT_DATA
-from bento_lib.workflows.models import WorkflowType
 
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, AnyUrl, Json

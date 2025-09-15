@@ -148,7 +148,6 @@ def test_run_cancel_endpoint(client, _mocked_responses_with_workflow):
 
 
 def test_runs_public_endpoint(client, _mocked_responses_with_workflow, db_session):
-    from bento_wes.db import get_db, setup_database_on_startup
     from bento_lib.events import EventBus
 
     event_bus = EventBus(allow_fake=True)  # mock event bus
