@@ -94,14 +94,14 @@ async def cancel_run(run: RunDep, db: DatabaseDep, authz_check: AuthzDep, settin
     if celery_id is None:
         raise HTTPException(status_code=500, detail=f"No Celery ID present for run {run.run_id}")
 
-    db.update_run_state_and_commit(db.c, run.run_id, states.STATE_CANCELING)
+    db.update_run_state_and_commit(run.run_id, states.STATE_CANCELING)
     celery.control.revoke(celery_id, terminate=True) 
 
     run_dir = settings.service_temp / str(run.run_id)
     if not settings.bento_debug:
             shutil.rmtree(run_dir, ignore_errors=True)
 
-    db.update_run_state_and_commit(db.c, run.run_id, states.STATE_CANCELED)
+    db.update_run_state_and_commit(run.run_id, states.STATE_CANCELED)
 
     return PlainTextResponse("Run Cancelled", status_code=204)
 

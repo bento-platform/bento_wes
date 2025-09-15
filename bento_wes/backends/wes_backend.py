@@ -386,7 +386,7 @@ class WESBackend(ABC):
         :param state: The value to set the run's current state to
         """
         self.log_debug(f"Setting state of run {run_id} to {state}")
-        self.db.update_run_state_and_commit(self.db.c, run_id, state)
+        self.db.update_run_state_and_commit(run_id, state)
 
     def _finish_run_and_clean_up(self, run: Run, state: str) -> None:
         """

@@ -1,6 +1,6 @@
 import json
 import sqlite3
-import uuid
+from uuid import UUID
 from pathlib import Path
 from typing import Any, Generator, Annotated
 from urllib.parse import urljoin
@@ -44,7 +44,7 @@ def run_request_from_row(run: sqlite3.Row) -> RunRequest:
     )
 
 
-def _stream_url(run_id: uuid.UUID | str, stream: RunStream) -> str:
+def _stream_url(run_id: UUID | str, stream: RunStream) -> str:
     settings = get_settings()
     return urljoin(settings.service_base_url, f"runs/{str(run_id)}/{stream}")
 
@@ -131,7 +131,7 @@ class Database:
 
         # Explicitly don't commit here to sync with state update
         self.c.execute("UPDATE runs SET run_log__end_time = ? WHERE id = ?", (end_time, run_id))
-        self.update_run_state_and_commit(self.c, run_id, state)
+        self.update_run_state_and_commit(run_id, state)
 
         logger.info(f"Run {run_id} finished with state {state} at {end_time}")
 
@@ -184,16 +184,72 @@ class Database:
             self.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR)
 
         self.commit()
+    
+    def insert_run(self, run_id: UUID, run: RunRequest, run_params: dict) -> None:
+        """
+        Insert a new run into the database.
 
-    @staticmethod
-    def get_task_logs(c: sqlite3.Cursor, run_id: uuid.UUID | str) -> list:
-        c.execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
-        return [task_log_dict(task_log) for task_log in c.fetchall()]
+        Args:
+            run_id (UUID): The run identifier.
+            run (RunRequest): The details of the run to be inserted.
+            run_params (dict): Workflow parameters for the run.
+        """
+        self.c.execute(
+            """
+            INSERT INTO runs (
+                id,
+                state,
+                outputs,
+                request__workflow_params,
+                request__workflow_type,
+                request__workflow_type_version,
+                request__workflow_engine_parameters,
+                request__workflow_url,
+                request__tags,
+                run_log__name
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(run_id),
+                states.STATE_UNKNOWN,
+                json.dumps({}),
+                json.dumps(run_params),
+                run.workflow_type,
+                run.workflow_type_version,
+                json.dumps(run.workflow_engine_parameters),
+                str(run.workflow_url),
+                run.tags.model_dump_json(),
+                run.tags.workflow_id,
+            ),
+        )
+        self.commit()
 
-    @classmethod
+    def fetch_all_runs(self) -> list[RunWithDetails]:
+        """
+        Fetch all runs from the database.
+
+        Returns:
+            list[RunWithDetails]: A list of all runs, converted into RunWithDetails objects.
+        """
+        rows = self.c.execute("SELECT * FROM runs").fetchall()
+        return [self.run_with_details_from_row(r, False) for r in rows]
+    
+    def fetch_runs_by_state(self, state: str) -> list[RunWithDetails]:
+        """
+        Fetch all runs from the database with a given state.
+
+        Args:
+            state (str): The run state to filter by (e.g., states.STATE_COMPLETE).
+
+        Returns:
+            list[tuple]: List of rows matching the state.
+        """
+        query = "SELECT * FROM runs WHERE state = ?"
+        rows = self.c.execute(query, (state,)).fetchall()
+        return [self.run_with_details_from_row(r, False) for r in rows]
+
     def run_with_details_from_row(
-        cls,
-        c: sqlite3.Cursor,
+        self,
         run: sqlite3.Row,
         stream_content: bool,
     ) -> RunWithDetails:
@@ -203,30 +259,33 @@ class Database:
                 state=run["state"],
                 request=run_request_from_row(run),
                 run_log=run_log_from_row(run, stream_content),
-                task_logs=cls.get_task_logs(c, run["id"]),
+                task_logs=self.get_task_logs(self.c, run["id"]),
                 outputs=json.loads(run["outputs"]),
             )
         )
+    
+    @staticmethod
+    def get_task_logs(c: sqlite3.Cursor, run_id: UUID | str) -> list:
+        c.execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
+        return [task_log_dict(task_log) for task_log in c.fetchall()]
 
     @staticmethod
-    def _get_run_row(c: sqlite3.Cursor, run_id: uuid.UUID | str) -> sqlite3.Row | None:
+    def _get_run_row(c: sqlite3.Cursor, run_id: UUID | str) -> sqlite3.Row | None:
         return c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),)).fetchone()
 
     @classmethod
-    def get_run(cls, c: sqlite3.Cursor, run_id: uuid.UUID | str) -> Run | None:
+    def get_run(cls, c: sqlite3.Cursor, run_id: UUID | str) -> Run | None:
         if run := cls._get_run_row(c, run_id):
             return run_from_row(run)
         return None
 
-    @classmethod
     def get_run_with_details(
-        cls,
-        c: sqlite3.Cursor,
-        run_id: uuid.UUID | str,
+        self,
+        run_id: UUID | str,
         stream_content: bool,
     ) -> RunWithDetails | None:
-        if run := cls._get_run_row(c, run_id):
-            return cls.run_with_details_from_row(c, run, stream_content)
+        if run := self._get_run_row(self.c, run_id):
+            return self.run_with_details_from_row(run, stream_content)
         return None
 
     def set_run_log_name(self, run: Run, workflow_name: str) -> None:
@@ -249,18 +308,17 @@ class Database:
 
     def update_run_state_and_commit(
         self,
-        c: sqlite3.Cursor,
-        run_id: uuid.UUID | str,
+        run_id: UUID | str,
         state: str,
         publish_event: bool = True,
     ) -> None:
         event_bus = get_event_bus()
         
         logger.info(f"Updating run state of {run_id} to {state}")
-        c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
+        self.c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
         self.commit()
         if event_bus and publish_event:
-            payload = self.get_run_with_details(c, run_id, stream_content=False).model_dump(mode="json")
+            payload = self.get_run_with_details(run_id, stream_content=False).model_dump(mode="json")
             event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_UPDATED, payload)
 
 

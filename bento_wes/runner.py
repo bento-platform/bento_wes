@@ -23,7 +23,7 @@ def run_workflow(self, run_id: uuid.UUID):
     # Checks ------------------------------------------------------------------
 
     # Check that the run and its associated objects exist
-    run = db.get_run_with_details(db.c, run_id, stream_content=False)
+    run = db.get_run_with_details(run_id, stream_content=False)
     if run is None:
         logger.error(f"Cannot find run {run_id}")
         return

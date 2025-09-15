@@ -111,38 +111,8 @@ async def create_run(
             logger.debug(f"Injecting URL for service kind '{sk}' into run {run_id}: {run_input.id}={config_value}")
             run_params[input_key] = config_value
     
-    db.c.execute(
-        """
-        INSERT INTO runs (
-            id,
-            state,
-            outputs,
-
-            request__workflow_params,
-            request__workflow_type,
-            request__workflow_type_version,
-            request__workflow_engine_parameters,
-            request__workflow_url,
-            request__tags,
-
-            run_log__name
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """,
-        (
-            str(run_id),
-            states.STATE_UNKNOWN,
-            json.dumps({}),
-            json.dumps(run_params),
-            run.workflow_type,
-            run.workflow_type_version,
-            json.dumps(run.workflow_engine_parameters),
-            str(run.workflow_url),
-            run.tags.model_dump_json(),
-            run.tags.workflow_id,
-        ),
-    )
-    db.commit()
-    db.update_run_state_and_commit(db.c, run_id, states.STATE_QUEUED, publish_event=False)
+    db.insert_run(run_id, run, run_params)
+    db.update_run_state_and_commit(run_id, states.STATE_QUEUED, publish_event=False)
 
     run_workflow.delay(run_id)
 
@@ -152,20 +122,15 @@ async def create_run(
 
 
 @runs_router.get("")
-async def list_runs(db: DatabaseDep, request: Request, mark_authz_done: AuthzCompletionDep, authz_check: AuthzDep, public: bool = False, with_details: bool = False):
+async def list_runs(db: DatabaseDep, mark_authz_done: AuthzCompletionDep, authz_check: AuthzDep, public: bool = False, with_details: bool = False):
     res_list = []
 
     if public:
         await mark_authz_done()
-        ## TODO: provide a wrapper for such database call
-        query = "SELECT * FROM runs WHERE state = ?"
-        for r in db.c.execute(query, (states.STATE_COMPLETE,)).fetchall():
-            run = db.run_with_details_from_row(db.c, r, stream_content=False)
+        for run in db.fetch_runs_by_state(states.STATE_COMPLETE):
             res_list.append(run.list_format(public, with_details))
     else:
-        for r in db.c.execute("SELECT * FROM runs").fetchall():
-            run = db.run_with_details_from_row(db.c, r, stream_content=False)
-
+        for run in db.fetch_all_runs():
             try:
                 await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
                 res_list.append(run.list_format(public, with_details))

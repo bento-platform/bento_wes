@@ -19,7 +19,7 @@ def stash_run_or_404(
     run_id: UUID,
     db: DatabaseDep,
 ) -> None:
-    run = db.get_run_with_details(db.c, run_id, stream_content=False)
+    run = db.get_run_with_details(run_id, stream_content=False)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     request.state.run = run
@@ -35,7 +35,7 @@ RunDep = Annotated[RunWithDetails, Depends(get_run_from_state)]
 
 
 def get_stream(db: Database, stream: RunStream, run_id: UUID):
-    run = db.get_run_with_details(db.c, run_id, stream_content=True)
+    run = db.get_run_with_details(run_id, stream_content=True)
     if run is None:
             raise HTTPException(f"Stream {stream} not found for run {run_id}")
     

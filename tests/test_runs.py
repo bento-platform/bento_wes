@@ -157,7 +157,7 @@ def test_runs_public_endpoint(client, _mocked_responses_with_workflow, db_sessio
     assert rv.status_code == 200  # 200 is WES spec, even though 201 would be better (?)
 
     # make sure the run is complete, otherwise the public endpoint won't list it
-    db_session.update_run_state_and_commit(db_session.c, rv.json()["run_id"], STATE_COMPLETE, event_bus)
+    db_session.update_run_state_and_commit(rv.json()["run_id"], STATE_COMPLETE, event_bus)
 
     # validate the public runs endpoint
     rv = client.get("/runs?with_details=true&public=true")
