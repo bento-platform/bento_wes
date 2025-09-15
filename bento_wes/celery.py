@@ -20,3 +20,9 @@ celery = Celery(
     backend=config.celery_result_backend,
     broker=config.celery_broker_url,
 )
+
+celery.conf.update(
+    imports=[
+        "bento_wes.runner",
+    ]
+)
