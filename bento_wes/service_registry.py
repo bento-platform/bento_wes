@@ -29,7 +29,7 @@ def get_bento_services() -> dict:
         and (datetime.now() - _bento_services_last_updated).total_seconds() < _cache_ttl
     ):
         validate_ssl = settings.bento_validate_ssl
-        res = requests.get(settings.service_registry_url.rstrip("/") + "/bento-services", verify=validate_ssl)
+        res = requests.get(str(settings.service_registry_url).rstrip("/") + "/bento-services", verify=validate_ssl)
         res.raise_for_status()
         _bento_services_cache = {v["service_kind"]: v for v in res.json().values()}
         _bento_services_last_updated = datetime.now()
