@@ -25,8 +25,14 @@ fi
 
 # ---------- Celery worker ----------
 echo "[bento_wes] [entrypoint-dev] Starting Celery worker"
-poetry run celery --app bento_wes.celery worker --loglevel="${celery_log_level}" &
-CELERY_PID=$!
+poetry run watchfiles \
+  --filter python \
+  --ignore-path .venv \
+  --ignore-path /wes/tmp \
+  --target-type command \
+  "celery -A bento_wes.celery worker --loglevel=${celery_log_level} --pool=solo" \
+  /wes \
+& CELERY_PID=$!
 
 # ---------- Graceful shutdown ----------
 terminate() {
