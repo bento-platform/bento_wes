@@ -40,7 +40,7 @@ def run_workflow(self, run_id: uuid.UUID):
     backend: WESBackend = CromwellLocalBackend(
         tmp_dir=settings.service_temp,
         data_dir=settings.service_data,
-        workflow_timeout=settings.workflow_timeout,
+        workflow_timeout=settings.workflow_timeout.total_seconds(),
         # Dependencies
         logger=logger,
         event_bus=event_bus,
