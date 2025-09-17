@@ -101,4 +101,3 @@ def run_workflow(self, run_id: uuid.UUID):
         except StopIteration:
             pass
         close_worker_event_bus()
-

@@ -94,6 +94,7 @@ EventBusDep = Annotated[EventBus, Depends(get_event_bus)]
 _WORKER_BUS: Optional[EventBus] = None
 _WORKER_PID: Optional[int] = None
 
+
 def get_worker_event_bus() -> EventBus:
     """
     Lazily create and return a per-process EventBus for Celery workers.
