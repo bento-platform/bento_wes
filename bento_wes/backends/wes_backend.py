@@ -270,7 +270,6 @@ class WESBackend(ABC):
         Download a file from a URL to a destination directory.
         Bearer token auth works with Drop-Box and DRS.
         """
-        print(f"Error logs: { url = } {token = } {self.validate_ssl = }")
         with requests.get(url, headers=authz_bearer_header(token), verify=self.validate_ssl, stream=True) as response:
             if response.status_code != 200:
                 raise RunExceptionWithFailState(
