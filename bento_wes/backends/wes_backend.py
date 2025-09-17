@@ -535,8 +535,6 @@ class WESBackend(ABC):
         :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
         """
 
-        self.db.c = self.db.c
-
         # Perform run ==================================================================================================
 
         # -- Start process running the generated command ---------------------------------------------------------------
