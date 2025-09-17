@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import shlex
 from uuid import UUID
 from pathlib import Path
 from typing import Any, Generator, Annotated
@@ -290,7 +291,7 @@ class Database:
     def set_run_log_command_and_celery_id(self, run: Run, cmd: Command, celery_id: int) -> None:
         self.c.execute(
             "UPDATE runs SET run_log__cmd = ?, run_log__celery_id = ? WHERE id = ?",
-            (" ".join(cmd), celery_id, run.run_id),
+            (" ".join(shlex.quote(str(x)) for x in cmd), celery_id, run.run_id),
         )
         self.commit()
 
