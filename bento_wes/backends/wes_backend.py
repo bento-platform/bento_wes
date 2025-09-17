@@ -645,7 +645,7 @@ class WESBackend(ABC):
         return self._perform_run(run, cmd, params_with_secrets)
 
     def close(self):
-        try: 
+        try:
             next(self._db_gen)
         except StopIteration:
             pass
