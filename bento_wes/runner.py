@@ -10,12 +10,12 @@ from .celery import celery
 from .db import Database, get_db_with_event_bus
 from .events import get_worker_event_bus, EventBus, close_worker_event_bus
 from .workflows import parse_workflow_host_allow_list
-from .config import get_settings
+from .config import get_settings, Settings
 
 
 @celery.task(bind=True)
 def run_workflow(self, run_id: uuid.UUID):
-    settings = get_settings()
+    settings: Settings = get_settings()
     logger = get_task_logger(__name__)
 
     event_bus: EventBus = get_worker_event_bus()
@@ -58,7 +58,7 @@ def run_workflow(self, run_id: uuid.UUID):
 
     # If we have credentials, obtain access token for use inside workflow to ingest data
     try:
-        if (client_id := settings.wes_client_id) and (client_secret := settings.wes_client_secret):
+        if (client_id := settings.wes_client_id) and (client_secret := settings.wes_client_secret.get_secret_value()):
             logger.info("Obtaining access token")
             # TODO: cache OpenID config
             # TODO: handle errors more elegantly/precisely
