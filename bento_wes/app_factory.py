@@ -19,7 +19,7 @@ async def lifespan(app: BentoFastAPI):
         repair_database_on_startup()
         yield
     finally:
-        shutdown_event_bus()
+        await shutdown_event_bus()
     logger.info("Shutting down database...")
     logger.info("Finished shutting down database.")
 

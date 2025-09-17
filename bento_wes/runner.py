@@ -7,7 +7,7 @@ from .backends.cromwell_local import CromwellLocalBackend
 from .backends.wes_backend import WESBackend
 from .celery import celery
 from .db import Database, get_db
-from .events import get_event_bus
+from .events import get_worker_event_bus, EventBus, close_worker_event_bus
 from .workflows import parse_workflow_host_allow_list
 from .config import get_settings
 
@@ -17,8 +17,9 @@ def run_workflow(self, run_id: uuid.UUID):
     settings = get_settings()
     logger = get_task_logger(__name__)
 
-    db: Database = get_db()
-    event_bus = get_event_bus()
+    _db_gen = get_db()
+    db: Database = next(_db_gen)
+    event_bus: EventBus = get_worker_event_bus()
 
     # Checks ------------------------------------------------------------------
 
@@ -37,7 +38,7 @@ def run_workflow(self, run_id: uuid.UUID):
     backend: WESBackend = CromwellLocalBackend(
         tmp_dir=settings.service_temp,
         data_dir=settings.service_data,
-        workflow_timeout=settings["WORKFLOW_TIMEOUT"],
+        workflow_timeout=settings.workflow_timeout,
         # Dependencies
         logger=logger,
         event_bus=event_bus,
@@ -94,3 +95,10 @@ def run_workflow(self, run_id: uuid.UUID):
         logger.error(f"Uncaught exception while performing run: {type(e).__name__} {e}")
         db.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, logger=logger)
         raise e
+    finally:
+        try:
+            next(_db_gen)
+        except StopIteration:
+            pass
+        close_worker_event_bus()
+
