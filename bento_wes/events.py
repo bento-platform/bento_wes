@@ -80,10 +80,10 @@ async def shutdown_event_bus() -> None:
 def get_event_bus() -> EventBus:
     """
     Retrieve the global EventBus singleton.
-    Raises if not initialized.
+    creates if not initialized.
     """
     if _BUS is None:
-        raise RuntimeError("EventBus not initialized. Did you call `init_event_bus()`?")
+        return init_event_bus()
     return _BUS
 
 

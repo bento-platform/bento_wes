@@ -79,7 +79,7 @@ def run_from_row(run: sqlite3.Row) -> Run:
 
 
 class Database:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, event_bus: EventBus = get_event_bus()):
         # One connection per request; okay for FastAPI threadpools
         self._conn = sqlite3.connect(
             settings.database,
@@ -89,6 +89,7 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         self._apply_pragmas()
         self._cursor = None
+        self.event_bus = event_bus
 
     def _apply_pragmas(self) -> None:
         # Good defaults for web workloads with SQLite
@@ -116,7 +117,7 @@ class Database:
             self.c.executescript(sf.read())
         self.commit()
 
-    def finish_run(self, event_bus: EventBus, run: Run, state: str) -> None:
+    def finish_run(self, run: Run, state: str) -> None:
         """
         Update a run's state, set the run log's end time, and publish a success/failure notification.
         """
@@ -131,7 +132,7 @@ class Database:
         logger.info(f"Run {run_id} finished with state {state} at {end_time}")
 
         if state in states.FAILURE_STATES:
-            event_bus.publish_service_event(
+            self.event_bus.publish_service_event(
                 SERVICE_ARTIFACT,
                 EVENT_CREATE_NOTIFICATION,
                 format_notification(
@@ -142,7 +143,7 @@ class Database:
                 ),
             )
         elif state in states.SUCCESS_STATES:
-            event_bus.publish_service_event(
+            self.event_bus.publish_service_event(
                 SERVICE_ARTIFACT,
                 EVENT_CREATE_NOTIFICATION,
                 format_notification(
@@ -158,8 +159,6 @@ class Database:
         On process boot, convert initializing/running states into system error so
         the UI/backend doesn't wait on orphaned work.
         """
-        event_bus = get_event_bus()
-
         self.c.execute(
             "SELECT id FROM runs WHERE state IN (?, ?)",
             (states.STATE_INITIALIZING, states.STATE_RUNNING),
@@ -175,7 +174,7 @@ class Database:
             logger.info(
                 f"Found stuck run: {run.run_id} at state {run.state}. Setting state to {states.STATE_SYSTEM_ERROR}"
             )
-            self.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR)
+            self.finish_run(run, states.STATE_SYSTEM_ERROR)
 
         self.commit()
 
@@ -306,19 +305,24 @@ class Database:
         state: str,
         publish_event: bool = True,
     ) -> None:
-        event_bus = get_event_bus()
-
         logger.info(f"Updating run state of {run_id} to {state}")
         self.c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
         self.commit()
-        if event_bus and publish_event:
+        if publish_event:
             payload = self.get_run_with_details(run_id, stream_content=False).model_dump(mode="json")
-            event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_UPDATED, payload)
+            self.event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_UPDATED, payload)
 
 
 # === FastAPI dependency: one connection per request, auto-closed ===
 def get_db() -> Generator["Database", None, None]:
-    db = Database(settings=get_settings())
+    db = Database(get_settings())
+    try:
+        yield db
+    finally:
+        db.close()
+
+def get_db_with_event_bus(event_bus: EventBus = get_event_bus()) -> Generator["Database", None, None]:
+    db = Database(get_settings(), event_bus)
     try:
         yield db
     finally:

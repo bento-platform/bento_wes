@@ -22,7 +22,7 @@ from typing import overload, Sequence
 from bento_wes import states
 from bento_wes.config import get_settings, Settings
 from bento_wes.constants import SERVICE_ARTIFACT
-from bento_wes.db import Database, get_db
+from bento_wes.db import Database, get_db_with_event_bus
 from bento_wes.models import Run, RunWithDetails, RunOutput
 from bento_wes.service_registry import get_bento_service_kind_url
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
@@ -57,8 +57,6 @@ class WESBackend(ABC):
         self.settings = settings
         self._workflow_timeout: int = workflow_timeout
 
-        self.db: Database = get_db()
-
         self.tmp_dir: Path = tmp_dir
         self.data_dir: Path = data_dir
 
@@ -66,7 +64,9 @@ class WESBackend(ABC):
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.logger = logger
-        self.event_bus = event_bus  # TODO: New event bus?
+        self.event_bus = event_bus
+
+        self.db: Database = get_db_with_event_bus(self.event_bus)
 
         self.workflow_host_allow_list = workflow_host_allow_list
 
@@ -398,7 +398,7 @@ class WESBackend(ABC):
 
         # Finish run ----------------------------------------------------------
 
-        self.db.finish_run(self.event_bus, run, state)
+        self.db.finish_run(run, state)
 
         # Clean up ------------------------------------------------------------
 

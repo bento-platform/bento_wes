@@ -6,7 +6,7 @@ from . import states
 from .backends.cromwell_local import CromwellLocalBackend
 from .backends.wes_backend import WESBackend
 from .celery import celery
-from .db import Database, get_db
+from .db import Database, get_db_with_event_bus
 from .events import get_worker_event_bus, EventBus, close_worker_event_bus
 from .workflows import parse_workflow_host_allow_list
 from .config import get_settings
@@ -17,9 +17,10 @@ def run_workflow(self, run_id: uuid.UUID):
     settings = get_settings()
     logger = get_task_logger(__name__)
 
-    _db_gen = get_db()
-    db: Database = next(_db_gen)
     event_bus: EventBus = get_worker_event_bus()
+
+    _db_gen = get_db_with_event_bus(event_bus)
+    db: Database = next(_db_gen)
 
     # Checks ------------------------------------------------------------------
 
@@ -83,7 +84,7 @@ def run_workflow(self, run_id: uuid.UUID):
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while obtaining access token: {type(e).__name__} {e}")
-        db.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, logger=logger)
+        db.finish_run(run, states.STATE_SYSTEM_ERROR)
         raise e
 
     # Perform the run
@@ -93,7 +94,7 @@ def run_workflow(self, run_id: uuid.UUID):
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while performing run: {type(e).__name__} {e}")
-        db.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, logger=logger)
+        db.finish_run(run, states.STATE_SYSTEM_ERROR)
         raise e
     finally:
         try:
