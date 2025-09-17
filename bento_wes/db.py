@@ -92,7 +92,6 @@ class Database:
         self.event_bus = event_bus
 
     def _apply_pragmas(self) -> None:
-        # Good defaults for web workloads with SQLite
         c = self._conn.cursor()
         c.execute("PRAGMA foreign_keys=ON;")
         c.execute("PRAGMA journal_mode=WAL;")
@@ -282,14 +281,14 @@ class Database:
         return None
 
     def set_run_log_name(self, run: Run, workflow_name: str) -> None:
-        self.cursor().execute(
+        self.c.execute(
             "UPDATE runs SET run_log__name = ? WHERE id = ?",
             (workflow_name, run.run_id),
         )
         self.commit()
 
     def set_run_log_command_and_celery_id(self, run: Run, cmd: Command, celery_id: int) -> None:
-        self.cursor().execute(
+        self.c.execute(
             "UPDATE runs SET run_log__cmd = ?, run_log__celery_id = ? WHERE id = ?",
             (" ".join(cmd), celery_id, run.run_id),
         )
