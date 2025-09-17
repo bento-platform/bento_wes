@@ -66,7 +66,8 @@ class WESBackend(ABC):
         self.logger = logger
         self.event_bus = event_bus
 
-        self.db: Database = get_db_with_event_bus(self.event_bus)
+        self._db_gen = get_db_with_event_bus(self.event_bus)
+        self.db: Database = next(self._db_gen)
 
         self.workflow_host_allow_list = workflow_host_allow_list
 
@@ -269,6 +270,7 @@ class WESBackend(ABC):
         Download a file from a URL to a destination directory.
         Bearer token auth works with Drop-Box and DRS.
         """
+        print(f"Error logs: { url = } {token = } {self.validate_ssl = }")
         with requests.get(url, headers=authz_bearer_header(token), verify=self.validate_ssl, stream=True) as response:
             if response.status_code != 200:
                 raise RunExceptionWithFailState(
@@ -644,3 +646,9 @@ class WESBackend(ABC):
 
         # Perform, finish, and clean up run ----------------------------------------------------------------------------
         return self._perform_run(run, cmd, params_with_secrets)
+
+    def close(self):
+        try: 
+            next(self._db_gen)
+        except StopIteration:
+            pass

@@ -1,6 +1,7 @@
 import requests
 import uuid
 from celery.utils.log import get_task_logger
+import asyncio
 
 from . import states
 from .backends.cromwell_local import CromwellLocalBackend
@@ -101,4 +102,5 @@ def run_workflow(self, run_id: uuid.UUID):
             next(_db_gen)
         except StopIteration:
             pass
-        close_worker_event_bus()
+        asyncio.run(close_worker_event_bus())
+        backend.close()
