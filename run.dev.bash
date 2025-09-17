@@ -26,11 +26,11 @@ fi
 # ---------- Celery worker ----------
 echo "[bento_wes] [entrypoint-dev] Starting Celery worker"
 poetry run watchfiles \
-  --filter python \
+  --filter '(/routers/|runner|celery|db|wes_backend\.py$)' \ \
   --ignore-path .venv \
   --ignore-path /wes/tmp \
   --target-type command \
-  "celery -A bento_wes.celery worker --loglevel=${celery_log_level} --pool=solo" \
+  "celery -q -A bento_wes.celery worker --loglevel=${celery_log_level} --pool=solo" \
   /wes \
 & CELERY_PID=$!
 
