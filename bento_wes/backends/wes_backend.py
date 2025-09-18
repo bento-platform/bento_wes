@@ -544,6 +544,7 @@ class WESBackend(ABC):
             cmd, cwd=self.tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8"
         )
         self.db.c.execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run.run_id))
+        self.db.commit()
         self._update_run_state_and_commit(run.run_id, states.STATE_RUNNING)
 
         # -- Wait for and capture output -------------------------------------------------------------------------------
