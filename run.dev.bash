@@ -31,8 +31,8 @@ poetry run watchfiles \
   --ignore-path /wes/tmp \
   --target-type command \
   "celery -q -A bento_wes.celery worker --loglevel=${celery_log_level} --pool=solo" \
-  /wes
-& CELERY_PID=$!
+  /wes &
+CELERY_PID=$!
 
 # ---------- Graceful shutdown ----------
 terminate() {
