@@ -322,8 +322,8 @@ def get_db() -> Generator["Database", None, None]:
         db.close()
 
 
-def get_db_with_event_bus(event_bus: EventBus = get_event_bus()) -> Generator["Database", None, None]:
-    db = Database(get_settings(), event_bus)
+def get_db_with_event_bus(event_bus: Optional[EventBus] = None) -> Generator["Database", None, None]:
+    db = Database(get_settings(), event_bus or get_event_bus())
     try:
         yield db
     finally:
