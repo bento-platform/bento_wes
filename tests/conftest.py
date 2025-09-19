@@ -9,6 +9,7 @@ from pathlib import Path
 @pytest.fixture
 def settings_env(monkeypatch):
     from bento_wes.config import get_settings
+
     test_dir = Path(__file__).resolve().parent
     database_path = test_dir / "test.db"
 
@@ -37,6 +38,7 @@ def settings_env(monkeypatch):
 def client(settings_env):
     from bento_wes.config import get_settings
     from bento_wes.app_factory import create_app
+
     app = create_app()
     app.dependency_overrides[get_settings] = lambda: settings_env
     with TestClient(app) as c:
