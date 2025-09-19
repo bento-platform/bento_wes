@@ -3,7 +3,7 @@ import sqlite3
 import shlex
 from uuid import UUID
 from pathlib import Path
-from typing import Any, Generator, Annotated
+from typing import Any, Generator, Annotated, Optional
 from urllib.parse import urljoin
 from fastapi import Depends
 
@@ -80,7 +80,7 @@ def run_from_row(run: sqlite3.Row) -> Run:
 
 
 class Database:
-    def __init__(self, settings: Settings, event_bus: EventBus = get_event_bus()):
+    def __init__(self, settings: Settings, event_bus: Optional[EventBus] = None):
         # One connection per request; okay for FastAPI threadpools
         self._conn = sqlite3.connect(
             settings.database,
@@ -90,7 +90,7 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         self._apply_pragmas()
         self._cursor = None
-        self.event_bus = event_bus
+        self.event_bus = event_bus or get_event_bus()
 
     def _apply_pragmas(self) -> None:
         c = self._conn.cursor()
