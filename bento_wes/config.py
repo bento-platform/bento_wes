@@ -32,10 +32,11 @@ BENTO_EXTRA_SERVICE_INFO: BentoExtraServiceInfo = {
 }
 
 
-class Settings(BentoFastAPIBaseConfig):  # if BentoFastAPIBaseConfig is BaseSettings; else use BaseSettings
+class Settings(BentoFastAPIBaseConfig):
     """
     Centralized application configuration.
 
+    Extends pydantic's BaseSettings.
     Loads from environment variables (optionally .env), provides type-safety,
     and normalizes values (e.g., URLs without trailing slashes, base URL with trailing slash).
     """

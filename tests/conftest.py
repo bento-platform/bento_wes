@@ -1,21 +1,18 @@
 import pytest
-from pytest import MonkeyPatch
 from fastapi.testclient import TestClient
 import respx
 import httpx
 import os
 from pathlib import Path
 
-from bento_wes.config import Settings
+from bento_wes.config import get_settings
 from bento_wes.app_factory import create_app
 
 
-@pytest.fixture(scope="session", autouse=True)
-def app_with_test_settings():
+@pytest.fixture
+def settings_env(monkeypatch):
     test_dir = Path(__file__).resolve().parent
     database_path = test_dir / "test.db"
-
-    monkeypatch = MonkeyPatch()
 
     monkeypatch.setenv("BENTO_AUTHZ_ENABLED", "False")
     monkeypatch.setenv("AUTHZ_ENABLED", "False")
@@ -30,19 +27,21 @@ def app_with_test_settings():
     monkeypatch.setenv("WORKFLOW_TIMEOUT", "48:00:00")
     monkeypatch.setenv("INGEST_POST_TIMEOUT", "01:00:00")
 
-    test_settings = Settings()
-
-    monkeypatch.setattr("bento_wes.config.get_settings", lambda: test_settings, raising=True)
-    yield create_app()
-
+    get_settings.cache_clear()
+    s = get_settings()
+    yield s
+    get_settings.cache_clear()
     if database_path.exists():
         os.unlink(database_path)
 
 
 @pytest.fixture
-def client(app_with_test_settings):
-    with TestClient(app_with_test_settings) as c:
+def client(settings_env):
+    app = create_app()
+    app.dependency_overrides[get_settings] = lambda: settings_env
+    with TestClient(app) as c:
         yield c
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
