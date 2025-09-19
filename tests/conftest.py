@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def settings_env(monkeypatch):
     from bento_wes.config import get_settings
 
