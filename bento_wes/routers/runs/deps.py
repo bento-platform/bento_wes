@@ -1,10 +1,10 @@
 from fastapi import Depends, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.exceptions import HTTPException
-from typing import Awaitable, Callable, FrozenSet, Annotated
+from typing import Awaitable, Callable, FrozenSet, Annotated, Iterable, Iterator
 from uuid import UUID
 
-from bento_lib.auth.permissions import Permission
+from bento_lib.auth.permissions import Permission, P_VIEW_RUNS
 
 from bento_wes import states
 from bento_wes.db import Database, DatabaseDep
@@ -81,3 +81,20 @@ def mark_authz_done(authz_middleware: AuthzMiddlewareDep, request: Request):
 
 
 AuthzCompletionDep = Annotated[AuthzCompletionCallable, Depends(mark_authz_done)]
+
+
+AuthzViewRunsEvaluateCallable = Callable[[Iterable[dict]], Iterator[bool]]
+
+
+def authz_evaluate_view(
+    authz_middleware: AuthzMiddlewareDep, request: Request, settings: SettingsDep
+) -> AuthzViewRunsEvaluateCallable:
+    def _inner(resources: Iterable[dict]) -> Iterator[bool]:
+        if not settings.authz_enabled:
+            yield from [True] * len(resources)
+        yield from [r[0] for r in authz_middleware.evaluate(request, resources, [P_VIEW_RUNS])]
+
+    return _inner
+
+
+AuthzViewRunsEvaluateDep = Annotated[AuthzViewRunsEvaluateCallable, Depends(authz_evaluate_view)]

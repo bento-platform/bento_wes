@@ -7,8 +7,6 @@ from pathlib import Path
 
 from bento_lib.workflows.utils import namespaced_input
 from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlInput
-from bento_lib.auth.permissions import P_VIEW_RUNS
-from bento_lib.auth.exceptions import BentoAuthException
 
 from bento_wes import states
 from bento_wes.models import RunRequest
@@ -27,7 +25,7 @@ from bento_wes.service_registry import get_bento_services
 from bento_wes.runner import run_workflow
 from bento_wes.types import AuthHeaderModel
 
-from .deps import AuthzDep, AuthzCompletionDep
+from .deps import AuthzDep, AuthzCompletionDep, AuthzViewRunsEvaluateDep
 
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -125,24 +123,24 @@ async def create_run(
 async def list_runs(
     db: DatabaseDep,
     mark_authz_done: AuthzCompletionDep,
-    authz_check: AuthzDep,
+    authz_evaluate: AuthzViewRunsEvaluateDep,
     public: bool = False,
     with_details: bool = False,
 ):
     res_list = []
 
     if public:
-        await mark_authz_done()
         for run in db.fetch_runs_by_state(states.STATE_COMPLETE):
             res_list.append(run.list_format(public, with_details))
     else:
-        for run in db.fetch_all_runs():
-            try:
-                await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
-                res_list.append(run.list_format(public, with_details))
-            except BentoAuthException:
-                pass
+        runs = list(db.fetch_all_runs())
+        resources = [run.request.get_authz_resource() for run in runs]
 
-        await mark_authz_done()
+        allowed_iter = authz_evaluate(resources)
+        for run, allowed in zip(runs, allowed_iter):
+            if allowed:
+                res_list.append(run.list_format(public, with_details))
+
+    await mark_authz_done
 
     return JSONResponse(res_list)
