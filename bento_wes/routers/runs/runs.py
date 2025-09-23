@@ -141,6 +141,6 @@ async def list_runs(
             if allowed:
                 res_list.append(run.list_format(public, with_details))
 
-    await mark_authz_done
+    await mark_authz_done()
 
     return JSONResponse(res_list)
