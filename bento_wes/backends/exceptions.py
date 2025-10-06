@@ -9,6 +9,7 @@ class RunExceptionWithFailState(Exception):
     def __init__(self, state: FailureState, message: str):
         self._state: FailureState = state
         super().__init__(message)
+        self.args = (state, message)  # required for pickling (for Celery)
 
     @property
     def state(self) -> FailureState:

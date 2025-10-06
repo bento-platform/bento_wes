@@ -88,13 +88,13 @@ class WESBackend(ABC):
 
         self.log_debug(f"Instantiating WESBackend with debug={self.debug}")
 
-    def log_debug(self, message: str) -> None:
+    def log_debug(self, message: str, *args) -> None:
         """
         Given a message, logs it as DEBUG.
         :param message: A message to log
         """
         if self.logger:
-            self.logger.debug(message)
+            self.logger.debug(message, *args)
 
     def log_info(self, message: str) -> None:
         """
@@ -112,13 +112,13 @@ class WESBackend(ABC):
         if self.logger:
             self.logger.warning(warning)
 
-    def log_error(self, error: str) -> None:
+    def log_error(self, error: str, *args) -> None:
         """
         Given an error string, logs the error.
         :param error: An error string
         """
         if self.logger:
-            self.logger.error(error)
+            self.logger.error(error, *args)
 
     @abstractmethod
     def _get_supported_types(self) -> tuple[WorkflowType, ...]:
@@ -327,7 +327,19 @@ class WESBackend(ABC):
                 self._download_directory_tree(contents, token, run_dir)
             elif uri := node.get("uri"):
                 # Node is a file: download
-                tmp_path = run_dir.joinpath(node["filePath"])
+                #  - we need to strip the starting "/", otherwise this escapes the run directory..
+                tmp_path = run_dir.joinpath(node["filePath"].lstrip("/"))
+
+                # Validate our file path hasn't escaped the run directory
+                if not str(tmp_path.resolve()).startswith(str(run_dir.resolve())):
+                    self.log_error("Temporary path %s must be a sub-path of run directory %s", tmp_path, run_dir)
+                    raise RunExceptionWithFailState(
+                        STATE_EXECUTOR_ERROR, "Temporary path bust be a sub-path of run directory"
+                    )
+
+                self.log_debug(
+                    "_download_directory_tree: downloading node %s to temporary path %s", node["uri"], tmp_path
+                )
                 os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
                 self._download_to_path(uri, token, tmp_path)
 
@@ -338,6 +350,8 @@ class WESBackend(ABC):
         run_dir: Path,
         ignore_extensions: Sequence[str] | None = None,
     ) -> str:
+        self.log_debug(f"_download_input_directory called (directory={directory})")
+
         drop_box_url = get_bento_service_kind_url("drop-box")
 
         sub_tree = directory.lstrip("/")
@@ -355,6 +369,7 @@ class WESBackend(ABC):
         # Fetch directory subtree from Drop Box
         with requests.get(url, headers=authz_bearer_header(token), verify=self.validate_ssl, stream=True) as response:
             if response.status_code != 200:
+                self.log_error(f"Tree request to drop box gave error response: {response.status_code} {response.body}")
                 raise RunExceptionWithFailState(
                     STATE_EXECUTOR_ERROR,
                     f"Tree request to drop box resulted in a non 200 status code: {response.status_code}",
@@ -490,11 +505,7 @@ class WESBackend(ABC):
 
         # -- Validate the workflow -------------------------------------------------------------------------------------
 
-        try:
-            self._check_workflow_and_type(run)
-        except RunExceptionWithFailState as e:
-            self.log_error(str(e))
-            self._finish_run_and_clean_up(run, e.state)
+        self._check_workflow_and_type(run)  # RunExceptionWithFailState can be thrown, handled by caller of this fn.
 
         # -- Find "real" workflow name from workflow file --------------------------------------------------------------
         workflow_name = self.get_workflow_name(self.workflow_path(run))
@@ -633,7 +644,13 @@ class WESBackend(ABC):
         self._runs[run.run_id] = run
 
         # Initialization (loading / downloading files + secrets injection) ---------------------------------------------
-        init_vals = self._initialize_run_and_get_command(run, celery_id, secrets)
+        try:
+            init_vals = self._initialize_run_and_get_command(run, celery_id, secrets)
+        except RunExceptionWithFailState as e:
+            self.log_error(str(e))
+            self._finish_run_and_clean_up(run, e.state)
+            return None
+
         if init_vals is None:
             return None
 
