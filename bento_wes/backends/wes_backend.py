@@ -86,7 +86,7 @@ class WESBackend(ABC):
 
         self._runs = {}
 
-        self.log_debug(f"Instantiating WESBackend with debug={self.debug}")
+        self.log_debug("Instantiating WESBackend with debug=%s", self.debug)
 
     def log_debug(self, message: str, *args) -> None:
         """
@@ -96,21 +96,21 @@ class WESBackend(ABC):
         if self.logger:
             self.logger.debug(message, *args)
 
-    def log_info(self, message: str) -> None:
+    def log_info(self, message: str, *args) -> None:
         """
         Given a message, logs it as INFO.
         :param message: A message to log
         """
         if self.logger:
-            self.logger.info(message)
+            self.logger.info(message, *args)
 
-    def log_warning(self, warning: str) -> None:
+    def log_warning(self, warning: str, *args) -> None:
         """
         Given a warning string, logs the warning.
         :param warning: A warning string
         """
         if self.logger:
-            self.logger.warning(warning)
+            self.logger.warning(warning, *args)
 
     def log_error(self, error: str, *args) -> None:
         """
@@ -276,7 +276,7 @@ class WESBackend(ABC):
                 # chunk_size=None to use the chunk size from the stream
                 for chunk in response.iter_content(chunk_size=None):
                     f.write(chunk)
-        self.log_debug(f"Downloaded file at {url} to path {destination}")
+        self.log_debug("Downloaded file at %s to path %s", url, destination)
 
     @overload
     def _download_input_files(self, inputs: str, token: str, run_dir: Path) -> str: ...
@@ -350,7 +350,7 @@ class WESBackend(ABC):
         run_dir: Path,
         ignore_extensions: Sequence[str] | None = None,
     ) -> str:
-        self.log_debug(f"_download_input_directory called (directory={directory})")
+        self.log_debug("_download_input_directory called (directory=%s)", directory)
 
         drop_box_url = get_bento_service_kind_url("drop-box")
 
@@ -369,7 +369,11 @@ class WESBackend(ABC):
         # Fetch directory subtree from Drop Box
         with requests.get(url, headers=authz_bearer_header(token), verify=self.validate_ssl, stream=True) as response:
             if response.status_code != 200:
-                self.log_error(f"Tree request to drop box gave error response: {response.status_code} {response.body}")
+                self.log_error(
+                    "Tree request to drop box gave error response: %d %s",
+                    response.status_code,
+                    response.content.decode("utf-8"),
+                )
                 raise RunExceptionWithFailState(
                     STATE_EXECUTOR_ERROR,
                     f"Tree request to drop box resulted in a non 200 status code: {response.status_code}",
@@ -397,7 +401,7 @@ class WESBackend(ABC):
         :param run_id: The ID of the run whose state is getting updated
         :param state: The value to set the run's current state to
         """
-        self.log_debug(f"Setting state of run {run_id} to {state}")
+        self.log_debug("Setting state of run %s to %s", run_id, state)
         self.db.update_run_state_and_commit(self.db.cursor(), run_id, state, event_bus=self.event_bus)
 
     def _finish_run_and_clean_up(self, run: Run, state: str) -> None:
@@ -447,7 +451,7 @@ class WESBackend(ABC):
         # -- Check that the run directory exists -----------------------------------------------------------------------
         if not run_dir.exists():
             # TODO: Log error in run log
-            self.log_error("Run directory not found")
+            self.log_error("Run directory not found: %s", run_dir)
             return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
 
         run_req = run.request
@@ -470,8 +474,7 @@ class WESBackend(ABC):
                 # Find which inputs are secrets, which need to be injected here (so they don't end up in the database)
                 secret_value = secrets.get(run_input.key)
                 if secret_value is None:
-                    err = f"Could not find injectable secret for key {run_input.key}"
-                    self.log_error(err)
+                    self.log_error("Could not find injectable secret for key %s", run_input.key)
                     return self._finish_run_and_clean_up(run, STATE_EXECUTOR_ERROR)
                 processed_workflow_params[namespaced_input(run_req.tags.workflow_id, run_input.id)] = secret_value
             elif isinstance(run_input, (WorkflowFileInput, WorkflowFileArrayInput)):
@@ -639,7 +642,7 @@ class WESBackend(ABC):
         if run.run_id in self._runs:
             raise ValueError("Run has already been registered")
 
-        self.log_debug(f"Performing run with ID {run.run_id} ({celery_id=})")
+        self.log_debug("Performing run with ID %s (celery_id=%d)", run.run_id, celery_id)
 
         self._runs[run.run_id] = run
 
