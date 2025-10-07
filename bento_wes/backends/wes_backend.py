@@ -294,6 +294,20 @@ class WESBackend(ABC):
         else:
             return self._download_input_file(inputs, token, run_dir)
 
+    @staticmethod
+    def _build_download_path(run_dir: Path) -> Path:
+        d = (run_dir / "downloaded").resolve()
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _validate_sub_path(self, parent_dir: Path, child_path: Path):
+        # Validate our file path hasn't escaped the run directory
+        if not str(child_path.resolve()).startswith(str(parent_dir.resolve())):
+            self.log_error("Temporary path %s must be a sub-path of directory %s", child_path, parent_dir)
+            raise RunExceptionWithFailState(
+                STATE_EXECUTOR_ERROR, f"Temporary path bust be a sub-path of directory {parent_dir}"
+            )
+
     def _download_input_file(self, obj_path: str, token: str, run_dir: Path) -> str:
         """
         Downloads an input file from Drop-Box in the run directory.
@@ -303,39 +317,40 @@ class WESBackend(ABC):
             # Ignore empty inputs (e.g. reference genome ingestion with no GFF3 files)
             return obj_path
 
+        download_dir = self._build_download_path(run_dir)
         file_name = obj_path.split("/")[-1]
-        tmp_file_path = f"{run_dir}/{file_name}"
+        tmp_file_path = download_dir / file_name
+
+        # Validate our file path hasn't escaped the run directory
+        self._validate_sub_path(download_dir, tmp_file_path)
 
         # Downloads file to /wes/tmp/<run_dir>/<file_name>
         download_url = get_drop_box_resource_url(obj_path)
         self._download_to_path(download_url, token, tmp_file_path)
-        return tmp_file_path
+        return str(tmp_file_path)
 
     def _download_directory_tree(
         self,
         tree: list[dict],
         token: str,
-        run_dir: Path,
+        download_dir: Path,
     ):
         """
         Downloads the contents of a given Drop Box tree or subtree to the temporary run_dir directory
         e.g. /wes/tmp/<Run ID>/<Dir Tree>
         """
+
         for node in tree:
             if contents := node.get("contents"):
                 # Node is a directory: go inside recursively to find files
-                self._download_directory_tree(contents, token, run_dir)
+                self._download_directory_tree(contents, token, download_dir)
             elif uri := node.get("uri"):
                 # Node is a file: download
-                #  - we need to strip the starting "/", otherwise this escapes the run directory..
-                tmp_path = run_dir.joinpath(node["filePath"].lstrip("/"))
+                #  - we need to strip the starting "/", otherwise this escapes the run directory.
+                tmp_path = download_dir.joinpath(node["relativePath"].lstrip("/"))
 
                 # Validate our file path hasn't escaped the run directory
-                if not str(tmp_path.resolve()).startswith(str(run_dir.resolve())):
-                    self.log_error("Temporary path %s must be a sub-path of run directory %s", tmp_path, run_dir)
-                    raise RunExceptionWithFailState(
-                        STATE_EXECUTOR_ERROR, "Temporary path bust be a sub-path of run directory"
-                    )
+                self._validate_sub_path(download_dir, tmp_path)
 
                 self.log_debug(
                     "_download_directory_tree: downloading node %s to temporary path %s", node["uri"], tmp_path
@@ -366,6 +381,11 @@ class WESBackend(ABC):
             # add ignore query params
             url = f"{url}?{ignore_param}"
 
+        download_dir = self._build_download_path(run_dir)
+        final_dir = download_dir.joinpath(sub_tree)
+
+        self._validate_sub_path(download_dir, final_dir)
+
         # Fetch directory subtree from Drop Box
         with requests.get(url, headers=authz_bearer_header(token), verify=self.validate_ssl, stream=True) as response:
             if response.status_code != 200:
@@ -379,9 +399,11 @@ class WESBackend(ABC):
                     f"Tree request to drop box resulted in a non 200 status code: {response.status_code}",
                 )
             tree = response.json()
-            # Download tree content under run_dir
-            self._download_directory_tree(tree, token, run_dir)
-        return str(run_dir.joinpath(sub_tree))
+
+            # Download tree content under download_dir
+            self._download_directory_tree(tree, token, download_dir)
+
+        return str(final_dir)
 
     @abstractmethod
     def _get_command(self, workflow_path: Path, params_path: Path, run_dir: Path) -> Command:
@@ -502,6 +524,7 @@ class WESBackend(ABC):
                     injected_dir = self._download_input_directory(
                         input_param, secrets["access_token"], run_dir, filter_extensions
                     )
+                    self.log_info("input parameter %s: injecting directory %s", input_param, injected_dir)
                 else:
                     injected_dir = input_param
                 processed_workflow_params[param_key] = injected_dir
@@ -642,7 +665,7 @@ class WESBackend(ABC):
         if run.run_id in self._runs:
             raise ValueError("Run has already been registered")
 
-        self.log_debug("Performing run with ID %s (celery_id=%d)", run.run_id, celery_id)
+        self.log_debug("Performing run with ID %s (celery_id=%s)", run.run_id, celery_id)
 
         self._runs[run.run_id] = run
 
