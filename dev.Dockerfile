@@ -47,7 +47,7 @@ RUN curl -L https://github.com/Ensembl/ensembl-xs/archive/2.3.2.zip -o ensembl-x
 
 WORKDIR /
 
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2025.06.01 AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2025.10.01 AS base-deps
 
 LABEL org.opencontainers.image.description="Local development image for Bento WES."
 LABEL devcontainer.metadata='[{ \
