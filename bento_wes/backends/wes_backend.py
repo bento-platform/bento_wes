@@ -175,10 +175,8 @@ class WESBackend(ABC):
         """
         pass
 
-    @staticmethod
-    def get_womtool_path_or_raise() -> str:
-        settings = get_settings()
-        womtool_path = settings.wom_tool_location
+    def get_womtool_path_or_raise(self) -> str:
+        womtool_path = self.settings.wom_tool_location
         if not womtool_path:
             raise RunExceptionWithFailState(
                 STATE_SYSTEM_ERROR,
