@@ -16,13 +16,13 @@ from bento_lib.workflows.models import (
     WorkflowDirectoryInput,
 )
 from bento_lib.workflows.utils import namespaced_input
-from flask import current_app
 from pathlib import Path
 from typing import overload, Sequence
 
 from bento_wes import states
+from bento_wes.config import Settings
 from bento_wes.constants import SERVICE_ARTIFACT
-from bento_wes.db import Database, get_db
+from bento_wes.db import Database, get_db_with_event_bus
 from bento_wes.models import Run, RunWithDetails, RunOutput
 from bento_wes.service_registry import get_bento_service_kind_url
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
@@ -46,6 +46,7 @@ class WESBackend(ABC):
         tmp_dir: Path,
         data_dir: Path,
         workflow_timeout: int,  # Workflow timeout, in seconds
+        settings: Settings,
         logger=None,
         event_bus: EventBus | None = None,
         workflow_host_allow_list: set | None = None,
@@ -53,9 +54,8 @@ class WESBackend(ABC):
         validate_ssl: bool = True,
         debug: bool = False,
     ):
+        self.settings = settings
         self._workflow_timeout: int = workflow_timeout
-
-        self.db: Database = get_db()
 
         self.tmp_dir: Path = tmp_dir
         self.data_dir: Path = data_dir
@@ -64,7 +64,10 @@ class WESBackend(ABC):
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.logger = logger
-        self.event_bus = event_bus  # TODO: New event bus?
+        self.event_bus = event_bus
+
+        self._db_gen = get_db_with_event_bus(self.event_bus)
+        self.db: Database = next(self._db_gen)
 
         self.workflow_host_allow_list = workflow_host_allow_list
 
@@ -76,7 +79,7 @@ class WESBackend(ABC):
 
         self._workflow_manager: WorkflowManager = WorkflowManager(
             self.tmp_dir,
-            service_base_url=current_app.config["SERVICE_BASE_URL"],
+            service_base_url=settings.service_base_url,
             bento_url=self.bento_url,
             logger=self.logger,
             workflow_host_allow_list=self.workflow_host_allow_list,
@@ -172,9 +175,8 @@ class WESBackend(ABC):
         """
         pass
 
-    @staticmethod
-    def get_womtool_path_or_raise() -> str:
-        womtool_path = current_app.config["WOM_TOOL_LOCATION"]
+    def get_womtool_path_or_raise(self) -> str:
+        womtool_path = self.settings.wom_tool_location
         if not womtool_path:
             raise RunExceptionWithFailState(
                 STATE_SYSTEM_ERROR,
@@ -423,6 +425,8 @@ class WESBackend(ABC):
         :param run_id: The ID of the run whose state is getting updated
         :param state: The value to set the run's current state to
         """
+        self.log_debug(f"Setting state of run {run_id} to {state}")
+        self.db.update_run_state_and_commit(run_id, state)
         self.log_debug("Setting state of run %s to %s", run_id, state)
         self.db.update_run_state_and_commit(self.db.cursor(), run_id, state, event_bus=self.event_bus)
 
@@ -436,7 +440,7 @@ class WESBackend(ABC):
 
         # Finish run ----------------------------------------------------------
 
-        self.db.finish_run(self.event_bus, run, state)
+        self.db.finish_run(run, state)
 
         # Clean up ------------------------------------------------------------
 
@@ -568,8 +572,6 @@ class WESBackend(ABC):
         :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
         """
 
-        c = self.db.cursor()
-
         # Perform run ==================================================================================================
 
         # -- Start process running the generated command ---------------------------------------------------------------
@@ -578,7 +580,8 @@ class WESBackend(ABC):
         runner_process = subprocess.Popen(
             cmd, cwd=self.tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8"
         )
-        c.execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run.run_id))
+        self.db.c.execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run.run_id))
+        self.db.commit()
         self._update_run_state_and_commit(run.run_id, states.STATE_RUNNING)
 
         # -- Wait for and capture output -------------------------------------------------------------------------------
@@ -610,7 +613,7 @@ class WESBackend(ABC):
 
         # -- Update run log with stdout/stderr, exit code --------------------------------------------------------------
         #     - Explicitly don't commit here; sync with state update
-        c.execute(
+        self.db.c.execute(
             "UPDATE runs SET run_log__stdout = ?, run_log__stderr = ?, run_log__exit_code = ? WHERE id = ?",
             (stdout, stderr, exit_code, run.run_id),
         )
@@ -632,7 +635,7 @@ class WESBackend(ABC):
         workflow_outputs = self.get_workflow_outputs(run)
 
         # Explicitly don't commit here; sync with state update
-        self.db.set_run_outputs(c, run.run_id, workflow_outputs)
+        self.db.set_run_outputs(self.db.c, run.run_id, workflow_outputs)
 
         # Emit event if possible
         self.event_bus.publish_service_event(
@@ -684,3 +687,9 @@ class WESBackend(ABC):
 
         # Perform, finish, and clean up run ----------------------------------------------------------------------------
         return self._perform_run(run, cmd, params_with_secrets)
+
+    def close(self):
+        try:
+            next(self._db_gen)
+        except StopIteration:
+            pass
