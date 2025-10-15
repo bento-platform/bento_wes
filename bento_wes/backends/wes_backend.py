@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import overload, Sequence
 
 from bento_wes import states
-from bento_wes.config import get_settings, Settings
+from bento_wes.config import Settings
 from bento_wes.constants import SERVICE_ARTIFACT
 from bento_wes.db import Database, get_db_with_event_bus
 from bento_wes.models import Run, RunWithDetails, RunOutput
