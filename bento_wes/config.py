@@ -52,11 +52,11 @@ class Settings(BentoFastAPIBaseConfig):
     # --- Core / Bento ---
     bento_url: AnyHttpUrl = Field("http://127.0.0.1:5000/")
     bento_debug: bool = Field(
-        False,
+        default=False,
         validation_alias=AliasChoices("BENTO_DEBUG", "FLASK_DEBUG"),
         description="Debug mode (BENTO_DEBUG takes precedence over FLASK_DEBUG).",
     )
-    bento_container_local: bool = Field(False, alias="BENTO_CONTAINER_LOCAL")
+    bento_container_local: bool = Field(default=False, alias="BENTO_CONTAINER_LOCAL")
 
     @model_validator(mode="after")
     def _derive_bento_validate_ssl_if_unset(self):
@@ -71,16 +71,15 @@ class Settings(BentoFastAPIBaseConfig):
     database: Path = service_data / "bento_wes.db"
     service_temp: Path = Path("tmp")
 
-    service_base_url: AnyHttpUrl | str = Field(
+    service_base_url: str = Field(
         "http://127.0.0.1:5000/",
         alias="SERVICE_BASE_URL",
         description="Public base URL of this service (normalized to include trailing slash).",
     )
 
     @field_validator("service_base_url", mode="after")
-    def _ensure_trailing_slash(cls, v: str | AnyHttpUrl) -> str:
-        s = str(v)
-        return s if s.endswith("/") else s + "/"
+    def _ensure_trailing_slash(cls, v: str) -> str:
+        return v if v.endswith("/") else v + "/"
 
     # --- Event bus / Redis ---
     bento_event_redis_url: RedisDsn | str = Field(
@@ -89,14 +88,14 @@ class Settings(BentoFastAPIBaseConfig):
     )
 
     # --- AuthN/Z + Service registry ---
-    authz_url: AnyHttpUrl = Field(..., validation_alias="BENTO_AUTHZ_SERVICE_URL")
+    authz_url: str = Field(..., validation_alias="BENTO_AUTHZ_SERVICE_URL")
     authz_enabled: bool = Field(True, alias="AUTHZ_ENABLED")
     bento_authz_enabled: bool = True  # consumed by middleware
 
-    service_registry_url: AnyHttpUrl = Field(..., alias="SERVICE_REGISTRY_URL")
+    service_registry_url: str = Field(..., alias="SERVICE_REGISTRY_URL")
 
     # OIDC / WES client
-    bento_openid_config_url: AnyHttpUrl = "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration"
+    bento_openid_config_url: str = "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration"
     wes_client_id: str = "bento_wes"
     wes_client_secret: SecretStr | None = Field(default=None, alias="WES_CLIENT_SECRET")
 

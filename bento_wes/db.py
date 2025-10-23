@@ -45,20 +45,20 @@ def run_request_from_row(run: sqlite3.Row) -> RunRequest:
     )
 
 
-def _stream_url(run_id: UUID | str, stream: RunStream) -> str:
+def _stream_url(run_id: UUID | str, stream: RunStream, settings: Settings) -> str:
     settings = get_settings()
     return urljoin(settings.service_base_url, f"runs/{str(run_id)}/{stream}")
 
 
-def run_log_from_row(run: sqlite3.Row, stream_content: bool) -> RunLog:
+def run_log_from_row(run: sqlite3.Row, stream_content: bool, settings: Settings) -> RunLog:
     run_id = run["id"]
     return RunLog(
         name=run["run_log__name"],
         cmd=run["run_log__cmd"],
         start_time=run["run_log__start_time"] or None,
         end_time=run["run_log__end_time"] or None,
-        stdout=run["run_log__stdout"] if stream_content else _stream_url(run_id, "stdout"),
-        stderr=run["run_log__stderr"] if stream_content else _stream_url(run_id, "stderr"),
+        stdout=run["run_log__stdout"] if stream_content else _stream_url(run_id, "stdout", settings),
+        stderr=run["run_log__stderr"] if stream_content else _stream_url(run_id, "stderr", settings),
         exit_code=run["run_log__exit_code"],
     )
 
@@ -91,6 +91,7 @@ class Database:
         self._apply_pragmas()
         self._cursor = None
         self.event_bus = event_bus or get_event_bus()
+        self._settings = settings
 
     def _apply_pragmas(self) -> None:
         c = self._conn.cursor()
@@ -251,7 +252,7 @@ class Database:
                 run_id=run["id"],
                 state=run["state"],
                 request=run_request_from_row(run),
-                run_log=run_log_from_row(run, stream_content),
+                run_log=run_log_from_row(run, stream_content, self._settings),
                 task_logs=self.get_task_logs(self.c, run["id"]),
                 outputs=json.loads(run["outputs"]),
             )
