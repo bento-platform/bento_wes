@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Awaitable, Callable, Optional
+from typing import Annotated, Optional
 import os
 from fastapi import Depends
 from bento_lib.events import EventBus, types as et

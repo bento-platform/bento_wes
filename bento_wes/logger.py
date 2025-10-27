@@ -34,7 +34,6 @@ LOGGING = {
         "asyncio": {"level": "INFO"},
         "celery.utils.functional": {"level": "WARNING"},
         "celery.app.trace": {"level": "INFO"},
-
         "python_multipart.multipart": {
             "level": "WARNING",
             "handlers": ["console"],

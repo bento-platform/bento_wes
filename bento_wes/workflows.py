@@ -123,11 +123,11 @@ class WorkflowManager:
         :param auth_headers: Authorization headers to pass while requesting the workflow file.
         """
 
-         # TODO: Handle references to attachments
+        # TODO: Handle references to attachments
 
         workflow_path = self.workflow_path(workflow_uri, workflow_type)
 
-        if workflow_uri.scheme not in ALLOWED_WORKFLOW_REQUEST_SCHEMES: # file://
+        if workflow_uri.scheme not in ALLOWED_WORKFLOW_REQUEST_SCHEMES:  # file://
             # TODO: Other else cases
             # TODO: Handle exceptions
             await asyncio.to_thread(shutil.copyfile, workflow_uri.path, workflow_path)
@@ -160,7 +160,7 @@ class WorkflowManager:
                     workflow_uri.path.startswith(parsed_bento_url.path),
                 )
             )
-         # TODO: Better auth? May only be allowed to access specific workflows
+        # TODO: Better auth? May only be allowed to access specific workflows
 
         try:
             url = str(workflow_uri)
@@ -185,7 +185,7 @@ class WorkflowManager:
             await asyncio.to_thread(workflow_path.write_bytes, content)
 
             self._info("Workflow file downloaded")
-        elif not workflow_path.exists(): # Use cached version if needed, otherwise error
+        elif not workflow_path.exists():  # Use cached version if needed, otherwise error
             # Request issues
             self._error(
                 f"Error downloading workflow: {workflow_uri} (use_auth_headers={use_auth_headers}, "

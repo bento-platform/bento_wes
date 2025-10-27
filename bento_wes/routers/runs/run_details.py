@@ -16,7 +16,7 @@ from bento_wes.config import SettingsDep
 
 from .deps import stash_run_or_404, get_stream, RunDep, AuthzDep
 from .utils import _denest_list
-from .constants import CHUNK_SIZE, RUN_CANCEL_BAD_REQUEST_STATES
+from .constants import RUN_CANCEL_BAD_REQUEST_STATES
 
 detail_router = APIRouter(prefix="/{run_id}")
 detail_router.dependencies.append(Depends(stash_run_or_404))
@@ -66,8 +66,8 @@ async def run_download_artifact(
         path=str(p),
         media_type="application/octet-stream",
         filename=p.name,
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{safe_name}"})
-
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{safe_name}"},
+    )
 
 
 @detail_router.get("/{stream}", response_class=PlainTextResponse)
