@@ -20,8 +20,6 @@ async def lifespan(app: BentoFastAPI):
         yield
     finally:
         await shutdown_event_bus()
-    logger.info("Shutting down database...")
-    logger.info("Finished shutting down database.")
 
 
 def create_app():
