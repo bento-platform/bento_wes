@@ -9,23 +9,39 @@ __all__ = [
     "logger",
 ]
 
-logging.basicConfig(level=logging.NOTSET)
-
-# The following disables unecessary logs from the packages which then are printed repetitevly in dev mode
-logging.getLogger("asyncio").setLevel(logging.INFO)
-logging.getLogger("celery.utils.functional").setLevel(logging.WARNING)
-logging.getLogger("celery.app.trace").setLevel(logging.INFO)
-
 logger = logging.getLogger(__name__)
-logger.setLevel(log_level_from_str(os.environ.get("LOG_LEVEL", "info").lower().strip()))
+
+LOG_LEVEL = log_level_from_str(os.environ.get("LOG_LEVEL", "info").strip().lower())
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "default": {"format": "%(levelname)s:%(name)s:%(message)s"},
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "default",
+        }
+    },
+    "root": {
+        "level": LOG_LEVEL,
+        "handlers": ["console"],
+    },
+    "loggers": {
+        # quiet noisy libs in dev
+        "asyncio": {"level": "INFO"},
+        "celery.utils.functional": {"level": "WARNING"},
+        "celery.app.trace": {"level": "INFO"},
+
+        "python_multipart.multipart": {
+            "level": "WARNING",
+            "handlers": ["console"],
+            "propagate": False,
+        },
+    },
+}
 
 
-logging.config.dictConfig(
-    {
-        "version": 1,
-        "disable_existing_loggers": False,
-        "loggers": {"python_multipart.multipart": {"level": "WARNING", "handlers": ["console"], "propagate": False}},
-        "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "default"}},
-        "formatters": {"default": {"format": "%(levelname)s:%(name)s:%(message)s"}},
-    }
-)
+logging.config.dictConfig(LOGGING)
