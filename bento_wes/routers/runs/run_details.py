@@ -25,7 +25,7 @@ detail_router.dependencies.append(Depends(stash_run_or_404))
 @detail_router.get("")
 async def get_run(run: RunDep, authz_check: AuthzDep):
     await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
-    return JSONResponse(run.model_dump(mode="json"))
+    return run.model_dump(mode="json")
 
 
 @detail_router.get("/status")
@@ -33,7 +33,7 @@ async def run_status(run_id: UUID, run: RunDep, db: DatabaseDep, authz_check: Au
     await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
 
     run = db.get_run(db.c, run_id)
-    return JSONResponse(run.model_dump())
+    return run.model_dump(mode="json")
 
 
 @detail_router.post("/download-artifact")
