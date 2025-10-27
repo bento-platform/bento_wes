@@ -425,7 +425,7 @@ class WESBackend(ABC):
         :param run_id: The ID of the run whose state is getting updated
         :param state: The value to set the run's current state to
         """
-        self.log_debug(f"Setting state of run {run_id} to {state}")
+        self.log_debug("Setting state of run %s to %s", run_id, state)
         self.db.update_run_state_and_commit(run_id, state)
         self.log_debug("Setting state of run %s to %s", run_id, state)
         self.db.update_run_state_and_commit(self.db.cursor(), run_id, state, event_bus=self.event_bus)
