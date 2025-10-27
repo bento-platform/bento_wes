@@ -4,7 +4,7 @@ from fastapi import Depends
 from functools import lru_cache
 from datetime import timedelta
 from pathlib import Path
-from typing import Literal, Annotated
+from typing import Literal, Annotated, Tuple
 
 from pydantic import (
     AnyHttpUrl,
@@ -47,6 +47,7 @@ class Settings(BentoFastAPIBaseConfig):
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
+        frozen=True,
     )
 
     # --- Core / Bento ---
@@ -105,7 +106,7 @@ class Settings(BentoFastAPIBaseConfig):
     workflow_host_allow_list: str | None = None
 
     # --- CORS ---
-    cors_origins: list[str] | Literal["*"] = "*"
+    cors_origins: Tuple[str, ...] | Literal["*"] = "*"
 
     # --- VEP / optional data ---
     vep_cache_dir: Path | None = None
