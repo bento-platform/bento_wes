@@ -44,6 +44,14 @@ WORKFLOW_IGNORE_FILE_PATH_INJECTION = frozenset({"vcf_gz"})
 
 
 def parse_workflow_host_allow_list(allow_list: str | None) -> set[str] | None:
+    """
+    Get set of allowed workflow hosts from a configuration string for any
+    checks while downloading workflows. If it's blank, assume that means
+    "any host is allowed" and set to None (as opposed to empty, i.e. no hosts
+    allowed to provide workflows.)
+    :param allow_list: Comma-separated list of allowed workflow hosts, or None.
+    :return:
+    """
     return {a.strip() for a in (allow_list or "").split(",") if a.strip()} or None
 
 
@@ -89,6 +97,9 @@ class WorkflowManager:
             self.logger.error(message)
 
     def workflow_path(self, workflow_uri: AnyUrl, workflow_type: WorkflowType) -> Path:
+        """
+        Generates a unique filesystem path name for a specified workflow URI.
+        """
         if workflow_type not in WES_SUPPORTED_WORKFLOW_TYPES:
             raise UnsupportedWorkflowType(f"Unsupported workflow type: {workflow_type}")
 
@@ -105,22 +116,38 @@ class WorkflowManager:
         auth_headers: dict,
     ) -> str | None:
         """
-        Async version using httpx.AsyncClient. Non-blocking file I/O via asyncio.to_thread.
+        Given a URI, downloads the specified workflow via its URI, or copies it over if it's on the local
+        file system. # TODO: Local file system = security issue?
+        :param workflow_uri: The workflow URI to download/copy
+        :param workflow_type: The type of the workflow being downloaded
+        :param auth_headers: Authorization headers to pass while requesting the workflow file.
         """
+
+         # TODO: Handle references to attachments
+
         workflow_path = self.workflow_path(workflow_uri, workflow_type)
 
-        if workflow_uri.scheme not in ALLOWED_WORKFLOW_REQUEST_SCHEMES:
+        if workflow_uri.scheme not in ALLOWED_WORKFLOW_REQUEST_SCHEMES: # file://
+            # TODO: Other else cases
+            # TODO: Handle exceptions
             await asyncio.to_thread(shutil.copyfile, workflow_uri.path, workflow_path)
             return
 
         if self.workflow_host_allow_list is not None:
+            # We need to check that the workflow in question is from an
+            # allowed set of workflow hosts
             if workflow_uri.scheme != "file" and workflow_uri.host not in self.workflow_host_allow_list:
+                # Dis-allowed workflow URL
                 self._error(
                     f"Dis-allowed workflow host: {workflow_uri.host} (allow list: {self.workflow_host_allow_list})"
                 )
                 return states.STATE_EXECUTOR_ERROR
 
         self._info(f"Fetching workflow file from {workflow_uri}")
+
+        # SECURITY: We cannot pass our auth token outside the Bento instance. Validate that BENTO_URL is
+        # a) a valid URL and b) a prefix of our workflow's URI before downloading.
+        # Only bother doing this if BENTO_URL is actually set.
 
         use_auth_headers: bool = False
         if self.bento_url:
@@ -133,6 +160,7 @@ class WorkflowManager:
                     workflow_uri.path.startswith(parsed_bento_url.path),
                 )
             )
+         # TODO: Better auth? May only be allowed to access specific workflows
 
         try:
             url = str(workflow_uri)
@@ -157,7 +185,8 @@ class WorkflowManager:
             await asyncio.to_thread(workflow_path.write_bytes, content)
 
             self._info("Workflow file downloaded")
-        elif not workflow_path.exists():
+        elif not workflow_path.exists(): # Use cached version if needed, otherwise error
+            # Request issues
             self._error(
                 f"Error downloading workflow: {workflow_uri} (use_auth_headers={use_auth_headers}, "
                 f"wr.status_code={resp.status_code})"
