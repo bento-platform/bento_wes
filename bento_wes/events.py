@@ -6,7 +6,7 @@ from fastapi import Depends
 from bento_lib.events import EventBus, types as et
 
 from .config import get_settings
-from .logger import logger
+from .logger import get_logger
 
 __all__ = [
     "_create_event_bus",
@@ -26,7 +26,7 @@ def _create_event_bus() -> EventBus:
     Create and configure the EventBus instance (no I/O side-effects here).
     """
     settings = get_settings()
-    bus = EventBus(url=settings.bento_event_redis_url, allow_fake=True, logger=logger)
+    bus = EventBus(url=settings.bento_event_redis_url, allow_fake=True, logger=get_logger())
 
     # Register all event types here
     bus.register_service_event_type(et.EVENT_WES_RUN_UPDATED, et.EVENT_WES_RUN_UPDATED_SCHEMA)
@@ -39,7 +39,7 @@ async def _close_event_bus(bus: EventBus) -> None:
     try:
         bus.stop_event_loop()
     except Exception:
-        logger.exception("Error while shutting down EventBus")
+        get_logger().exception("Error while shutting down EventBus")
 
 
 # ---------- Lifecycle ----------
@@ -50,7 +50,7 @@ def init_event_bus() -> EventBus:
     """
     global _BUS
     if _BUS is None:
-        logger.info("Initializing EventBus")
+        get_logger().info("Initializing EventBus")
         _BUS = _create_event_bus()
     return _BUS
 
@@ -62,7 +62,7 @@ async def shutdown_event_bus() -> None:
     global _BUS
     if _BUS is None:
         return
-    logger.info("Shutting down EventBus")
+    get_logger().info("Shutting down EventBus")
     await _close_event_bus(_BUS)
     _BUS = None
 
@@ -95,7 +95,7 @@ def get_worker_event_bus() -> EventBus:
     pid = os.getpid()
 
     if _WORKER_BUS is None or _WORKER_PID != pid:
-        logger.debug("Initializing EventBus for Celery worker process (pid=%s)", pid)
+        get_logger().debug("Initializing EventBus for Celery worker process (pid=%s)", pid)
         _WORKER_BUS = _create_event_bus()
         _WORKER_PID = pid
 
@@ -109,6 +109,6 @@ async def close_worker_event_bus() -> None:
     global _WORKER_BUS
     if _WORKER_BUS is None:
         return
-    logger.debug("Shutting down EventBus for Celery worker process (pid=%s)", os.getpid())
+    get_logger().debug("Shutting down EventBus for Celery worker process (pid=%s)", os.getpid())
     await _close_event_bus(_WORKER_BUS)
     _WORKER_BUS = None

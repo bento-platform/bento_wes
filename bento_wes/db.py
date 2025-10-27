@@ -16,7 +16,7 @@ from .backends.backend_types import Command
 from .config import get_settings, Settings, SettingsDep
 from .constants import SERVICE_ARTIFACT
 from .events import get_event_bus
-from .logger import logger
+from .logger import get_logger, Logger, LoggerDep
 from .models import Run, RunLog, RunRequest, RunWithDetails
 from .types import RunStream
 from .utils import iso_now
@@ -79,7 +79,7 @@ def run_from_row(run: sqlite3.Row) -> Run:
 
 
 class Database:
-    def __init__(self, settings: Settings, event_bus: Optional[EventBus] = None):
+    def __init__(self, settings: Settings, logger: Logger, event_bus: Optional[EventBus] = None):
         # One connection per request; okay for FastAPI threadpools
         self._conn = sqlite3.connect(
             settings.database,
@@ -90,6 +90,7 @@ class Database:
         self._apply_pragmas()
         self.event_bus = event_bus or get_event_bus()
         self._settings = settings
+        self._logger = logger
 
     def _apply_pragmas(self) -> None:
         c = self._conn.cursor()
@@ -314,16 +315,16 @@ class Database:
 
 
 # === FastAPI dependency: one connection per request, auto-closed ===
-def get_db(settings: SettingsDep) -> Generator["Database", None, None]:
-    db = Database(settings)
+def get_db(settings: SettingsDep, logger: LoggerDep) -> Generator["Database", None, None]:
+    db = Database(settings, logger)
     try:
         yield db
     finally:
         db.close()
 
 
-def get_db_with_event_bus(event_bus: Optional[EventBus] = None) -> Generator["Database", None, None]:
-    db = Database(get_settings(), event_bus or get_event_bus())
+def get_db_with_event_bus(logger: Optional[Logger] = None, event_bus: Optional[EventBus] = None) -> Generator["Database", None, None]:
+    db = Database(get_settings(), logger or get_logger(), event_bus or get_event_bus())
     try:
         yield db
     finally:
@@ -334,12 +335,12 @@ DatabaseDep = Annotated[Database, Depends(get_db)]
 
 
 # === Startup helpers (call these from your FastAPI lifespan) ===
-def setup_database_on_startup() -> None:
+def setup_database_on_startup(logger) -> None:
     """
     Ensure schema exists and apply PRAGMAs once at startup.
     Call from your FastAPI lifespan (startup phase).
     """
-    db = Database(settings=get_settings())
+    db = Database(get_settings(), logger)
     try:
         # If the 'runs' table isn't present, run full schema.sql
         db.c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runs'")
@@ -349,12 +350,12 @@ def setup_database_on_startup() -> None:
         db.close()
 
 
-def repair_database_on_startup() -> None:
+def repair_database_on_startup(logger) -> None:
     """
     Perform boot-time repairs (e.g., mark stuck runs as system error).
     Call after setup_database_on_startup() during startup.
     """
-    db = Database(settings=get_settings())
+    db = Database(get_settings(), logger)
     try:
         db.update_stuck_runs()
     finally:

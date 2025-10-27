@@ -10,7 +10,7 @@ from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlIn
 
 from bento_wes import states
 from bento_wes.models import RunRequest
-from bento_wes.logger import logger
+from bento_wes.logger import LoggerDep
 from bento_wes.config import SettingsDep
 from bento_wes.db import DatabaseDep
 from bento_wes.workflows import (
@@ -37,6 +37,7 @@ async def create_run(
     db: DatabaseDep,
     authz_check: AuthzDep,
     settings: SettingsDep,
+    logger: LoggerDep,
     workflow_attachment: Optional[List[UploadFile]] = File(None),
 ):
     # authz
@@ -101,7 +102,7 @@ async def create_run(
             )
             run_params[input_key] = config_value
         elif isinstance(run_input, WorkflowServiceUrlInput):
-            bento_services_data = bento_services_data or get_bento_services()
+            bento_services_data = bento_services_data or await get_bento_services()
             config_value: str | None = bento_services_data.get(run_input.service_kind).get("url")
             sk = run_input.service_kind
             if config_value is None:

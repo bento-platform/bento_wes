@@ -66,7 +66,7 @@ class WESBackend(ABC):
         self.logger = logger
         self.event_bus = event_bus
 
-        self._db_gen = get_db_with_event_bus(self.event_bus)
+        self._db_gen = get_db_with_event_bus(self.logger, self.event_bus)
         self.db: Database = next(self._db_gen)
 
         self.workflow_host_allow_list = workflow_host_allow_list

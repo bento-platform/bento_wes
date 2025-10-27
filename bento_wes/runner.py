@@ -20,7 +20,7 @@ def run_workflow(self, run_id: uuid.UUID):
 
     event_bus: EventBus = get_worker_event_bus()
 
-    _db_gen = get_db_with_event_bus(event_bus)
+    _db_gen = get_db_with_event_bus(logger, event_bus)
     db: Database = next(_db_gen)
 
     # Checks ------------------------------------------------------------------

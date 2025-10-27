@@ -1,5 +1,8 @@
 import logging
 import logging.config
+from typing import Annotated
+from fastapi import Depends
+from logging import Logger
 
 import os
 
@@ -44,3 +47,9 @@ LOGGING = {
 
 
 logging.config.dictConfig(LOGGING)
+
+
+def get_logger() -> Logger:
+    return logger
+
+LoggerDep = Annotated[Logger, Depends(get_logger)]

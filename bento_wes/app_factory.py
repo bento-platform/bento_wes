@@ -5,18 +5,19 @@ from .authz import get_authz_middleware
 from .config import get_settings, BENTO_EXTRA_SERVICE_INFO
 from .constants import SERVICE_TYPE
 from .db import setup_database_on_startup, repair_database_on_startup
-from .logger import logger
+from .logger import get_logger
 from . import __version__
 from .events import init_event_bus, shutdown_event_bus
 
 
 @asynccontextmanager
 async def lifespan(app: BentoFastAPI):
+    logger = get_logger()
     logger.info("Starting up database...")
     try:
         init_event_bus()
-        setup_database_on_startup()
-        repair_database_on_startup()
+        setup_database_on_startup(logger)
+        repair_database_on_startup(logger)
         yield
     finally:
         await shutdown_event_bus()
@@ -24,7 +25,8 @@ async def lifespan(app: BentoFastAPI):
 
 def create_app():
     settings = get_settings()
-    authz_middleware = get_authz_middleware()
+    logger = get_logger()
+    authz_middleware = get_authz_middleware(settings, logger)
 
     app = BentoFastAPI(
         authz_middleware,
