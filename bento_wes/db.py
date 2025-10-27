@@ -130,7 +130,7 @@ class Database:
         self.c.execute("UPDATE runs SET run_log__end_time = ? WHERE id = ?", (end_time, run_id))
         self.update_run_state_and_commit(run_id, state)
 
-        logger.info(f"Run {run_id} finished with state {state} at {end_time}")
+        self._logger.info(f"Run {run_id} finished with state {state} at {end_time}")
 
         if state in states.FAILURE_STATES:
             self.event_bus.publish_service_event(
@@ -169,10 +169,10 @@ class Database:
         for r in stuck_run_ids:
             run = self.get_run_with_details(self.c, r["id"], stream_content=True)
             if run is None:
-                logger.error(f"Missing run: {r['id']}")
+                self._logger.error(f"Missing run: {r['id']}")
                 continue
 
-            logger.info(
+            self._logger.info(
                 f"Found stuck run: {run.run_id} at state {run.state}. Setting state to {states.STATE_SYSTEM_ERROR}"
             )
             self.finish_run(run, states.STATE_SYSTEM_ERROR)
@@ -306,7 +306,7 @@ class Database:
         state: str,
         publish_event: bool = True,
     ) -> None:
-        logger.info(f"Updating run state of {run_id} to {state}")
+        self._logger.info(f"Updating run state of {run_id} to {state}")
         self.c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
         self.commit()
         if publish_event:
