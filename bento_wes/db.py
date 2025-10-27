@@ -88,7 +88,6 @@ class Database:
         )
         self._conn.row_factory = sqlite3.Row
         self._apply_pragmas()
-        self._cursor = None
         self.event_bus = event_bus or get_event_bus()
         self._settings = settings
 
@@ -100,9 +99,7 @@ class Database:
 
     @property
     def c(self):
-        if self._cursor is None or getattr(self._cursor, "closed", False):
-            self._cursor = self._conn.cursor()
-        return self._cursor
+        return self._conn.cursor()
 
     def commit(self) -> None:
         self._conn.commit()
