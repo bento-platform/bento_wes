@@ -13,7 +13,7 @@ from bento_lib.events.types import EVENT_CREATE_NOTIFICATION, EVENT_WES_RUN_UPDA
 
 from . import states
 from .backends.backend_types import Command
-from .config import get_settings, Settings
+from .config import get_settings, Settings, SettingsDep
 from .constants import SERVICE_ARTIFACT
 from .events import get_event_bus
 from .logger import logger
@@ -46,7 +46,6 @@ def run_request_from_row(run: sqlite3.Row) -> RunRequest:
 
 
 def _stream_url(run_id: UUID | str, stream: RunStream, settings: Settings) -> str:
-    settings = get_settings()
     return urljoin(settings.service_base_url, f"runs/{str(run_id)}/{stream}")
 
 
@@ -315,8 +314,8 @@ class Database:
 
 
 # === FastAPI dependency: one connection per request, auto-closed ===
-def get_db() -> Generator["Database", None, None]:
-    db = Database(get_settings())
+def get_db(settings: SettingsDep) -> Generator["Database", None, None]:
+    db = Database(settings)
     try:
         yield db
     finally:
