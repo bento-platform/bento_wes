@@ -63,12 +63,21 @@ def _mocked_responses_with_workflow():
 
         yield respx_mock
 
+@pytest.fixture
+def settings():
+    from bento_wes.config import get_settings
+    return get_settings()
 
 @pytest.fixture
-def db_session():
+def logger():
+    from bento_wes.logger import get_logger
+    return get_logger()
+
+@pytest.fixture
+def db_session(settings, logger):
     from bento_wes.db import get_db
 
-    gen = get_db()
+    gen = get_db(settings, logger)
     db = next(gen)
     try:
         yield db
