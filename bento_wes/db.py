@@ -116,7 +116,10 @@ class Database:
 
     def finish_run(self, run: Run, state: str) -> None:
         """
-        Update a run's state, set the run log's end time, and publish a success/failure notification.
+        Updates a run's state, sets the run log's end time, and publishes an event corresponding with a run failure
+        or a run success, depending on the state.
+        :param run: The run which just finished
+        :param state: The terminal state for the finished run
         """
 
         run_id = run.run_id
