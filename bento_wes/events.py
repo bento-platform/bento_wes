@@ -36,18 +36,9 @@ def _create_event_bus() -> EventBus:
 
 
 async def _close_event_bus(bus: EventBus) -> None:
-    """
-    Gracefully close the bus whether it exposes `aclose()` or `close()`.
-    """
-    close_fn: Optional[Callable[[], None]] = getattr(bus, "close", None)
-    aclose_fn: Optional[Callable[[], Awaitable[None]]] = getattr(bus, "aclose", None)
-
     try:
-        if aclose_fn is not None:
-            await aclose_fn()
-        elif close_fn is not None:
-            close_fn()
-    except Exception:  # noqa: BLE001
+        bus.stop_event_loop()
+    except Exception:
         logger.exception("Error while shutting down EventBus")
 
 
