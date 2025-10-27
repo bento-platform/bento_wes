@@ -9,10 +9,8 @@ import os
 
 from bento_lib.logging import log_level_from_str
 
-__all__ = [
-    "get_logger",
-    "LoggerDep"
-]
+__all__ = ["get_logger", "LoggerDep"]
+
 
 @lru_cache
 def get_logger() -> Logger:
@@ -49,8 +47,8 @@ def get_logger() -> Logger:
         },
     }
 
-
     logging.config.dictConfig(LOGGING)
     return logger
+
 
 LoggerDep = Annotated[Logger, Depends(get_logger)]

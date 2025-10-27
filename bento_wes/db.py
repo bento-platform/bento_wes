@@ -323,7 +323,9 @@ def get_db(settings: SettingsDep, logger: LoggerDep) -> Generator["Database", No
         db.close()
 
 
-def get_db_with_event_bus(logger: Optional[Logger] = None, event_bus: Optional[EventBus] = None) -> Generator["Database", None, None]:
+def get_db_with_event_bus(
+    logger: Optional[Logger] = None, event_bus: Optional[EventBus] = None
+) -> Generator["Database", None, None]:
     db = Database(get_settings(), logger or get_logger(), event_bus or get_event_bus())
     try:
         yield db
