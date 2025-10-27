@@ -11,6 +11,7 @@ __all__ = [
 
 logging.basicConfig(level=logging.NOTSET)
 
+# The following disables unecessary logs from the packages which then are printed repetitevly in dev mode
 logging.getLogger("asyncio").setLevel(logging.INFO)
 logging.getLogger("celery.utils.functional").setLevel(logging.WARNING)
 logging.getLogger("celery.app.trace").setLevel(logging.INFO)
