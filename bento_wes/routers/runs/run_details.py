@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Form
-from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import PlainTextResponse, FileResponse
 from fastapi.exceptions import HTTPException
 import shutil
 import urllib.parse
@@ -37,8 +37,14 @@ async def run_status(run_id: UUID, run: RunDep, db: DatabaseDep, authz_check: Au
 
 
 @detail_router.post("/download-artifact")
-async def run_download_artifact(run_id: UUID, run: RunDep, authz_check: AuthzDep, path: str = Form(...)):
+async def run_download_artifact(
+    run_id: UUID,
+    run: RunDep,
+    authz_check: AuthzDep,
+    path: str = Form(...),
+):
     await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
+
     artifact_path = path.strip()
     if not artifact_path:
         raise HTTPException(status_code=400, detail="Requested artifact path is blank or unspecified")
@@ -48,22 +54,20 @@ async def run_download_artifact(run_id: UUID, run: RunDep, authz_check: AuthzDep
         if "File" in o.type:
             artifacts.update(set(_denest_list(o.value)))
 
-    if run not in artifacts:
+    if artifact_path not in artifacts:
         raise HTTPException(status_code=404, detail=f"Requested artifact path not found in run {run_id}")
 
     p = Path(artifact_path)
     if not p.exists():
         raise HTTPException(status_code=500, detail=f"Artifact path does not exist on filesystem: {artifact_path}")
 
-    def iterfile():
-        with open(p, "rb") as fh:
-            while chunk := fh.read(CHUNK_SIZE):
-                yield chunk
+    safe_name = urllib.parse.quote(p.name, encoding="utf-8")
+    return FileResponse(
+        path=str(p),
+        media_type="application/octet-stream",
+        filename=p.name,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{safe_name}"})
 
-    resp = StreamingResponse(iterfile(), media_type="application/octet-stream")
-    resp.headers["Content-Length"] = str(p.stat().st_size)
-    resp.headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{urllib.parse.quote(p.name, encoding='utf-8')}"
-    return resp
 
 
 @detail_router.get("/{stream}", response_class=PlainTextResponse)
