@@ -21,7 +21,7 @@ from bento_wes.workflows import (
     WorkflowDownloadError,
 )
 from bento_wes.utils import save_upload_files
-from bento_wes.service_registry import get_bento_services
+from bento_wes.service_registry import ServiceManagerDep
 from bento_wes.runner import run_workflow
 from bento_wes.types import AuthHeaderModel
 
@@ -38,6 +38,7 @@ async def create_run(
     authz_check: AuthzDep,
     settings: SettingsDep,
     logger: LoggerDep,
+    service_manager: ServiceManagerDep,
     workflow_attachment: Optional[List[UploadFile]] = File(None),
 ):
     # authz
@@ -88,7 +89,6 @@ async def create_run(
         "vep_cache_dir": settings.vep_cache_dir,
     }
     run_params = {**run.workflow_params}
-    bento_services_data = None
     for run_input in run.tags.workflow_metadata.inputs:
         input_key = namespaced_input(run.tags.workflow_id, run_input.id)
         if isinstance(run_input, WorkflowConfigInput):
@@ -102,8 +102,7 @@ async def create_run(
             )
             run_params[input_key] = config_value
         elif isinstance(run_input, WorkflowServiceUrlInput):
-            bento_services_data = bento_services_data or await get_bento_services()
-            config_value: str | None = bento_services_data.get(run_input.service_kind).get("url")
+            config_value: str | None = await service_manager.get_bento_service_url_by_kind(run_input.service_kind)
             sk = run_input.service_kind
             if config_value is None:
                 err = f"Could not find URL/service record for service kind '{sk}'"

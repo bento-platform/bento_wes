@@ -14,7 +14,7 @@ from .config import get_settings, Settings
 
 
 @celery.task(bind=True)
-def run_workflow(self, run_id: uuid.UUID):
+async def run_workflow(self, run_id: uuid.UUID):
     settings: Settings = get_settings()
     logger = get_task_logger(__name__)
 
@@ -91,7 +91,7 @@ def run_workflow(self, run_id: uuid.UUID):
     # Perform the run
     try:
         logger.info("Starting workflow execution...")
-        backend.perform_run(run, self.request.id, secrets)
+        await backend.perform_run(run, self.request.id, secrets)
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while performing run: {type(e).__name__} {e}")

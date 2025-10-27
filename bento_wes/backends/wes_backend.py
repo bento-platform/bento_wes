@@ -24,7 +24,7 @@ from bento_wes.config import Settings
 from bento_wes.constants import SERVICE_ARTIFACT
 from bento_wes.db import Database, get_db_with_event_bus
 from bento_wes.models import Run, RunWithDetails, RunOutput
-from bento_wes.service_registry import get_bento_service_kind_url
+from bento_wes.service_registry import get_service_url
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
 from bento_wes.utils import get_drop_box_resource_url, iso_now
 from bento_wes.workflows import WORKFLOW_IGNORE_FILE_PATH_INJECTION, WorkflowType, WorkflowManager
@@ -281,20 +281,20 @@ class WESBackend(ABC):
         self.log_debug("Downloaded file at %s to path %s", url, destination)
 
     @overload
-    def _download_input_files(self, inputs: str, token: str, run_dir: Path) -> str: ...
+    async def _download_input_files(self, inputs: str, token: str, run_dir: Path) -> str: ...
 
     @overload
-    def _download_input_files(self, inputs: list[str], token: str, run_dir: Path) -> list[str]: ...
+    async def _download_input_files(self, inputs: list[str], token: str, run_dir: Path) -> list[str]: ...
 
-    def _download_input_files(self, inputs: str | list[str], token: str, run_dir: Path) -> str | list[str]:
+    async def _download_input_files(self, inputs: str | list[str], token: str, run_dir: Path) -> str | list[str]:
         if not inputs:
             # Ignore empty inputs
             return inputs
 
         if isinstance(inputs, list):
-            return [self._download_input_file(f, token, run_dir) for f in inputs]
+            return [await self._download_input_file(f, token, run_dir) for f in inputs]
         else:
-            return self._download_input_file(inputs, token, run_dir)
+            return await self._download_input_file(inputs, token, run_dir)
 
     @staticmethod
     def _build_download_path(run_dir: Path) -> Path:
@@ -310,7 +310,7 @@ class WESBackend(ABC):
                 STATE_EXECUTOR_ERROR, f"Temporary path bust be a sub-path of directory {parent_dir}"
             )
 
-    def _download_input_file(self, obj_path: str, token: str, run_dir: Path) -> str:
+    async def _download_input_file(self, obj_path: str, token: str, run_dir: Path) -> str:
         """
         Downloads an input file from Drop-Box in the run directory.
         Returns the path to the temp file to inject in the workflow params.
@@ -327,7 +327,7 @@ class WESBackend(ABC):
         self._validate_sub_path(download_dir, tmp_file_path)
 
         # Downloads file to /wes/tmp/<run_dir>/<file_name>
-        download_url = get_drop_box_resource_url(obj_path)
+        download_url = await get_drop_box_resource_url(obj_path)
         self._download_to_path(download_url, token, tmp_file_path)
         return str(tmp_file_path)
 
@@ -360,7 +360,7 @@ class WESBackend(ABC):
                 os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
                 self._download_to_path(uri, token, tmp_path)
 
-    def _download_input_directory(
+    async def _download_input_directory(
         self,
         directory: str,
         token: str,
@@ -369,7 +369,7 @@ class WESBackend(ABC):
     ) -> str:
         self.log_debug("_download_input_directory called (directory=%s)", directory)
 
-        drop_box_url = get_bento_service_kind_url("drop-box")
+        drop_box_url = await get_service_url("drop-box")
 
         sub_tree = directory.lstrip("/")
 
@@ -454,7 +454,7 @@ class WESBackend(ABC):
         if not self.debug:
             shutil.rmtree(self.run_dir(run), ignore_errors=True)
 
-    def _initialize_run_and_get_command(
+    async def _initialize_run_and_get_command(
         self,
         run: RunWithDetails,
         celery_id: int,
@@ -510,7 +510,7 @@ class WESBackend(ABC):
                 input_param = run_req.workflow_params.get(param_key)
                 if not skip_file_input_injection:
                     # inject input(s) as temp files
-                    injected_input = self._download_input_files(input_param, secrets["access_token"], run_dir)
+                    injected_input = await self._download_input_files(input_param, secrets["access_token"], run_dir)
                 else:
                     injected_input = input_param
                 processed_workflow_params[param_key] = injected_input
@@ -525,7 +525,7 @@ class WESBackend(ABC):
                 filter_extensions: tuple[str, ...] | None = (".vcf", ".vcf.gz") if filter_vcfs else None
 
                 if not skip_file_input_injection:
-                    injected_dir = self._download_input_directory(
+                    injected_dir = await self._download_input_directory(
                         input_param, secrets["access_token"], run_dir, filter_extensions
                     )
                     self.log_info("input parameter %s: injecting directory %s", input_param, injected_dir)
@@ -655,7 +655,7 @@ class WESBackend(ABC):
 
         return ProcessResult((stdout, stderr, exit_code, timed_out))
 
-    def perform_run(self, run: RunWithDetails, celery_id: int, secrets: dict[str, str]) -> ProcessResult | None:
+    async def perform_run(self, run: RunWithDetails, celery_id: int, secrets: dict[str, str]) -> ProcessResult | None:
         """
         Executes a run from start to finish (initialization, startup, and completion / cleanup.)
         :param run: The run to execute
@@ -674,7 +674,7 @@ class WESBackend(ABC):
 
         # Initialization (loading / downloading files + secrets injection) ---------------------------------------------
         try:
-            init_vals = self._initialize_run_and_get_command(run, celery_id, secrets)
+            init_vals = await self._initialize_run_and_get_command(run, celery_id, secrets)
         except RunExceptionWithFailState as e:
             self.log_error(str(e))
             self._finish_run_and_clean_up(run, e.state)
