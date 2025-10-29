@@ -427,8 +427,6 @@ class WESBackend(ABC):
         """
         self.log_debug("Setting state of run %s to %s", run_id, state)
         self.db.update_run_state_and_commit(run_id, state)
-        self.log_debug("Setting state of run %s to %s", run_id, state)
-        self.db.update_run_state_and_commit(self.db.cursor(), run_id, state, event_bus=self.event_bus)
 
     def _finish_run_and_clean_up(self, run: Run, state: str) -> None:
         """
