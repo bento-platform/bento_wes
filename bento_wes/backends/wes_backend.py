@@ -4,8 +4,10 @@ import requests
 import shutil
 import subprocess
 import uuid
-
+from pathlib import Path
+from typing import overload, Sequence
 from abc import ABC, abstractmethod
+
 from bento_lib.events import EventBus
 from bento_lib.events.types import EVENT_WES_RUN_FINISHED
 from bento_lib.utils.headers import authz_bearer_header
@@ -16,18 +18,18 @@ from bento_lib.workflows.models import (
     WorkflowDirectoryInput,
 )
 from bento_lib.workflows.utils import namespaced_input
-from pathlib import Path
-from typing import overload, Sequence
+
 
 from bento_wes import states
 from bento_wes.config import Settings
 from bento_wes.constants import SERVICE_ARTIFACT
 from bento_wes.db import Database, get_db_with_event_bus
 from bento_wes.models import Run, RunWithDetails, RunOutput
-from bento_wes.service_registry import get_service_url
+from bento_wes.service_registry import get_service_manager
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
 from bento_wes.utils import get_drop_box_resource_url, iso_now
 from bento_wes.workflows import WORKFLOW_IGNORE_FILE_PATH_INJECTION, WorkflowType, WorkflowManager
+from bento_wes.logger import Logger
 
 from .backend_types import Command, ProcessResult
 from .exceptions import RunExceptionWithFailState
@@ -47,8 +49,8 @@ class WESBackend(ABC):
         data_dir: Path,
         workflow_timeout: int,  # Workflow timeout, in seconds
         settings: Settings,
-        logger=None,
-        event_bus: EventBus | None = None,
+        logger: Logger,
+        event_bus: EventBus,
         workflow_host_allow_list: set | None = None,
         bento_url: str | None = None,
         validate_ssl: bool = True,
@@ -327,7 +329,7 @@ class WESBackend(ABC):
         self._validate_sub_path(download_dir, tmp_file_path)
 
         # Downloads file to /wes/tmp/<run_dir>/<file_name>
-        download_url = await get_drop_box_resource_url(obj_path)
+        download_url = await get_drop_box_resource_url(obj_path, self.settings, self.logger)
         self._download_to_path(download_url, token, tmp_file_path)
         return str(tmp_file_path)
 
@@ -369,7 +371,7 @@ class WESBackend(ABC):
     ) -> str:
         self.log_debug("_download_input_directory called (directory=%s)", directory)
 
-        drop_box_url = await get_service_url("drop-box")
+        drop_box_url = await get_service_manager(self.settings, self.logger).get_bento_service_url_by_kind("drop-box")  # pyright: ignore[reportArgumentType]
 
         sub_tree = directory.lstrip("/")
 
