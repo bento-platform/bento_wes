@@ -42,6 +42,8 @@ def get_stream(db: Database, stream: RunStream, run_id: UUID):
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Stream {stream} not found for run {run_id}")
 
+    # If we've finished, we allow long-term (24h) caching of the stdout/stderr responses.
+    # Otherwise, no caching allowed!
     cache_control = (
         "private, max-age=86400"
         if run.state in states.TERMINATED_STATES

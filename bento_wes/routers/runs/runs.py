@@ -30,6 +30,10 @@ from .deps import AuthzDep, AuthzCompletionDep, AuthzViewRunsEvaluateDep
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
 
 
+# TODO: figure out timeout
+# TODO: retry policy
+
+
 @runs_router.post("")
 async def create_run(
     run: Annotated[RunRequest, Depends(RunRequest.as_form)],
@@ -76,6 +80,9 @@ async def create_run(
 
     if workflow_attachment:
         for file in workflow_attachment:
+            # TODO: Check and fix input if filename is non-secure
+            # TODO: Do we put these in a subdirectory?
+            # TODO: Support WDL uploads for workflows
             contents = await file.read()
             print(f"Received file: {file.filename} with size {len(contents)} bytes")
         response = await save_upload_files(workflow_attachment, run_dir)
@@ -83,11 +90,14 @@ async def create_run(
     else:
         logger.info("No workflow attachments provided")
 
+    # Process parameters & inject non-secret values
+    #  - Get injectable run config for processing inputs
     run_injectable_config = {
         "validate_ssl": settings.bento_validate_ssl,
         "run_dir": str(run_dir),
         "vep_cache_dir": settings.vep_cache_dir,
     }
+    #  - Set up parameters
     run_params = {**run.workflow_params}
     for run_input in run.tags.workflow_metadata.inputs:
         input_key = namespaced_input(run.tags.workflow_id, run_input.id)
@@ -130,12 +140,14 @@ async def list_runs(
     res_list = []
 
     if public:
+        # Only COMPLETE runs can be viewed in public mode
         for run in db.fetch_runs_by_state(states.STATE_COMPLETE):
             res_list.append(run.list_format(with_details, public))
     else:
         runs = list(db.fetch_all_runs())
         resources = [run.request.get_authz_resource() for run in runs]
 
+        # Filter runs to just those which we have permission to view
         allowed_iter = authz_evaluate(resources)
         for run, allowed in zip(runs, allowed_iter):
             if allowed:

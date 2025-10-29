@@ -91,15 +91,20 @@ async def cancel_run(run: RunDep, db: DatabaseDep, authz_check: AuthzDep, settin
     celery_id = run.run_log.celery_id
 
     if celery_id is None:
+        # Never made it into the queue, so "cancel" it
         raise HTTPException(status_code=500, detail=f"No Celery ID present for run {run.run_id}")
 
+    # TODO: terminate=True might be iffy
     db.update_run_state_and_commit(run.run_id, states.STATE_CANCELING)
-    celery.control.revoke(celery_id, terminate=True)
+    celery.control.revoke(celery_id, terminate=True)  # Remove from queue if there, terminate if running
 
+    # TODO: wait for revocation / failure and update status...
+
+    # TODO: Generalize clean-up code / fetch from back-end
     run_dir = settings.service_temp / str(run.run_id)
     if not settings.bento_debug:
         shutil.rmtree(run_dir, ignore_errors=True)
 
     db.update_run_state_and_commit(run.run_id, states.STATE_CANCELED)
 
-    return PlainTextResponse("Run Cancelled", status_code=204)
+    return PlainTextResponse("Run Cancelled", status_code=204)  # TODO: Better response
