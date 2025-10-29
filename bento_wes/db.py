@@ -167,7 +167,7 @@ class Database:
         stuck_run_ids: list[sqlite3.Row] = self.c.fetchall()
 
         for r in stuck_run_ids:
-            run = self.get_run_with_details(self.c, r["id"], stream_content=True)
+            run = self.get_run_with_details(r["id"], stream_content=True)
             if run is None:
                 self._logger.error(f"Missing run: {r['id']}")
                 continue
@@ -253,23 +253,20 @@ class Database:
                 state=run["state"],
                 request=run_request_from_row(run),
                 run_log=run_log_from_row(run, stream_content, self._settings),
-                task_logs=self.get_task_logs(self.c, run["id"]),
+                task_logs=self.get_task_logs(run["id"]),
                 outputs=json.loads(run["outputs"]),
             )
         )
 
-    @staticmethod
-    def get_task_logs(c: sqlite3.Cursor, run_id: UUID | str) -> list:
-        c.execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
-        return [task_log_dict(task_log) for task_log in c.fetchall()]
+    def get_task_logs(self, run_id: UUID | str) -> list:
+        self.c.execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
+        return [task_log_dict(task_log) for task_log in self.c.fetchall()]
 
-    @staticmethod
-    def _get_run_row(c: sqlite3.Cursor, run_id: UUID | str) -> sqlite3.Row | None:
-        return c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),)).fetchone()
+    def _get_run_row(self, run_id: UUID | str) -> sqlite3.Row | None:
+        return self.c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),)).fetchone()
 
-    @classmethod
-    def get_run(cls, c: sqlite3.Cursor, run_id: UUID | str) -> Run | None:
-        if run := cls._get_run_row(c, run_id):
+    def get_run(self, run_id: UUID | str) -> Run | None:
+        if run := self._get_run_row(run_id):
             return run_from_row(run)
         return None
 
@@ -278,7 +275,7 @@ class Database:
         run_id: UUID | str,
         stream_content: bool,
     ) -> RunWithDetails | None:
-        if run := self._get_run_row(self.c, run_id):
+        if run := self._get_run_row(run_id):
             return self.run_with_details_from_row(run, stream_content)
         return None
 
@@ -309,8 +306,8 @@ class Database:
         self._logger.info(f"Updating run state of {run_id} to {state}")
         self.c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
         self.commit()
-        if publish_event:
-            payload = self.get_run_with_details(run_id, stream_content=False).model_dump(mode="json")
+        if publish_event and (run := self.get_run_with_details(run_id, stream_content=False)) is not None:
+            payload = run.model_dump(mode="json")
             self.event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_UPDATED, payload)
 
 
