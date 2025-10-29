@@ -32,6 +32,7 @@ BENTO_EXTRA_SERVICE_INFO: BentoExtraServiceInfo = {
 }
 
 
+# Even though hashable, the class isn't detected as hashable by the type checker requiring ignore comments
 class Settings(BentoFastAPIBaseConfig):
     """
     Centralized application configuration.
