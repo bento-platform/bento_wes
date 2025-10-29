@@ -39,7 +39,8 @@ ALLOWED_WORKFLOW_REQUEST_SCHEMES = ("http", "https")
 
 MAX_WORKFLOW_FILE_BYTES = 50000  # 50 KB
 
-# Workflow IDs for which input file(s) must be a URL reference.
+# Workflow IDs for which input file(s) must be a URL reference, instead of an injected temp file.
+# TODO: find a way for WES to get this info from the workflow/service, instead of hard-coding
 WORKFLOW_IGNORE_FILE_PATH_INJECTION = frozenset({"vcf_gz"})
 
 
@@ -70,7 +71,7 @@ class WorkflowManager:
         service_base_url: str,
         bento_url: str | None = None,
         logger: logging.Logger | None = None,
-        workflow_host_allow_list: str | None = None,
+        workflow_host_allow_list: set[str] | None = None,
         validate_ssl: bool = True,
         debug: bool = False,
     ):
@@ -78,7 +79,7 @@ class WorkflowManager:
         self.service_base_url: str = service_base_url
         self.bento_url: str | None = bento_url
         self.logger: logging.Logger | None = logger
-        self.workflow_host_allow_list: str | None = workflow_host_allow_list
+        self.workflow_host_allow_list: set[str] | None = workflow_host_allow_list
         self._validate_ssl: bool = validate_ssl
         self._debug_mode: bool = debug
 
@@ -130,7 +131,7 @@ class WorkflowManager:
         if workflow_uri.scheme not in ALLOWED_WORKFLOW_REQUEST_SCHEMES:  # file://
             # TODO: Other else cases
             # TODO: Handle exceptions
-            await asyncio.to_thread(shutil.copyfile, workflow_uri.path, workflow_path)
+            await asyncio.to_thread(shutil.copyfile, str(workflow_uri.path), workflow_path)
             return
 
         if self.workflow_host_allow_list is not None:
@@ -150,7 +151,7 @@ class WorkflowManager:
         # Only bother doing this if BENTO_URL is actually set.
 
         use_auth_headers: bool = False
-        if self.bento_url:
+        if self.bento_url and workflow_uri.path is not None:
             parsed_bento_url = urlparse(self.bento_url)
             use_auth_headers = all(
                 (
