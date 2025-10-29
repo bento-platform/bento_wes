@@ -15,12 +15,12 @@ async def lifespan(app: BentoFastAPI):
     logger = get_logger()
     logger.info("Starting up database...")
     try:
-        init_event_bus()
+        init_event_bus(logger)
         setup_database_on_startup(logger)
         repair_database_on_startup(logger)
         yield
     finally:
-        await shutdown_event_bus()
+        await shutdown_event_bus(logger)
 
 
 def create_app():

@@ -18,7 +18,7 @@ async def run_workflow(self, run_id: uuid.UUID):
     settings: Settings = get_settings()
     logger = get_task_logger(__name__)
 
-    event_bus: EventBus = get_worker_event_bus()
+    event_bus: EventBus = get_worker_event_bus(logger)
 
     _db_gen = get_db_with_event_bus(logger, event_bus)
     db: Database = next(_db_gen)
@@ -102,5 +102,5 @@ async def run_workflow(self, run_id: uuid.UUID):
             next(_db_gen)
         except StopIteration:
             pass
-        asyncio.run(close_worker_event_bus())
+        asyncio.run(close_worker_event_bus(logger))
         backend.close()

@@ -88,7 +88,7 @@ class Database:
         )
         self._conn.row_factory = sqlite3.Row
         self._apply_pragmas()
-        self.event_bus = event_bus or get_event_bus()
+        self.event_bus = event_bus or get_event_bus(logger)
         self._settings = settings
         self._logger = logger
 
