@@ -9,7 +9,6 @@ from .backends.wes_backend import WESBackend
 from .celery import celery
 from .db import Database, get_db_with_event_bus
 from .events import get_worker_event_bus, EventBus, close_worker_event_bus
-from .workflows import parse_workflow_host_allow_list
 from .config import get_settings, Settings
 
 
@@ -36,21 +35,9 @@ async def run_workflow(self, run_id: uuid.UUID):
     # TODO: Change based on workflow type / what's supported - get first runner
     #  'enabled' (somehow) which supports the type
     logger.info("Initializing backend")
-    validate_ssl = settings.bento_validate_ssl
     backend: WESBackend = CromwellLocalBackend(
-        tmp_dir=settings.service_temp,
-        data_dir=settings.service_data,
-        workflow_timeout=settings.workflow_timeout.total_seconds(),
-        # Dependencies
         logger=logger,
         event_bus=event_bus,
-        # Get list of allowed workflow hosts from configuration for any checks inside the runner
-        workflow_host_allow_list=parse_workflow_host_allow_list(settings.workflow_host_allow_list),
-        # Bento-specific stuff
-        bento_url=(settings.bento_url or None),
-        # Debug/production flags (validate SSL must be ON in production; debug must be OFF)
-        validate_ssl=validate_ssl,
-        debug=settings.bento_debug,
         settings=settings,
     )
 
@@ -67,10 +54,10 @@ async def run_workflow(self, run_id: uuid.UUID):
             #  - perhaps exchange the user's token for some type of limited-scope token (ingest only) which lasts
             #    48 hours, given out by the authorization service?
 
-            openid_config = requests.get(settings.bento_openid_config_url, verify=validate_ssl).json()
+            openid_config = requests.get(settings.bento_openid_config_url, verify=settings.bento_validate_ssl).json()
             token_res = requests.post(
                 openid_config["token_endpoint"],
-                verify=validate_ssl,
+                verify=settings.bento_validate_ssl,
                 data={
                     "grant_type": "client_credentials",
                     "client_id": client_id,

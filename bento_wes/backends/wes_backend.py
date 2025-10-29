@@ -28,7 +28,12 @@ from bento_wes.models import Run, RunWithDetails, RunOutput
 from bento_wes.service_registry import get_service_manager
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
 from bento_wes.utils import get_drop_box_resource_url, iso_now
-from bento_wes.workflows import WORKFLOW_IGNORE_FILE_PATH_INJECTION, WorkflowType, WorkflowManager
+from bento_wes.workflows import (
+    WORKFLOW_IGNORE_FILE_PATH_INJECTION,
+    WorkflowType,
+    WorkflowManager,
+    parse_workflow_host_allow_list,
+)
 from bento_wes.logger import Logger
 
 from .backend_types import Command, ProcessResult
@@ -45,24 +50,17 @@ ParamDict = dict[str, str | int | float | bool]
 class WESBackend(ABC):
     def __init__(
         self,
-        tmp_dir: Path,
-        data_dir: Path,
-        workflow_timeout: int,  # Workflow timeout, in seconds
         settings: Settings,
         logger: Logger,
         event_bus: EventBus,
-        workflow_host_allow_list: set | None = None,
-        bento_url: str | None = None,
-        validate_ssl: bool = True,
-        debug: bool = False,
     ):
         self.settings = settings
-        self._workflow_timeout: int = workflow_timeout
+        self._workflow_timeout: int = int(settings.workflow_timeout.total_seconds())
 
-        self.tmp_dir: Path = tmp_dir
-        self.data_dir: Path = data_dir
+        self.tmp_dir: Path = settings.service_temp
+        self.data_dir: Path = settings.service_data
 
-        self.output_dir: Path = data_dir / "output"  # For persistent file artifacts from workflows
+        self.output_dir: Path = self.data_dir / "output"  # For persistent file artifacts from workflows
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.logger = logger
@@ -71,13 +69,13 @@ class WESBackend(ABC):
         self._db_gen = get_db_with_event_bus(self.logger, self.event_bus)
         self.db: Database = next(self._db_gen)
 
-        self.workflow_host_allow_list = workflow_host_allow_list
+        self.workflow_host_allow_list = parse_workflow_host_allow_list(settings.workflow_host_allow_list)
 
         # Bento-specific parameters
-        self.bento_url: str = bento_url
+        self.bento_url = str(settings.bento_url)
 
-        self.validate_ssl: bool = validate_ssl
-        self.debug: bool = debug
+        self.validate_ssl: bool = settings.bento_validate_ssl
+        self.debug: bool = settings.bento_debug
 
         self._workflow_manager: WorkflowManager = WorkflowManager(
             self.tmp_dir,
@@ -85,7 +83,7 @@ class WESBackend(ABC):
             bento_url=self.bento_url,
             logger=self.logger,
             workflow_host_allow_list=self.workflow_host_allow_list,
-            validate_ssl=validate_ssl,
+            validate_ssl=self.validate_ssl,
             debug=self.debug,
         )
 

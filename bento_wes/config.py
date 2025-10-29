@@ -52,7 +52,7 @@ class Settings(BentoFastAPIBaseConfig):
     )
 
     # --- Core / Bento ---
-    bento_url: AnyHttpUrl = Field("http://127.0.0.1:5000/")
+    bento_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:5000/")
     bento_debug: bool = Field(
         default=False,
         validation_alias=AliasChoices("BENTO_DEBUG", "FLASK_DEBUG"),
@@ -99,7 +99,7 @@ class Settings(BentoFastAPIBaseConfig):
     # OIDC / WES client
     bento_openid_config_url: str = "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration"
     wes_client_id: str = "bento_wes"
-    wes_client_secret: SecretStr | None = Field(default=None, alias="WES_CLIENT_SECRET")
+    wes_client_secret: SecretStr
 
     # --- Workflow backend / WDL ---
     cromwell_location: Path = Path("/cromwell.jar")
