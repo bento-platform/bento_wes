@@ -79,10 +79,17 @@ def logger():
 
 
 @pytest.fixture
-def db_session(settings, logger):
+def event_bus(logger):
+    from bento_wes.events import get_event_bus
+
+    return get_event_bus(logger)
+
+
+@pytest.fixture
+def db_session(settings, logger, event_bus):
     from bento_wes.db import get_db
 
-    gen = get_db(settings, logger)
+    gen = get_db(settings, logger, event_bus)
     db = next(gen)
     try:
         yield db

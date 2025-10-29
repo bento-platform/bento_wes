@@ -312,8 +312,8 @@ class Database:
 
 
 # === FastAPI dependency: one connection per request, auto-closed ===
-def get_db(settings: SettingsDep, logger: LoggerDep) -> Generator["Database", None, None]:
-    db = Database(settings, logger)
+def get_db(settings: SettingsDep, logger: LoggerDep, event_bus: EventBus) -> Generator["Database", None, None]:
+    db = Database(settings, logger, event_bus)
     try:
         yield db
     finally:
@@ -323,7 +323,8 @@ def get_db(settings: SettingsDep, logger: LoggerDep) -> Generator["Database", No
 def get_db_with_event_bus(
     logger: Optional[Logger] = None, event_bus: Optional[EventBus] = None
 ) -> Generator["Database", None, None]:
-    db = Database(get_settings(), logger or get_logger(), event_bus or get_event_bus())
+    func_logger = logger or get_logger()
+    db = Database(get_settings(), func_logger, event_bus or get_event_bus(func_logger))
     try:
         yield db
     finally:
