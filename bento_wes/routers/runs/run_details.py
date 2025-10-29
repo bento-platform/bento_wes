@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Form
 from fastapi.responses import PlainTextResponse, FileResponse
 from fastapi.exceptions import HTTPException
+from fastapi import status
 import shutil
 import urllib.parse
 from uuid import UUID
@@ -45,7 +46,9 @@ async def run_download_artifact(
 
     artifact_path = path.strip()
     if not artifact_path:
-        raise HTTPException(status_code=400, detail="Requested artifact path is blank or unspecified")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Requested artifact path is blank or unspecified"
+        )
 
     artifacts: set[str] = set()
     for o in run.outputs.values():
