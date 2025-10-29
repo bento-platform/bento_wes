@@ -102,7 +102,7 @@ class RunWithDetails(Run):
     task_logs: list[dict]  # TODO: model
     outputs: dict[str, RunOutput]
 
-    def list_format(self, is_public: bool, with_details: bool) -> dict:
+    def list_format(self, with_details: bool = False, is_public: bool = False) -> dict:
         return {
             **self.model_dump(mode="json", include={"run_id", "state"}),
             **(

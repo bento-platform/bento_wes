@@ -131,7 +131,7 @@ async def list_runs(
 
     if public:
         for run in db.fetch_runs_by_state(states.STATE_COMPLETE):
-            res_list.append(run.list_format(public, with_details))
+            res_list.append(run.list_format(with_details, public))
     else:
         runs = list(db.fetch_all_runs())
         resources = [run.request.get_authz_resource() for run in runs]
@@ -139,7 +139,7 @@ async def list_runs(
         allowed_iter = authz_evaluate(resources)
         for run, allowed in zip(runs, allowed_iter):
             if allowed:
-                res_list.append(run.list_format(public, with_details))
+                res_list.append(run.list_format(with_details, public))
 
     await mark_authz_done()
 

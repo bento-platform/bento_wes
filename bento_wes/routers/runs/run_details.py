@@ -32,7 +32,7 @@ async def get_run(run: RunDep, authz_check: AuthzDep):
 @detail_router.get("/status")
 async def run_status(run: RunDep, authz_check: AuthzDep):
     await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
-    return run.model_dump(mode="json")
+    return run.list_format()
 
 
 @detail_router.post("/download-artifact")
