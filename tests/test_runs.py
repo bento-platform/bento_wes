@@ -1,7 +1,7 @@
 import json
 import uuid
 
-from constants import EXAMPLE_RUN, EXAMPLE_RUN_BODY
+from .constants import EXAMPLE_RUN, EXAMPLE_RUN_BODY
 
 from bento_wes.states import STATE_QUEUED, STATE_COMPLETE
 
