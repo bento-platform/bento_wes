@@ -99,7 +99,7 @@ class Settings(BentoFastAPIBaseConfig):
     # OIDC / WES client
     bento_openid_config_url: str = "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration"
     wes_client_id: str = "bento_wes"
-    wes_client_secret: SecretStr
+    wes_client_secret: SecretStr = SecretStr("")
 
     # --- Workflow backend / WDL ---
     cromwell_location: Path = Path("/cromwell.jar")
