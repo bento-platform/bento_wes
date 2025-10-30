@@ -1,12 +1,15 @@
-from bento_lib.auth.middleware.flask import FlaskAuthMiddleware
-from . import config
+from functools import lru_cache
+from typing import Annotated
+from fastapi import Depends
 
-__all__ = [
-    "authz_middleware",
-]
+from bento_lib.auth.middleware.fastapi import FastApiAuthMiddleware
+from .config import SettingsDep
+from .logger import LoggerDep
 
-authz_middleware = FlaskAuthMiddleware(
-    config.AUTHZ_URL,
-    debug_mode=config.BENTO_DEBUG,
-    enabled=config.AUTHZ_ENABLED,
-)
+
+@lru_cache
+def get_authz_middleware(settings: SettingsDep, logger: LoggerDep):
+    return FastApiAuthMiddleware.build_from_fastapi_pydantic_config(settings, logger)
+
+
+AuthzMiddlewareDep = Annotated[FastApiAuthMiddleware, Depends(get_authz_middleware)]

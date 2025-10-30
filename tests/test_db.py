@@ -1,20 +1,6 @@
-from flask import g
+from bento_wes.db import get_db, Database
 
 
-# noinspection PyUnusedLocal,PyProtectedMember
-def test_db(client):
-    from bento_wes import db
-
-    # Force db init by yielding client
-
-    assert isinstance(db.get_db(), db.Database)
-
-    # Test helper util
-    assert db._strip_first_slash("/") == ""
-    assert db._strip_first_slash("/test/app") == "test/app"
-    assert db._strip_first_slash("test/app") == "test/app"
-    assert db._strip_first_slash("/test/app/") == "test/app/"
-    assert db._strip_first_slash("test/app/") == "test/app/"
-
-    db.close_db(None)
-    assert g.get("db", None) is None
+def test_db(settings, logger, event_bus):
+    db = next(get_db(settings, logger, event_bus))
+    assert isinstance(db, Database)

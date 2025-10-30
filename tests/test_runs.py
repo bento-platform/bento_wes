@@ -1,6 +1,4 @@
 import json
-import os
-import responses
 import uuid
 
 from .constants import EXAMPLE_RUN, EXAMPLE_RUN_BODY
@@ -8,30 +6,17 @@ from .constants import EXAMPLE_RUN, EXAMPLE_RUN_BODY
 from bento_wes.states import STATE_QUEUED, STATE_COMPLETE
 
 
-def _add_workflow_response(r):
-    with open(os.path.join(os.path.dirname(__file__), "phenopackets_json.wdl"), "r") as wf:
-        r.add(
-            responses.GET,
-            "http://metadata.local/workflows/phenopackets_json.wdl",
-            body=wf.read(),
-            status=200,
-            content_type="text/plain",
-        )
-
-
 def _create_valid_run(client):
     rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
-    data = rv.get_json()
+    data = rv.json()
     assert rv.status_code == 200  # 200 is WES spec, even though 201 would be better (?)
     return data
 
 
-def test_runs_endpoint(client, mocked_responses):
-    _add_workflow_response(mocked_responses)
-
+def test_runs_endpoint(client, _mocked_responses_with_workflow):
     rv = client.get("/runs")
     assert rv.status_code == 200
-    data = rv.get_json()
+    data = rv.json()
     assert json.dumps(data) == json.dumps([])
 
     cr_data = _create_valid_run(client)
@@ -39,12 +24,12 @@ def test_runs_endpoint(client, mocked_responses):
 
     rv = client.get("/runs")
     assert rv.status_code == 200
-    data = rv.get_json()
+    data = rv.json()
     assert json.dumps(data, sort_keys=True) == json.dumps([{**cr_data, "state": STATE_QUEUED}], sort_keys=True)
 
     rv = client.get("/runs?with_details=true")
     assert rv.status_code == 200
-    data = rv.get_json()
+    data = rv.json()
 
     run = data[0]
 
@@ -59,8 +44,8 @@ def test_runs_endpoint(client, mocked_responses):
     assert run["details"]["run_log"]["cmd"] == ""
     assert run["details"]["run_log"]["start_time"] is None
     assert run["details"]["run_log"]["end_time"] is None
-    assert run["details"]["run_log"]["stdout"] == f"http://127.0.0.1:5000/runs/{cr_data['run_id']}/stdout"
-    assert run["details"]["run_log"]["stderr"] == f"http://127.0.0.1:5000/runs/{cr_data['run_id']}/stderr"
+    assert run["details"]["run_log"]["stdout"].endswith(f"/runs/{cr_data['run_id']}/stdout")
+    assert run["details"]["run_log"]["stderr"].endswith(f"/runs/{cr_data['run_id']}/stderr")
     assert run["details"]["run_log"]["exit_code"] is None
 
     assert tuple(sorted(run.keys())) == ("details", "run_id", "state")
@@ -72,14 +57,12 @@ def test_run_create_errors(client):
 
     rv = client.post("/runs", data=bad_body_1)
     assert rv.status_code == 400
-    error = rv.get_json()
+    error = rv.json()
     assert len(error["errors"]) == 1
-    assert error["errors"][0]["message"].startswith("Validation error")
+    assert "Field required" in error["errors"][0]["message"]
 
 
-def test_run_detail_endpoint(client, mocked_responses):
-    _add_workflow_response(mocked_responses)
-
+def test_run_detail_endpoint(client, _mocked_responses_with_workflow):
     cr_data = _create_valid_run(client)
 
     rv = client.get(f"/runs/{uuid.uuid4()}")
@@ -87,7 +70,7 @@ def test_run_detail_endpoint(client, mocked_responses):
 
     rv = client.get(f"/runs/{cr_data['run_id']}")
     assert rv.status_code == 200
-    run = rv.get_json()
+    run = rv.json()
 
     assert run["run_id"] == cr_data["run_id"]
     assert run["state"] == STATE_QUEUED
@@ -99,8 +82,8 @@ def test_run_detail_endpoint(client, mocked_responses):
     assert run["run_log"]["cmd"] == ""
     assert run["run_log"]["start_time"] is None
     assert run["run_log"]["end_time"] is None
-    assert run["run_log"]["stdout"] == f"http://127.0.0.1:5000/runs/{cr_data['run_id']}/stdout"
-    assert run["run_log"]["stderr"] == f"http://127.0.0.1:5000/runs/{cr_data['run_id']}/stderr"
+    assert run["run_log"]["stdout"].endswith(f"/runs/{cr_data['run_id']}/stdout")
+    assert run["run_log"]["stderr"].endswith(f"/runs/{cr_data['run_id']}/stderr")
     assert run["run_log"]["exit_code"] is None
 
     assert json.dumps(run["outputs"]) == json.dumps({})
@@ -108,9 +91,7 @@ def test_run_detail_endpoint(client, mocked_responses):
     assert tuple(sorted(run.keys())) == ("outputs", "request", "run_id", "run_log", "state", "task_logs")
 
 
-def test_run_status_endpoint(client, mocked_responses):
-    _add_workflow_response(mocked_responses)
-
+def test_run_status_endpoint(client, _mocked_responses_with_workflow):
     cr_data = _create_valid_run(client)
 
     rv = client.get(f"/runs/{uuid.uuid4()}/status")
@@ -118,12 +99,10 @@ def test_run_status_endpoint(client, mocked_responses):
 
     rv = client.get(f"/runs/{cr_data['run_id']}/status")
     assert rv.status_code == 200
-    assert json.dumps(rv.get_json(), sort_keys=True) == json.dumps({**cr_data, "state": STATE_QUEUED}, sort_keys=True)
+    assert json.dumps(rv.json(), sort_keys=True) == json.dumps({**cr_data, "state": STATE_QUEUED}, sort_keys=True)
 
 
-def test_run_streams(client, mocked_responses):
-    _add_workflow_response(mocked_responses)
-
+def test_run_streams(client, _mocked_responses_with_workflow):
     cr_data = _create_valid_run(client)
 
     rv = client.get(f"/runs/{uuid.uuid4()}/stdout")
@@ -134,16 +113,14 @@ def test_run_streams(client, mocked_responses):
 
     rv = client.get(f"/runs/{cr_data['run_id']}/stdout")
     assert rv.status_code == 200
-    assert rv.data == b""
+    assert rv.content == b""
 
     rv = client.get(f"/runs/{cr_data['run_id']}/stderr")
     assert rv.status_code == 200
-    assert rv.data == b""
+    assert rv.content == b""
 
 
-def test_run_cancel_endpoint(client, mocked_responses):
-    _add_workflow_response(mocked_responses)
-
+def test_run_cancel_endpoint(client, _mocked_responses_with_workflow):
     cr_data = _create_valid_run(client)
 
     rv = client.post(f"/runs/{uuid.uuid4()}/cancel")
@@ -151,44 +128,39 @@ def test_run_cancel_endpoint(client, mocked_responses):
 
     rv = client.post(f"/runs/{cr_data['run_id']}/cancel")
     assert rv.status_code == 500
-    error = rv.get_json()
+    error = rv.json()
     assert len(error["errors"]) == 1
     assert error["errors"][0]["message"].startswith("No Celery ID present")
 
     # TODO: Get celery running for tests
 
     # rv = client.post(f"/runs/{cr_data['run_id']}/cancel")
-    # print(rv.get_json(), flush=True)
+    # print(rv.json(), flush=True)
     # assert rv.status_code == 204
     #
     # rv = client.post(f"/runs/{cr_data['run_id']}/cancel")
     # assert rv.status_code == 400
-    # error = rv.get_json()
+    # error = rv.json()
     # assert len(error["errors"]) == 1
     # assert error["errors"][0]["message"] == "Run already canceled"
 
 
-def test_runs_public_endpoint(client, mocked_responses):
-    from bento_wes.db import get_db
+def test_runs_public_endpoint(client, _mocked_responses_with_workflow, db_session):
     from bento_lib.events import EventBus
 
     event_bus = EventBus(allow_fake=True)  # mock event bus
-
-    _add_workflow_response(mocked_responses)
 
     # first, create a run, so we have something to fetch
     rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
     assert rv.status_code == 200  # 200 is WES spec, even though 201 would be better (?)
 
     # make sure the run is complete, otherwise the public endpoint won't list it
-    db = get_db()
-    c = db.cursor()
-    db.update_run_state_and_commit(c, rv.get_json()["run_id"], STATE_COMPLETE, event_bus)
+    db_session.update_run_state_and_commit(rv.json()["run_id"], STATE_COMPLETE, event_bus)
 
     # validate the public runs endpoint
     rv = client.get("/runs?with_details=true&public=true")
     assert rv.status_code == 200
-    data = rv.get_json()
+    data = rv.json()
 
     expected_keys = ["run_id", "state", "details"]
     expected_details_keys = ["request", "run_id", "run_log", "state"]
