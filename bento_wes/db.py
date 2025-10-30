@@ -15,7 +15,7 @@ from . import states
 from .backends.backend_types import Command
 from .config import get_settings, Settings, SettingsDep
 from .constants import SERVICE_ARTIFACT
-from .events import get_event_bus
+from .events import get_event_bus, EventBusDep
 from .logger import get_logger, Logger, LoggerDep
 from .models import Run, RunLog, RunRequest, RunWithDetails
 from .types import RunStream
@@ -312,7 +312,7 @@ class Database:
 
 
 # === FastAPI dependency: one connection per request, auto-closed ===
-def get_db(settings: SettingsDep, logger: LoggerDep, event_bus: EventBus) -> Generator["Database", None, None]:
+def get_db(settings: SettingsDep, logger: LoggerDep, event_bus: EventBusDep) -> Generator["Database", None, None]:
     db = Database(settings, logger, event_bus)
     try:
         yield db
