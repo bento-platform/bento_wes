@@ -623,7 +623,7 @@ class WESBackend(ABC):
         workflow_outputs = self.get_workflow_outputs(run)
 
         # Explicitly don't commit here; sync with state update
-        self.db.set_run_outputs(self.db.c, run.run_id, workflow_outputs)
+        self.db.set_run_outputs(run.run_id, workflow_outputs)
 
         # Emit event if possible
         self.event_bus.publish_service_event(

@@ -296,9 +296,8 @@ class Database:
         )
         self.commit()
 
-    @staticmethod
-    def set_run_outputs(c: sqlite3.Cursor, run_id: str, outputs: dict[str, Any]) -> None:
-        c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(outputs), str(run_id)))
+    def set_run_outputs(self, run_id: str, outputs: dict[str, Any]) -> None:
+        self.c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(outputs), str(run_id)))
 
     def update_run_state_and_commit(
         self,
