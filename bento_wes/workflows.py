@@ -4,7 +4,7 @@ import logging
 import shutil
 
 from base64 import urlsafe_b64encode
-from fastapi import Depends
+from fastapi import Depends, status
 from pathlib import Path
 from pydantic import AnyUrl
 from typing import NewType, Annotated
@@ -148,8 +148,8 @@ class WorkflowManager:
                     workflow_uri.path.startswith(parsed_bento_url.path),
                 )
             )
-        # TODO: Better auth? May only be allowed to access specific workflows
 
+        # TODO: Better auth? May only be allowed to access specific workflows
         try:
             url = str(workflow_uri)
             async with httpx.AsyncClient(verify=self._validate_ssl, timeout=None, follow_redirects=True) as client:
@@ -167,7 +167,7 @@ class WorkflowManager:
 
         content = await resp.aread()
 
-        if resp.status_code == 200 and len(content) < MAX_WORKFLOW_FILE_BYTES:
+        if resp.status_code == status.HTTP_200_OK and len(content) < MAX_WORKFLOW_FILE_BYTES:
             if workflow_path.exists():
                 await asyncio.to_thread(workflow_path.unlink)
 

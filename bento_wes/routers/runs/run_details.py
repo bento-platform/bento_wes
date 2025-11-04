@@ -1,13 +1,13 @@
+import shutil
+import urllib.parse
+
+from bento_lib.auth.permissions import P_VIEW_RUNS
 from fastapi import APIRouter, Depends, Form
 from fastapi.responses import PlainTextResponse, FileResponse
 from fastapi.exceptions import HTTPException
 from fastapi import status
-import shutil
-import urllib.parse
 from uuid import UUID
 from pathlib import Path
-
-from bento_lib.auth.permissions import P_VIEW_RUNS
 
 from bento_wes import states
 from bento_wes.db import DatabaseDep

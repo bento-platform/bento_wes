@@ -66,7 +66,7 @@ def evaluate_run_permissions_function(
             return None
 
         p: FrozenSet[Permission] = frozenset({permission})
-        await authz_middleware.async_check_authz_evaluate(request, p, resource, set_authz_flag=True)
+        return await authz_middleware.async_check_authz_evaluate(request, p, resource, set_authz_flag=True)
 
     return _inner
 
