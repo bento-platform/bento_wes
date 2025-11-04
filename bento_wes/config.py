@@ -4,16 +4,9 @@ from fastapi import Depends
 from functools import lru_cache
 from datetime import timedelta
 from pathlib import Path
-from typing import Literal, Annotated, Tuple
+from typing import Annotated, Literal
 
-from pydantic import (
-    AnyHttpUrl,
-    Field,
-    AliasChoices,
-    model_validator,
-    field_validator,
-    SecretStr,
-)
+from pydantic import AliasChoices, AnyHttpUrl, Field, SecretStr, model_validator, field_validator
 from pydantic.networks import RedisDsn
 from pydantic_settings import SettingsConfigDict
 
@@ -27,7 +20,7 @@ __all__ = ["Settings", "get_settings", "SettingsDep"]
 BENTO_EXTRA_SERVICE_INFO: BentoExtraServiceInfo = {
     "serviceKind": BENTO_SERVICE_KIND,
     "dataService": False,
-    "workflowProvider": True,
+    "workflowProvider": False,
     "gitRepository": GIT_REPOSITORY,
 }
 
@@ -107,7 +100,7 @@ class Settings(BentoFastAPIBaseConfig):
     workflow_host_allow_list: str | None = None
 
     # --- CORS ---
-    cors_origins: Tuple[str, ...] | Literal["*"] = "*"
+    cors_origins: tuple[str, ...] | Literal["*"] = "*"
 
     # --- VEP / optional data ---
     vep_cache_dir: Path | None = None
@@ -158,8 +151,7 @@ class Settings(BentoFastAPIBaseConfig):
 
 @lru_cache
 def get_settings() -> Settings:
-    settings = Settings()
-    return settings
+    return Settings()
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
