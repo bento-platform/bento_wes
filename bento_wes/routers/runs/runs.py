@@ -1,15 +1,16 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
-from fastapi.responses import JSONResponse
-from typing import Annotated
 import httpx
 import uuid
-from pathlib import Path
 
 from bento_lib.workflows.utils import namespaced_input
 from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlInput
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
+from fastapi.responses import JSONResponse
+from pathlib import Path
+from pydantic import BaseModel
+from typing import Annotated
 
 from bento_wes import states
-from bento_wes.config import SettingsDep
+from bento_wes.config import Settings, SettingsDep
 from bento_wes.db import DatabaseDep
 from bento_wes.logger import LoggerDep
 from bento_wes.models import RunRequest
@@ -29,8 +30,19 @@ from .deps import AuthzDep, AuthzCompletionDep, AuthzViewRunsEvaluateDep
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
 
 
-# TODO: figure out timeout
-# TODO: retry policy
+def _config_for_run(settings: Settings, run_dir: Path):
+    return {
+        # In production, workflows should validate SSL (i.e., omit the curl -k flag).
+        # In development, SSL certificates are usually self-signed, so they will not validate.
+        "validate_ssl": settings.bento_validate_ssl,
+        "run_dir": str(run_dir),
+        # Variant effect predictor cache (large directory):
+        "vep_cache_dir": settings.vep_cache_dir,
+    }
+
+
+class RunIDResponse(BaseModel):
+    run_id: uuid.UUID
 
 
 @runs_router.post("")
@@ -44,8 +56,8 @@ async def create_run(
     service_manager: ServiceManagerDep,
     workflow_manager: WorkflowManagerDep,
     workflow_attachment: list[UploadFile] | None = File(None),
-):
-    # authz
+) -> RunIDResponse:
+    # Authz: check permission corresponding to the workflow definition before continuing
     await authz_check(run.get_workflow_permission(), run.get_authz_resource())
 
     logger.info(f"Starting run creation for workflow {run.tags.workflow_id}")
@@ -84,11 +96,7 @@ async def create_run(
 
     # Process parameters & inject non-secret values
     #  - Get injectable run config for processing inputs
-    run_injectable_config = {
-        "validate_ssl": settings.bento_validate_ssl,
-        "run_dir": str(run_dir),
-        "vep_cache_dir": settings.vep_cache_dir,
-    }
+    run_injectable_config = _config_for_run(settings, run_dir)
     #  - Set up parameters
     run_params = {**run.workflow_params}
     for run_input in run.tags.workflow_metadata.inputs:
@@ -98,7 +106,7 @@ async def create_run(
             if config_value is None:
                 err = f"Could not find injectable configuration value for key {run_input.key}"
                 logger.error(err)
-                raise HTTPException(status_code=400, detail=err)
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
             logger.debug(
                 f"Injecting configuration parameter '{run_input.key}' into run {run_id}: {run_input.id}={config_value}"
             )
@@ -109,16 +117,20 @@ async def create_run(
             if config_value is None:
                 err = f"Could not find URL/service record for service kind '{sk}'"
                 logger.error(err)
-                raise HTTPException(status_code=400, detail=err)
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
             logger.debug(f"Injecting URL for service kind '{sk}' into run {run_id}: {run_input.id}={config_value}")
             run_params[input_key] = config_value
 
     db.insert_run(run_id, run, run_params)
+
+    # TODO: figure out timeout
+    # TODO: retry policy
+
     db.update_run_state_and_commit(run_id, states.STATE_QUEUED, publish_event=False)
 
     run_workflow.delay(run_id)
 
-    return JSONResponse(content={"run_id": str(run_id)})
+    return RunIDResponse(run_id=run_id)
 
 
 @runs_router.get("")
