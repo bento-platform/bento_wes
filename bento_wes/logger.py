@@ -18,34 +18,36 @@ def get_logger() -> Logger:
 
     log_level = log_level_from_str(os.environ.get("LOG_LEVEL", "info").strip().lower())
 
-    logging.config.dictConfig({
-        "version": 1,
-        "disable_existing_loggers": False,
-        "formatters": {
-            "default": {"format": "%(levelname)s:%(name)s:%(message)s"},
-        },
-        "handlers": {
-            "console": {
-                "class": "logging.StreamHandler",
-                "formatter": "default",
-            }
-        },
-        "root": {
-            "level": log_level,
-            "handlers": ["console"],
-        },
-        "loggers": {
-            # quiet noisy libs in dev
-            "asyncio": {"level": "INFO"},
-            "celery.utils.functional": {"level": "WARNING"},
-            "celery.app.trace": {"level": "INFO"},
-            "python_multipart.multipart": {
-                "level": "WARNING",
-                "handlers": ["console"],
-                "propagate": False,
+    logging.config.dictConfig(
+        {
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {
+                "default": {"format": "%(levelname)s:%(name)s:%(message)s"},
             },
-        },
-    })
+            "handlers": {
+                "console": {
+                    "class": "logging.StreamHandler",
+                    "formatter": "default",
+                }
+            },
+            "root": {
+                "level": log_level,
+                "handlers": ["console"],
+            },
+            "loggers": {
+                # quiet noisy libs in dev
+                "asyncio": {"level": "INFO"},
+                "celery.utils.functional": {"level": "WARNING"},
+                "celery.app.trace": {"level": "INFO"},
+                "python_multipart.multipart": {
+                    "level": "WARNING",
+                    "handlers": ["console"],
+                    "propagate": False,
+                },
+            },
+        }
+    )
 
     return logger
 
