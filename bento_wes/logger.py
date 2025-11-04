@@ -14,11 +14,11 @@ __all__ = ["get_logger", "LoggerDep"]
 
 @lru_cache
 def get_logger() -> Logger:
-    logger = logging.getLogger(__name__)
+    logger = logging.getLogger("wes")
 
-    LOG_LEVEL = log_level_from_str(os.environ.get("LOG_LEVEL", "info").strip().lower())
+    log_level = log_level_from_str(os.environ.get("LOG_LEVEL", "info").strip().lower())
 
-    LOGGING = {
+    logging.config.dictConfig({
         "version": 1,
         "disable_existing_loggers": False,
         "formatters": {
@@ -31,7 +31,7 @@ def get_logger() -> Logger:
             }
         },
         "root": {
-            "level": LOG_LEVEL,
+            "level": log_level,
             "handlers": ["console"],
         },
         "loggers": {
@@ -45,9 +45,8 @@ def get_logger() -> Logger:
                 "propagate": False,
             },
         },
-    }
+    })
 
-    logging.config.dictConfig(LOGGING)
     return logger
 
 
