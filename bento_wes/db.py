@@ -1,11 +1,12 @@
 import json
 import sqlite3
 import shlex
-from uuid import UUID
+from logging import Logger
+from fastapi import Depends
 from pathlib import Path
 from typing import Any, Generator, Annotated, Optional
 from urllib.parse import urljoin
-from fastapi import Depends
+from uuid import UUID
 
 from bento_lib.events import EventBus
 from bento_lib.events.notifications import format_notification
@@ -16,7 +17,7 @@ from .backends.backend_types import Command
 from .config import get_settings, Settings, SettingsDep
 from .constants import SERVICE_ARTIFACT
 from .events import get_event_bus, EventBusDep
-from .logger import get_logger, Logger, LoggerDep
+from .logger import get_logger, LoggerDep
 from .models import Run, RunLog, RunRequest, RunWithDetails
 from .types import RunStream
 from .utils import iso_now
@@ -25,6 +26,8 @@ from .utils import iso_now
 __all__ = [
     "Database",
     "get_db",
+    "get_db_with_event_bus",
+    "DatabaseDep",
     "setup_database_on_startup",
     "repair_database_on_startup",
 ]
