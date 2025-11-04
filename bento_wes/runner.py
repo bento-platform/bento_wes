@@ -1,14 +1,16 @@
+import asyncio
 import requests
 import uuid
+
+from bento_lib.events import EventBus
 from celery.utils.log import get_task_logger
-import asyncio
 
 from . import states
 from .backends.cromwell_local import CromwellLocalBackend
 from .backends.wes_backend import WESBackend
 from .celery import celery
 from .db import Database, get_db_with_event_bus
-from .events import get_worker_event_bus, EventBus, close_worker_event_bus
+from .events import get_worker_event_bus, close_worker_event_bus
 from .config import get_settings, Settings
 
 

@@ -7,7 +7,7 @@ from bento_lib.service_info.manager import ServiceManager
 from .config import SettingsDep
 from .logger import LoggerDep
 
-__all__ = ["get_service_manager"]
+__all__ = ["get_service_manager", "ServiceManagerDep"]
 
 
 @lru_cache

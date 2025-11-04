@@ -1,9 +1,8 @@
+import aiofiles
 from datetime import datetime, timezone
-from typing import Literal, Iterable, Optional, List, Dict, Any
 from fastapi import UploadFile
 from pathlib import Path
-import aiofiles
-
+from typing import Any, Iterable
 
 from .logger import LoggerDep
 from .config import SettingsDep
@@ -31,10 +30,10 @@ CHUNK_SIZE = 1024 * 1024  # 1 MiB
 async def save_upload_files(
     files: Iterable[UploadFile],
     dest_dir: Path | str,
-    allowed_content_types: Optional[set[str]] = None,
-    max_bytes_per_file: Optional[int] = None,
+    allowed_content_types: set[str] | None = None,
+    max_bytes_per_file: int | None = None,
     overwrite: bool = False,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Streams each UploadFile to disk (non-blocking) with basic safety checks.
 
@@ -44,7 +43,7 @@ async def save_upload_files(
     dest_dir = Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
 
     for f in files:
         safe_name = Path(f.filename or "unnamed").name  # sanitize
@@ -70,7 +69,7 @@ async def save_upload_files(
                 i += 1
 
         size = 0
-        error: Optional[str] = None
+        error: str | None = None
 
         try:
             async with aiofiles.open(dest, "wb") as out:

@@ -4,6 +4,7 @@ from typing import Literal, Optional, Annotated
 
 __all__ = [
     "RunStream",
+    "AuthHeaderModel",
 ]
 
 RunStream = Literal["stdout", "stderr"]

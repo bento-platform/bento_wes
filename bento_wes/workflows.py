@@ -1,7 +1,7 @@
+import asyncio
+import httpx
 import logging
 import shutil
-import httpx
-import asyncio
 
 from base64 import urlsafe_b64encode
 from pathlib import Path
