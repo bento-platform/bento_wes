@@ -184,9 +184,8 @@ class WESBackend(ABC):
             )
         return womtool_path
 
-    @classmethod
-    def execute_womtool_command(cls, command: tuple[str, ...]) -> subprocess.Popen:
-        womtool_path = cls.get_womtool_path_or_raise()
+    def execute_womtool_command(self, command: tuple[str, ...]) -> subprocess.Popen:
+        womtool_path = self.get_womtool_path_or_raise()
 
         # Check for Java (needed to run WOMtool)
         try:
