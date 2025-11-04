@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
 from fastapi.responses import JSONResponse
-from typing import Annotated, List, Optional
+from typing import Annotated
 import httpx
 import uuid
 from pathlib import Path
@@ -9,21 +9,20 @@ from bento_lib.workflows.utils import namespaced_input
 from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlInput
 
 from bento_wes import states
-from bento_wes.models import RunRequest
-from bento_wes.logger import LoggerDep
 from bento_wes.config import SettingsDep
 from bento_wes.db import DatabaseDep
+from bento_wes.logger import LoggerDep
+from bento_wes.models import RunRequest
+from bento_wes.runner import run_workflow
+from bento_wes.service_registry import ServiceManagerDep
 from bento_wes.workflows import (
-    parse_workflow_host_allow_list,
-    WorkflowManager,
     WorkflowType,
     UnsupportedWorkflowType,
     WorkflowDownloadError,
+    WorkflowManagerDep,
 )
-from bento_wes.utils import save_upload_files
-from bento_wes.service_registry import ServiceManagerDep
-from bento_wes.runner import run_workflow
 from bento_wes.types import AuthHeaderModel
+from bento_wes.utils import save_upload_files
 
 from .deps import AuthzDep, AuthzCompletionDep, AuthzViewRunsEvaluateDep
 
@@ -43,34 +42,28 @@ async def create_run(
     settings: SettingsDep,
     logger: LoggerDep,
     service_manager: ServiceManagerDep,
-    workflow_attachment: Optional[List[UploadFile]] = File(None),
+    workflow_manager: WorkflowManagerDep,
+    workflow_attachment: list[UploadFile] | None = File(None),
 ):
     # authz
     await authz_check(run.get_workflow_permission(), run.get_authz_resource())
 
     logger.info(f"Starting run creation for workflow {run.tags.workflow_id}")
 
-    # Parse workflow host allow list from config
-    workflow_host_allow_list = parse_workflow_host_allow_list(settings.workflow_host_allow_list)
-
-    wm = WorkflowManager(
-        settings.service_temp,
-        service_base_url=settings.service_base_url,
-        logger=logger,
-        workflow_host_allow_list=workflow_host_allow_list,
-        validate_ssl=settings.bento_validate_ssl,
-        debug=settings.bento_debug,
-    )
-
     auth_header = authorization.as_dict()
 
     try:
-        await wm.download_or_copy_workflow(run.workflow_url, WorkflowType(run.workflow_type), auth_headers=auth_header)
+        await workflow_manager.download_or_copy_workflow(
+            run.workflow_url, WorkflowType(run.workflow_type), auth_headers=auth_header
+        )
     except UnsupportedWorkflowType:
-        raise HTTPException(status_code=400, detail=f"Unsupported workflow type: {run.workflow_type}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported workflow type: {run.workflow_type}"
+        )
     except (WorkflowDownloadError, httpx.RequestError) as e:
         raise HTTPException(
-            status_code=400, detail=f"Could not access workflow file: {run.workflow_url} (Python error: {e})"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not access workflow file: {run.workflow_url} (Python error: {e})",
         )
 
     run_id = uuid.uuid4()
@@ -83,8 +76,7 @@ async def create_run(
             # TODO: Check and fix input if filename is non-secure
             # TODO: Do we put these in a subdirectory?
             # TODO: Support WDL uploads for workflows
-            contents = await file.read()
-            print(f"Received file: {file.filename} with size {len(contents)} bytes")
+            logger.info("Received file: %s with size %d bytes", file.filename, file.size or -1)
         response = await save_upload_files(workflow_attachment, run_dir)
         logger.info(response)
     else:

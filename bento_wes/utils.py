@@ -4,24 +4,12 @@ from fastapi import UploadFile
 from pathlib import Path
 from typing import Any, Iterable
 
-from .logger import LoggerDep
-from .config import SettingsDep
-from .service_registry import get_service_manager
 
-
-__all__ = ["iso_now", "get_drop_box_resource_url"]
+__all__ = ["iso_now", "save_upload_files"]
 
 
 def iso_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")  # ISO date format
-
-
-async def get_drop_box_resource_url(
-    path: str, settings: SettingsDep, logger: LoggerDep, resource: Literal["objects", "tree"] = "objects"
-) -> str:
-    drop_box_url = await get_service_manager(settings, logger).get_bento_service_url_by_kind("drop-box")  # pyright: ignore[reportArgumentType]
-    clean_path = path.lstrip("/")
-    return f"{drop_box_url}/{resource}/{clean_path}"
 
 
 CHUNK_SIZE = 1024 * 1024  # 1 MiB

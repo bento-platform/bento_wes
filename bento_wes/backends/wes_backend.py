@@ -4,12 +4,10 @@ import requests
 import shutil
 import subprocess
 import uuid
-from pathlib import Path
-from typing import overload, Sequence
 from abc import ABC, abstractmethod
-
 from bento_lib.events import EventBus
 from bento_lib.events.types import EVENT_WES_RUN_FINISHED
+from bento_lib.service_info.manager import ServiceManager
 from bento_lib.utils.headers import authz_bearer_header
 from bento_lib.workflows.models import (
     WorkflowSecretInput,
@@ -18,23 +16,18 @@ from bento_lib.workflows.models import (
     WorkflowDirectoryInput,
 )
 from bento_lib.workflows.utils import namespaced_input
-
+from logging import Logger
+from pathlib import Path
+from typing import overload, Sequence, Literal
 
 from bento_wes import states
 from bento_wes.config import Settings
 from bento_wes.constants import SERVICE_ARTIFACT
 from bento_wes.db import Database, get_db_with_event_bus
 from bento_wes.models import Run, RunWithDetails, RunOutput
-from bento_wes.service_registry import get_service_manager
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
-from bento_wes.utils import get_drop_box_resource_url, iso_now
-from bento_wes.workflows import (
-    WORKFLOW_IGNORE_FILE_PATH_INJECTION,
-    WorkflowType,
-    WorkflowManager,
-    parse_workflow_host_allow_list,
-)
-from bento_wes.logger import Logger
+from bento_wes.utils import iso_now
+from bento_wes.workflows import WORKFLOW_IGNORE_FILE_PATH_INJECTION, WorkflowType, WorkflowManager
 
 from .backend_types import Command, ProcessResult
 from .exceptions import RunExceptionWithFailState
@@ -50,11 +43,17 @@ ParamDict = dict[str, str | int | float | bool]
 class WESBackend(ABC):
     def __init__(
         self,
-        settings: Settings,
-        logger: Logger,
         event_bus: EventBus,
+        logger: Logger,
+        service_manager: ServiceManager,
+        settings: Settings,
+        workflow_manager: WorkflowManager,
     ):
+        self.event_bus = event_bus
+        self.logger = logger
+        self.service_manager = service_manager
         self.settings = settings
+
         self._workflow_timeout: int = int(settings.workflow_timeout.total_seconds())
 
         self.tmp_dir: Path = settings.service_temp
@@ -63,13 +62,8 @@ class WESBackend(ABC):
         self.output_dir: Path = self.data_dir / "output"  # For persistent file artifacts from workflows
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        self.logger = logger
-        self.event_bus = event_bus
-
         self._db_gen = get_db_with_event_bus(self.logger, self.event_bus)
         self.db: Database = next(self._db_gen)
-
-        self.workflow_host_allow_list = parse_workflow_host_allow_list(settings.workflow_host_allow_list)
 
         # Bento-specific parameters
         self.bento_url = str(settings.bento_url)
@@ -77,15 +71,7 @@ class WESBackend(ABC):
         self.validate_ssl: bool = settings.bento_validate_ssl
         self.debug: bool = settings.bento_debug
 
-        self._workflow_manager: WorkflowManager = WorkflowManager(
-            self.tmp_dir,
-            service_base_url=settings.service_base_url,
-            bento_url=self.bento_url,
-            logger=self.logger,
-            workflow_host_allow_list=self.workflow_host_allow_list,
-            validate_ssl=self.validate_ssl,
-            debug=self.debug,
-        )
+        self._workflow_manager: WorkflowManager = workflow_manager
 
         self._runs = {}
 
@@ -309,6 +295,11 @@ class WESBackend(ABC):
                 STATE_EXECUTOR_ERROR, f"Temporary path bust be a sub-path of directory {parent_dir}"
             )
 
+    async def _get_drop_box_resource_url(self, path: str, resource: Literal["objects", "tree"] = "objects") -> str:
+        drop_box_url = self.service_manager.get_bento_service_url_by_kind("drop-box")
+        clean_path = path.lstrip("/")
+        return f"{drop_box_url}/{resource}/{clean_path}"
+
     async def _download_input_file(self, obj_path: str, token: str, run_dir: Path) -> str:
         """
         Downloads an input file from Drop-Box in the run directory.
@@ -326,7 +317,7 @@ class WESBackend(ABC):
         self._validate_sub_path(download_dir, tmp_file_path)
 
         # Downloads file to /wes/tmp/<run_dir>/<file_name>
-        download_url = await get_drop_box_resource_url(obj_path, self.settings, self.logger)
+        download_url = await self._get_drop_box_resource_url(obj_path)
         self._download_to_path(download_url, token, tmp_file_path)
         return str(tmp_file_path)
 
@@ -368,7 +359,7 @@ class WESBackend(ABC):
     ) -> str:
         self.log_debug("_download_input_directory called (directory=%s)", directory)
 
-        drop_box_url = await get_service_manager(self.settings, self.logger).get_bento_service_url_by_kind("drop-box")  # pyright: ignore[reportArgumentType]
+        drop_box_url = await self.service_manager.get_bento_service_url_by_kind("drop-box")
 
         sub_tree = directory.lstrip("/")
 

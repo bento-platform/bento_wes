@@ -3,6 +3,7 @@ import requests
 import uuid
 
 from bento_lib.events import EventBus
+from bento_lib.service_info.manager import ServiceManager
 from celery.utils.log import get_task_logger
 
 from . import states
@@ -12,14 +13,20 @@ from .celery import celery
 from .db import Database, get_db_with_event_bus
 from .events import get_worker_event_bus, close_worker_event_bus
 from .config import get_settings, Settings
+from .service_registry import get_service_manager
+from .workflows import WorkflowManager, get_workflow_manager
 
 
 @celery.task(bind=True)
 async def run_workflow(self, run_id: uuid.UUID):
+    # Initialize dependencies  ------------------------------------------------
+
     settings: Settings = get_settings()
     logger = get_task_logger(__name__)
 
     event_bus: EventBus = get_worker_event_bus(logger)
+    service_manager: ServiceManager = get_service_manager(settings, logger)
+    workflow_manager: WorkflowManager = get_workflow_manager(settings, logger)
 
     _db_gen = get_db_with_event_bus(logger, event_bus)
     db: Database = next(_db_gen)
@@ -38,9 +45,11 @@ async def run_workflow(self, run_id: uuid.UUID):
     #  'enabled' (somehow) which supports the type
     logger.info("Initializing backend")
     backend: WESBackend = CromwellLocalBackend(
-        logger=logger,
         event_bus=event_bus,
+        logger=logger,
+        service_manager=service_manager,
         settings=settings,
+        workflow_manager=workflow_manager,
     )
 
     secrets: dict[str, str] = {"access_token": ""}
