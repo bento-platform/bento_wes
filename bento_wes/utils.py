@@ -19,6 +19,7 @@ async def save_upload_files(
     files: Iterable[UploadFile],
     dest_dir: Path | str,
     allowed_content_types: set[str] | None = None,
+    chunk_size: int = CHUNK_SIZE,
     max_bytes_per_file: int | None = None,
     overwrite: bool = False,
 ) -> list[dict[str, Any]]:
@@ -28,6 +29,7 @@ async def save_upload_files(
     Returns a list of per-file results:
       { "filename": ..., "path": ..., "content_type": ..., "size": ..., "error": ... }
     """
+
     dest_dir = Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -62,7 +64,7 @@ async def save_upload_files(
         try:
             async with aiofiles.open(dest, "wb") as out:
                 while True:
-                    chunk = await f.read(CHUNK_SIZE)
+                    chunk = await f.read(chunk_size)
                     if not chunk:
                         break
                     size += len(chunk)
