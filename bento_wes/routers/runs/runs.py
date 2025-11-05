@@ -89,8 +89,9 @@ async def create_run(
             # TODO: Do we put these in a subdirectory?
             # TODO: Support WDL uploads for workflows
             logger.info("Received file: %s with size %d bytes", file.filename, file.size or -1)
-        response = await save_upload_files(workflow_attachment, run_dir)
-        logger.info(response)
+        # TODO: do something with these?
+        response = await save_upload_files(workflow_attachment, run_dir, logger)
+        logger.info("saved uploaded workflow attachments: %s", response)
     else:
         logger.info("No workflow attachments provided")
 
