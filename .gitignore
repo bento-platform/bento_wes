@@ -26,3 +26,7 @@ cromwell-workflow-logs
 
 # Keep vscode debugger configuration
 !.vscode/launch.json
+
+# Claude Code
+CLAUDE.md
+.claude/
