@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from fastapi import Depends
 from functools import lru_cache
-from datetime import timedelta
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -105,32 +104,9 @@ class Settings(BentoFastAPIBaseConfig):
     # --- VEP / optional data ---
     vep_cache_dir: Path | None = None
 
-    # --- Timeouts as timedeltas for semantics ---
-    ingest_post_timeout: timedelta = timedelta(hours=1)
-    workflow_timeout: timedelta = timedelta(days=2)
-
-    @field_validator("ingest_post_timeout", "workflow_timeout", mode="before")
-    @classmethod
-    def _coerce_timeout(cls, v):
-        if v is None or isinstance(v, timedelta):
-            return v
-        # ints/floats -> seconds
-        if isinstance(v, (int, float)):
-            return timedelta(seconds=float(v))
-        s = str(v).strip()
-        # numeric string -> seconds
-        if s.isdigit():
-            return timedelta(seconds=int(s))
-        # HH:MM:SS
-        try:
-            parts = s.split(":")
-            if len(parts) == 3:
-                h, m, sec = parts
-                return timedelta(hours=int(h), minutes=int(m), seconds=float(sec))
-        except Exception:
-            pass
-        # You can add ISO-8601 parsing here if you want (e.g., via isodate)
-        raise ValueError("Invalid timeout; use timedelta, seconds (int), 'HH:MM:SS', or ISO-8601 like 'P2D'.")
+    # --- Timeouts (in seconds) ---
+    ingest_post_timeout: int = 3600  # 1 hour
+    workflow_timeout: int = 172800  # 2 days
 
     # --- Celery / local debug ---
     celery_always_eager: bool = Field(False, validation_alias="CELERY_DEBUG")

@@ -23,8 +23,8 @@ def settings_env(monkeypatch):
 
     monkeypatch.delenv("WORKFLOW_TIMEOUT", raising=False)
 
-    monkeypatch.setenv("WORKFLOW_TIMEOUT", "48:00:00")
-    monkeypatch.setenv("INGEST_POST_TIMEOUT", "01:00:00")
+    monkeypatch.setenv("WORKFLOW_TIMEOUT", "172800")  # 48 hours in seconds
+    monkeypatch.setenv("INGEST_POST_TIMEOUT", "3600")  # 1 hour in seconds
 
     get_settings.cache_clear()
     s = get_settings()

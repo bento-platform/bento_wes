@@ -54,7 +54,7 @@ class WESBackend(ABC):
         self.service_manager = service_manager
         self.settings = settings
 
-        self._workflow_timeout: int = int(settings.workflow_timeout.total_seconds())
+        self._workflow_timeout: int = settings.workflow_timeout
 
         self.tmp_dir: Path = settings.service_temp
         self.data_dir: Path = settings.service_data
