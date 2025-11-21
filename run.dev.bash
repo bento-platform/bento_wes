@@ -2,8 +2,7 @@
 set -euo pipefail
 
 # ---------- Dev install ----------
-# /poetry_user_install_dev.bash
-poetry install
+/poetry_user_install_dev.bash
 
 # ---------- Defaults ----------
 : "${INTERNAL_PORT:=5000}"                               # API port

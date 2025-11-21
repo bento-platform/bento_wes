@@ -47,7 +47,7 @@ RUN curl -L https://github.com/Ensembl/ensembl-xs/archive/2.3.2.zip -o ensembl-x
 
 WORKDIR /
 
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2025.11.01 AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2025.11.21 AS base-deps
 
 LABEL org.opencontainers.image.description="Local development image for Bento WES."
 LABEL devcontainer.metadata='[{ \
@@ -110,6 +110,7 @@ WORKDIR /wes
 
 COPY pyproject.toml .
 COPY poetry.lock .
+COPY README.md .
 
 # Install production + development dependencies
 # Without --no-root, we get errors related to the code not being copied in yet.
