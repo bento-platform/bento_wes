@@ -104,7 +104,8 @@ RUN pip install --no-cache-dir -r /container.requirements.txt && \
 
 FROM base-deps AS install
 
-RUN mkdir -p /wes_tmp && mkdir -p /wes_data
+# Backwards-compatible with old BentoV2 container layout
+RUN mkdir -p /wes/tmp && mkdir -p /data
 WORKDIR /wes
 
 COPY pyproject.toml .

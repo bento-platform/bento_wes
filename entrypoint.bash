@@ -6,8 +6,8 @@ cd /wes || exit
 source /create_service_user.bash
 
 # Fix permissions on /wes
-chown -R bento_user:bento_user /wes /wes_data /wes_tmp
-chmod -R o-rwx /wes_tmp  # Remove all access from others for /wes_tmp
+chown -R bento_user:bento_user /wes
+chmod -R o-rwx /wes/tmp  # Remove all access from others for /wes/tmp
 
 # Configure git from entrypoint, since we've overwritten the base image entrypoint
 gosu bento_user /bin/bash -c '/set_gitconfig.bash'
