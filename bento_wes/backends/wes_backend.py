@@ -296,7 +296,7 @@ class WESBackend(ABC):
             )
 
     async def _get_drop_box_resource_url(self, path: str, resource: Literal["objects", "tree"] = "objects") -> str:
-        drop_box_url = self.service_manager.get_bento_service_url_by_kind("drop-box")
+        drop_box_url = await self.service_manager.get_bento_service_url_by_kind("drop-box")
         clean_path = path.lstrip("/")
         return f"{drop_box_url}/{resource}/{clean_path}"
 
