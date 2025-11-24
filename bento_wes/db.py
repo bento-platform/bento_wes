@@ -101,8 +101,10 @@ class Database:
         c.execute("PRAGMA journal_mode=WAL;")
         c.close()
 
-    @property
     def c(self):
+        """
+        Returns a NEW cursor instance for the database connection.
+        """
         return self._conn.cursor()
 
     def commit(self) -> None:
@@ -115,7 +117,7 @@ class Database:
         # Run once at startup (not per request!)
         schema_path = Path(__file__).with_name("schema.sql")
         with schema_path.open("r", encoding="utf-8") as sf:
-            self.c.executescript(sf.read())
+            self.c().executescript(sf.read())
         self.commit()
 
     def finish_run(self, run: Run, state: str) -> None:
@@ -130,7 +132,7 @@ class Database:
         end_time = iso_now()
 
         # Explicitly don't commit here to sync with state update
-        self.c.execute("UPDATE runs SET run_log__end_time = ? WHERE id = ?", (end_time, run_id))
+        self.c().execute("UPDATE runs SET run_log__end_time = ? WHERE id = ?", (end_time, run_id))
         self.update_run_state_and_commit(run_id, state)
 
         self._logger.info(f"Run {run_id} finished with state {state} at {end_time}")
@@ -163,11 +165,11 @@ class Database:
         On process boot, convert initializing/running states into system error so
         the UI/backend doesn't wait on orphaned work.
         """
-        self.c.execute(
+
+        stuck_run_ids: list[sqlite3.Row] = self.c().execute(
             "SELECT id FROM runs WHERE state IN (?, ?)",
             (states.STATE_INITIALIZING, states.STATE_RUNNING),
-        )
-        stuck_run_ids: list[sqlite3.Row] = self.c.fetchall()
+        ).fetchall()
 
         for r in stuck_run_ids:
             run = self.get_run_with_details(r["id"], stream_content=True)
@@ -191,7 +193,7 @@ class Database:
             run (RunRequest): The details of the run to be inserted.
             run_params (dict): Workflow parameters for the run.
         """
-        self.c.execute(
+        self.c().execute(
             """
             INSERT INTO runs (
                 id,
@@ -228,7 +230,7 @@ class Database:
         Returns:
             list[RunWithDetails]: A list of all runs, converted into RunWithDetails objects.
         """
-        rows = self.c.execute("SELECT * FROM runs").fetchall()
+        rows = self.c().execute("SELECT * FROM runs").fetchall()
         return [self.run_with_details_from_row(r, False) for r in rows]
 
     def fetch_runs_by_state(self, state: str) -> list[RunWithDetails]:
@@ -242,7 +244,7 @@ class Database:
             list[tuple]: List of rows matching the state.
         """
         query = "SELECT * FROM runs WHERE state = ?"
-        rows = self.c.execute(query, (state,)).fetchall()
+        rows = self.c().execute(query, (state,)).fetchall()
         return [self.run_with_details_from_row(r, False) for r in rows]
 
     def run_with_details_from_row(
@@ -262,11 +264,11 @@ class Database:
         )
 
     def get_task_logs(self, run_id: UUID | str) -> list:
-        self.c.execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
-        return [task_log_dict(task_log) for task_log in self.c.fetchall()]
+        self.c().execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
+        return [task_log_dict(task_log) for task_log in self.c().fetchall()]
 
     def _get_run_row(self, run_id: UUID | str) -> sqlite3.Row | None:
-        return self.c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),)).fetchone()
+        return self.c().execute("SELECT * FROM runs WHERE id = ?", (str(run_id),)).fetchone()
 
     def get_run(self, run_id: UUID | str) -> Run | None:
         if run := self._get_run_row(run_id):
@@ -283,21 +285,21 @@ class Database:
         return None
 
     def set_run_log_name(self, run: Run, workflow_name: str) -> None:
-        self.c.execute(
+        self.c().execute(
             "UPDATE runs SET run_log__name = ? WHERE id = ?",
             (workflow_name, run.run_id),
         )
         self.commit()
 
     def set_run_log_command_and_celery_id(self, run: Run, cmd: Command, celery_id: int) -> None:
-        self.c.execute(
+        self.c().execute(
             "UPDATE runs SET run_log__cmd = ?, run_log__celery_id = ? WHERE id = ?",
             (" ".join(shlex.quote(str(x)) for x in cmd), celery_id, run.run_id),
         )
         self.commit()
 
     def set_run_outputs(self, run_id: str, outputs: dict[str, Any]) -> None:
-        self.c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(outputs), str(run_id)))
+        self.c().execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(outputs), str(run_id)))
 
     def update_run_state_and_commit(
         self,
@@ -306,7 +308,7 @@ class Database:
         publish_event: bool = True,
     ) -> None:
         self._logger.info(f"Updating run state of {run_id} to {state}")
-        self.c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
+        self.c().execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
         self.commit()
         if publish_event and (run := self.get_run_with_details(run_id, stream_content=False)) is not None:
             payload = run.model_dump(mode="json")
@@ -345,8 +347,7 @@ def setup_database_on_startup(logger) -> None:
     db = Database(get_settings(), logger)
     try:
         # If the 'runs' table isn't present, run full schema.sql
-        db.c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runs'")
-        if db.c.fetchone() is None:
+        if db.c().execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runs'").fetchone() is None:
             db.init_schema()
     finally:
         db.close()

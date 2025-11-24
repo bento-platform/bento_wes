@@ -568,7 +568,7 @@ class WESBackend(ABC):
         runner_process = subprocess.Popen(
             cmd, cwd=self.tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8"
         )
-        self.db.c.execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run.run_id))
+        self.db.c().execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run.run_id))
         self.db.commit()
         self._update_run_state_and_commit(run.run_id, states.STATE_RUNNING)
 
@@ -601,7 +601,7 @@ class WESBackend(ABC):
 
         # -- Update run log with stdout/stderr, exit code --------------------------------------------------------------
         #     - Explicitly don't commit here; sync with state update
-        self.db.c.execute(
+        self.db.c().execute(
             "UPDATE runs SET run_log__stdout = ?, run_log__stderr = ?, run_log__exit_code = ? WHERE id = ?",
             (stdout, stderr, exit_code, run.run_id),
         )
