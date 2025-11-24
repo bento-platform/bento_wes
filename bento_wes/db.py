@@ -4,7 +4,7 @@ import shlex
 from logging import Logger
 from fastapi import Depends
 from pathlib import Path
-from typing import Any, Generator, Annotated, Optional
+from typing import Annotated, Any, Generator
 from urllib.parse import urljoin
 from uuid import UUID
 
@@ -82,7 +82,7 @@ def run_from_row(run: sqlite3.Row) -> Run:
 
 
 class Database:
-    def __init__(self, settings: Settings, logger: Logger, event_bus: Optional[EventBus] = None):
+    def __init__(self, settings: Settings, logger: Logger, event_bus: EventBus | None = None):
         # One connection per request; okay for FastAPI threadpools
         self._conn = sqlite3.connect(
             settings.database,
@@ -166,10 +166,14 @@ class Database:
         the UI/backend doesn't wait on orphaned work.
         """
 
-        stuck_run_ids: list[sqlite3.Row] = self.c().execute(
-            "SELECT id FROM runs WHERE state IN (?, ?)",
-            (states.STATE_INITIALIZING, states.STATE_RUNNING),
-        ).fetchall()
+        stuck_run_ids: list[sqlite3.Row] = (
+            self.c()
+            .execute(
+                "SELECT id FROM runs WHERE state IN (?, ?)",
+                (states.STATE_INITIALIZING, states.STATE_RUNNING),
+            )
+            .fetchall()
+        )
 
         for r in stuck_run_ids:
             run = self.get_run_with_details(r["id"], stream_content=True)
@@ -325,7 +329,7 @@ def get_db(settings: SettingsDep, logger: LoggerDep, event_bus: EventBusDep) -> 
 
 
 def get_db_with_event_bus(
-    logger: Optional[Logger] = None, event_bus: Optional[EventBus] = None
+    logger: Logger | None = None, event_bus: EventBus | None = None
 ) -> Generator["Database", None, None]:
     func_logger = logger or get_logger()
     db = Database(get_settings(), func_logger, event_bus or get_event_bus(func_logger))
