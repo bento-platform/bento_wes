@@ -1,5 +1,5 @@
 import asyncio
-import requests
+import httpx
 import uuid
 
 from bento_lib.events import EventBus
@@ -65,17 +65,17 @@ async def run_workflow(self, run_id: uuid.UUID):
             #  - perhaps exchange the user's token for some type of limited-scope token (ingest only) which lasts
             #    48 hours, given out by the authorization service?
 
-            openid_config = requests.get(settings.bento_openid_config_url, verify=settings.bento_validate_ssl).json()
-            token_res = requests.post(
-                openid_config["token_endpoint"],
-                verify=settings.bento_validate_ssl,
-                data={
-                    "grant_type": "client_credentials",
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                },
-            )
-            secrets["access_token"] = token_res.json()["access_token"]
+            async with httpx.AsyncClient(verify=settings.bento_validate_ssl) as client:
+                openid_config = (await client.get(settings.bento_openid_config_url)).json()
+                token_res = await client.post(
+                    openid_config["token_endpoint"],
+                    data={
+                        "grant_type": "client_credentials",
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                    },
+                )
+                secrets["access_token"] = token_res.json()["access_token"]
         else:
             logger.warning(
                 "Missing WES credentials: WES_CLIENT_ID and/or WES_CLIENT_SECRET; setting job access token to ''"
