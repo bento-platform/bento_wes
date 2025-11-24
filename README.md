@@ -61,11 +61,11 @@ ingestion workflow, a file must be passed to the relevant data service
 for ingestion in its internal database. This file transfer is based on
 mounted volumes shared between the containers.
 
-Of note, the `wes/tmp` directory is mounted in some data service container (with the exception of Gohan which mounts the dropbox data directory instead).
+Of note, the `/wes_tmp` directory is mounted in some data service container (with the exception of Gohan which mounts the dropbox data directory instead).
 When a workflow is executed, this is where the necessary input files are stagged.
 This side effect is used to pass files for ingestion to the relevant containers.
 Some workflows (ingestions workflows in Katsu) contain an "identity" task which
-only takes a path to a dropbox file as input and returns a local path to a temp file. Note that the `/wes/tmp` volume must be mounted to the same
+only takes a path to a dropbox file as input and returns a local path to a temp file. Note that the `/wes_tmp` volume must be mounted to the same
 path in every container for this to work seamlessly.
 
 ## REST API

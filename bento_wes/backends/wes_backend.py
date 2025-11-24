@@ -316,7 +316,7 @@ class WESBackend(ABC):
         # Validate our file path hasn't escaped the run directory
         self._validate_sub_path(download_dir, tmp_file_path)
 
-        # Downloads file to /wes/tmp/<run_dir>/<file_name>
+        # Downloads file to /wes_tmp/<run_dir>/<file_name>
         download_url = await self._get_drop_box_resource_url(obj_path)
         self._download_to_path(download_url, token, tmp_file_path)
         return str(tmp_file_path)
@@ -329,7 +329,7 @@ class WESBackend(ABC):
     ):
         """
         Downloads the contents of a given Drop Box tree or subtree to the temporary run_dir directory
-        e.g. /wes/tmp/<Run ID>/<Dir Tree>
+        e.g. /wes_tmp/<Run ID>/<Dir Tree>
         """
 
         for node in tree:

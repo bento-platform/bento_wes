@@ -12,7 +12,7 @@ set -euo pipefail
 : "${UVICORN_EXTRA:=}"                                   # e.g. "--lifespan on"
 
 # ---------- Temp dir ----------
-mkdir -p /wes/tmp
+#mkdir -p /wes_tmp
 
 # ---------- Log levels ----------
 celery_log_level="INFO"
@@ -27,7 +27,6 @@ echo "[bento_wes] [entrypoint-dev] Starting Celery worker"
 watchfiles \
   --filter python \
   --ignore-path .venv \
-  --ignore-path /wes/tmp \
   --target-type command \
   "celery -q -A bento_wes.celery worker --loglevel=${celery_log_level} --pool=solo" \
   /wes &
