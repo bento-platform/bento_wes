@@ -24,7 +24,7 @@ fi
 
 # ---------- Celery worker ----------
 echo "[bento_wes] [entrypoint-dev] Starting Celery worker"
-poetry run watchfiles \
+watchfiles \
   --filter python \
   --ignore-path .venv \
   --ignore-path /wes/tmp \
@@ -46,7 +46,7 @@ trap terminate TERM INT
 
 # ---------- ASGI server (Uvicorn --factory + debugpy) ----------
 echo "[bento_wes] [entrypoint-dev] Starting Uvicorn (factory: ${APP_FACTORY}, reload enabled)"
-exec poetry run python -Xfrozen_modules=off -m debugpy --listen "0.0.0.0:${DEBUGGER_PORT}" -m uvicorn \
+exec python -Xfrozen_modules=off -m debugpy --listen "0.0.0.0:${DEBUGGER_PORT}" -m uvicorn \
   "${APP_FACTORY}" \
   --factory \
   --host "${HOST}" \

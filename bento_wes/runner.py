@@ -18,7 +18,7 @@ from .workflows import WorkflowManager, get_workflow_manager
 
 
 @celery.task(bind=True)
-async def run_workflow(self, run_id: uuid.UUID):
+def run_workflow(self, run_id: uuid.UUID):
     # Initialize dependencies  ------------------------------------------------
 
     settings: Settings = get_settings()
@@ -65,9 +65,9 @@ async def run_workflow(self, run_id: uuid.UUID):
             #  - perhaps exchange the user's token for some type of limited-scope token (ingest only) which lasts
             #    48 hours, given out by the authorization service?
 
-            async with httpx.AsyncClient(verify=settings.bento_validate_ssl) as client:
-                openid_config = (await client.get(settings.bento_openid_config_url)).json()
-                token_res = await client.post(
+            with httpx.Client(verify=settings.bento_validate_ssl) as client:
+                openid_config = client.get(settings.bento_openid_config_url).json()
+                token_res = client.post(
                     openid_config["token_endpoint"],
                     data={
                         "grant_type": "client_credentials",
@@ -89,7 +89,7 @@ async def run_workflow(self, run_id: uuid.UUID):
     # Perform the run
     try:
         logger.info("Starting workflow execution...")
-        await backend.perform_run(run, self.request.id, secrets)
+        asyncio.run(backend.perform_run(run, self.request.id, secrets))
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while performing run: {type(e).__name__} {e}")
