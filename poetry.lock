@@ -198,6 +198,18 @@ files = [
 vine = ">=5.0.0,<6.0.0"
 
 [[package]]
+name = "annotated-doc"
+version = "0.0.4"
+description = "Document parameters, class attributes, return types, and variables inline, with Annotated."
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "annotated_doc-0.0.4-py3-none-any.whl", hash = "sha256:571ac1dc6991c450b25a9c2d84a3705e2ae7a53467b5d111c24fa8baabbed320"},
+    {file = "annotated_doc-0.0.4.tar.gz", hash = "sha256:fbcda96e87e9c92ad167c2e53839e57503ecfda18804ea28102353485033faa4"},
+]
+
+[[package]]
 name = "annotated-types"
 version = "0.7.0"
 description = "Reusable constraint types to use with typing.Annotated"
@@ -258,20 +270,20 @@ files = [
 
 [[package]]
 name = "bento-lib"
-version = "14.0.2"
+version = "14.0.3"
 description = "A set of common utilities and helpers for Bento platform services."
 optional = false
 python-versions = "<4.0,>=3.12"
 groups = ["main"]
 files = [
-    {file = "bento_lib-14.0.2-py3-none-any.whl", hash = "sha256:7090a3180f4215e7d1b2efd98631de34138a2b1dc056a180d7b9bc45bd89d8ec"},
-    {file = "bento_lib-14.0.2.tar.gz", hash = "sha256:ad55f1edcb4bc4c03ac415f4268ad68e16240654471352f8194be0eae78f17e0"},
+    {file = "bento_lib-14.0.3-py3-none-any.whl", hash = "sha256:fbd9046cf47d80465c029e43665bf2e8f341c672b3cf4b444b7c4fedfa255719"},
+    {file = "bento_lib-14.0.3.tar.gz", hash = "sha256:bdd046409ebe60127db6b763639366e316edd7f2bc2c6e503a14a711112c8919"},
 ]
 
 [package.dependencies]
 aiofiles = ">=24.1.0,<26"
 aiohttp = ">=3.10.10,<4"
-fastapi = {version = ">=0.115.12,<0.122", optional = true, markers = "extra == \"fastapi\""}
+fastapi = {version = ">=0.115.12,<0.123", optional = true, markers = "extra == \"fastapi\""}
 geojson-pydantic = ">=2.0.0,<3.0.0"
 jsonschema = ">=4.23.0,<5"
 psycopg2-binary = ">=2.9.9,<3.0"
@@ -285,9 +297,9 @@ uvicorn = {version = "*", optional = true, markers = "extra == \"fastapi\""}
 werkzeug = ">=3.0.6,<4"
 
 [package.extras]
-asyncpg = ["asyncpg (>=0.29.0,<0.31.0)"]
+asyncpg = ["asyncpg (>=0.29.0,<0.32.0)"]
 django = ["django (>=5.1.8,<5.3)", "djangorestframework (>=3.16.0,<3.17)"]
-fastapi = ["fastapi (>=0.115.12,<0.122)", "uvicorn"]
+fastapi = ["fastapi (>=0.115.12,<0.123)", "uvicorn"]
 flask = ["flask (>=3.0.3,<4)"]
 
 [[package]]
@@ -760,19 +772,20 @@ files = [
 
 [[package]]
 name = "fastapi"
-version = "0.119.1"
+version = "0.122.0"
 description = "FastAPI framework, high performance, easy to learn, fast to code, ready for production"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 files = [
-    {file = "fastapi-0.119.1-py3-none-any.whl", hash = "sha256:0b8c2a2cce853216e150e9bd4faaed88227f8eb37de21cb200771f491586a27f"},
-    {file = "fastapi-0.119.1.tar.gz", hash = "sha256:a5e3426edce3fe221af4e1992c6d79011b247e3b03cc57999d697fe76cbf8ae0"},
+    {file = "fastapi-0.122.0-py3-none-any.whl", hash = "sha256:a456e8915dfc6c8914a50d9651133bd47ec96d331c5b44600baa635538a30d67"},
+    {file = "fastapi-0.122.0.tar.gz", hash = "sha256:cd9b5352031f93773228af8b4c443eedc2ac2aa74b27780387b853c3726fb94b"},
 ]
 
 [package.dependencies]
+annotated-doc = ">=0.0.2"
 pydantic = ">=1.7.4,<1.8 || >1.8,<1.8.1 || >1.8.1,<2.0.0 || >2.0.0,<2.0.1 || >2.0.1,<2.1.0 || >2.1.0,<3.0.0"
-starlette = ">=0.40.0,<0.49.0"
+starlette = ">=0.40.0,<0.51.0"
 typing-extensions = ">=4.8.0"
 
 [package.extras]
@@ -1662,14 +1675,14 @@ files = [
 
 [[package]]
 name = "pydantic"
-version = "2.12.4"
+version = "2.12.5"
 description = "Data validation using Python type hints"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "pydantic-2.12.4-py3-none-any.whl", hash = "sha256:92d3d202a745d46f9be6df459ac5a064fdaa3c1c4cd8adcfa332ccf3c05f871e"},
-    {file = "pydantic-2.12.4.tar.gz", hash = "sha256:0f8cb9555000a4b5b617f66bfd2566264c4984b27589d3b845685983e8ea85ac"},
+    {file = "pydantic-2.12.5-py3-none-any.whl", hash = "sha256:e561593fccf61e8a20fc46dfc2dfe075b8be7d0188df33f221ad1f0139180f9d"},
+    {file = "pydantic-2.12.5.tar.gz", hash = "sha256:4d351024c75c0f085a9febbb665ce8c0c6ec5d30e903bdb6394b7ede26aebb49"},
 ]
 
 [package.dependencies]
@@ -2227,14 +2240,14 @@ files = [
 
 [[package]]
 name = "starlette"
-version = "0.48.0"
+version = "0.50.0"
 description = "The little ASGI library that shines."
 optional = false
-python-versions = ">=3.9"
+python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "starlette-0.48.0-py3-none-any.whl", hash = "sha256:0764ca97b097582558ecb498132ed0c7d942f233f365b86ba37770e026510659"},
-    {file = "starlette-0.48.0.tar.gz", hash = "sha256:7e8cee469a8ab2352911528110ce9088fdc6a37d9876926e73da7ce4aa4c7a46"},
+    {file = "starlette-0.50.0-py3-none-any.whl", hash = "sha256:9e5391843ec9b6e472eed1365a78c8098cfceb7a74bfd4d6b1c0c0095efb3bca"},
+    {file = "starlette-0.50.0.tar.gz", hash = "sha256:a2a17b22203254bcbc2e1f926d2d55f3f9497f769416b3190768befe598fa3ca"},
 ]
 
 [package.dependencies]
@@ -2649,4 +2662,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12.0"
-content-hash = "1236b1221f2a916e3f47b82c3a43abb1bc2b29755432c11ab01712a6d26f53b5"
+content-hash = "cc3be37ff81cc749f7918667219035152a3fa2c760c70aa40d7ff287a0708468"
