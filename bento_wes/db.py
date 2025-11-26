@@ -348,6 +348,7 @@ def setup_database_on_startup(logger) -> None:
     Ensure schema exists and apply PRAGMAs once at startup.
     Call from your FastAPI lifespan (startup phase).
     """
+    logger.info("Starting up database...")
     db = Database(get_settings(), logger)
     try:
         # If the 'runs' table isn't present, run full schema.sql
