@@ -42,35 +42,24 @@ async def save_upload_files(
     files: Iterable[UploadFile],
     dest_dir: Path,
     logger: Logger,
-    allowed_content_types: set[str] | None = None,
-    chunk_size: int = CHUNK_SIZE,
-    max_bytes_per_file: int | None = None,
-    overwrite: bool = False,
 ) -> list[UploadFileResult]:
     """
-    Streams each UploadFile to disk (non-blocking) with basic safety checks.
+    Streams each UploadFile to disk (non-blocking).
 
     Returns a list of per-file results:
       success: { "filename": ..., "path": ..., "content_type": ..., "size": ... } (type: UploadFileSuccess)
-      error:   { "filename": ..., "error": ..., ["content_type": ...] }           (type: uploadFileError)
+      error:   { "filename": ..., "error": ..., ["content_type": ...] }           (type: UploadFileError)
     """
-
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     results: list[UploadFileResult] = []
 
     for f in files:
-        safe_name = Path(f.filename or "unnamed").name  # sanitize
+        safe_name = Path(f.filename or "unnamed").name  # sanitize path traversal
         dest = dest_dir / safe_name
 
-        # content-type check
-        if allowed_content_types and f.content_type not in allowed_content_types:
-            results.append(UploadFileError(filename=safe_name, error=f"Unsupported content type: {f.content_type}"))
-            await f.close()
-            continue
-
-        # unique name if not overwriting
-        if not overwrite and dest.exists():
+        # Generate unique name if file exists
+        if dest.exists():
             stem, suffix = dest.stem, dest.suffix
             i = 1
             while dest.exists():
@@ -82,19 +71,16 @@ async def save_upload_files(
 
         try:
             async with aiofiles.open(dest, "wb") as out:
-                while chunk := await f.read(chunk_size):
+                while chunk := await f.read(CHUNK_SIZE):
                     size += len(chunk)
-                    if max_bytes_per_file is not None and size > max_bytes_per_file:
-                        error = f"File exceeds max size ({max_bytes_per_file} bytes)"
-                        break
                     await out.write(chunk)
-        except Exception as e:  # e.g., disk errors
+        except Exception as e:
             logger.exception("encountered error while saving file upload", exc_info=e)
             error = f"I/O error: {e}"
         finally:
             await f.close()
 
-        # if size limit tripped, remove partial file
+        # If error occurred, remove partial file
         if error and dest.exists():
             try:
                 dest.unlink(missing_ok=True)
