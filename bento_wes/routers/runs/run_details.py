@@ -56,11 +56,11 @@ async def run_download_artifact(
             artifacts.update(set(_denest_list(o.value)))
 
     if artifact_path not in artifacts:
-        raise HTTPException(status_code=404, detail=f"Requested artifact path not found in run {run_id}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Requested artifact path not found in run {run_id}")
 
     p = Path(artifact_path)
     if not p.exists():
-        raise HTTPException(status_code=500, detail=f"Artifact path does not exist on filesystem: {artifact_path}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Artifact path does not exist on filesystem: {artifact_path}")
 
     safe_name = urllib.parse.quote(p.name, encoding="utf-8")
     return FileResponse(
@@ -86,13 +86,13 @@ async def cancel_run(run: RunDep, db: DatabaseDep, authz_check: AuthzDep, settin
 
     for bad_req_states, bad_req_err in RUN_CANCEL_BAD_REQUEST_STATES:
         if run.state in bad_req_states:
-            raise HTTPException(status_code=400, detail=bad_req_err)
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=bad_req_err)
 
     celery_id = run.run_log.celery_id
 
     if celery_id is None:
         # Never made it into the queue, so "cancel" it
-        raise HTTPException(status_code=500, detail=f"No Celery ID present for run {run.run_id}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"No Celery ID present for run {run.run_id}")
 
     # TODO: terminate=True might be iffy
     db.update_run_state_and_commit(run.run_id, states.STATE_CANCELING)
@@ -107,4 +107,4 @@ async def cancel_run(run: RunDep, db: DatabaseDep, authz_check: AuthzDep, settin
 
     db.update_run_state_and_commit(run.run_id, states.STATE_CANCELED)
 
-    return PlainTextResponse("Run Cancelled", status_code=204)  # TODO: Better response
+    return PlainTextResponse("Run Cancelled", status_code=status.HTTP_204_NO_CONTENT)  # TODO: Better response

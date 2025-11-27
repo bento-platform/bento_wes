@@ -23,7 +23,7 @@ def stash_run_or_404(
 ) -> None:
     run = db.get_run_with_details(run_id, stream_content=False)
     if not run:
-        raise HTTPException(status_code=404, detail="Run not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     request.state.run = run
 
 
@@ -52,7 +52,7 @@ def get_stream(db: Database, stream: RunStream, run_id: UUID):
 
     content = run.run_log.stdout if stream == "stdout" else run.run_log.stderr
 
-    return PlainTextResponse(content, status_code=200, headers={"Cache-Control": cache_control})
+    return PlainTextResponse(content, status_code=status.HTTP_200_OK, headers={"Cache-Control": cache_control})
 
 
 AuthzCallable = Callable[[Permission, dict], Awaitable[None]]
