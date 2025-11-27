@@ -11,11 +11,10 @@ from pathlib import Path
 
 from bento_wes import states
 from bento_wes.db import DatabaseDep
-from bento_wes.types import RunStream
 from bento_wes.celery import celery
 from bento_wes.config import SettingsDep
 
-from .deps import stash_run_or_404, get_stream, RunDep, AuthzDep
+from .deps import stash_run_or_404, StreamDataDep, RunDep, AuthzDep
 from .utils import _denest_list
 from .constants import RUN_CANCEL_BAD_REQUEST_STATES
 
@@ -56,11 +55,16 @@ async def run_download_artifact(
             artifacts.update(set(_denest_list(o.value)))
 
     if artifact_path not in artifacts:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Requested artifact path not found in run {run_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Requested artifact path not found in run {run_id}"
+        )
 
     p = Path(artifact_path)
     if not p.exists():
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Artifact path does not exist on filesystem: {artifact_path}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Artifact path does not exist on filesystem: {artifact_path}",
+        )
 
     safe_name = urllib.parse.quote(p.name, encoding="utf-8")
     return FileResponse(
@@ -72,9 +76,10 @@ async def run_download_artifact(
 
 
 @detail_router.get("/{stream}", response_class=PlainTextResponse)
-async def run_stream(stream: RunStream, run_id: UUID, run: RunDep, db: DatabaseDep, authz_check: AuthzDep):
+async def run_stream(run: RunDep, authz_check: AuthzDep, stream_data: StreamDataDep):
     await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
-    return get_stream(db, stream, run_id)
+    content, headers = stream_data
+    return PlainTextResponse(content, status_code=status.HTTP_200_OK, headers=headers)
 
 
 @detail_router.post("/cancel")
@@ -92,7 +97,9 @@ async def cancel_run(run: RunDep, db: DatabaseDep, authz_check: AuthzDep, settin
 
     if celery_id is None:
         # Never made it into the queue, so "cancel" it
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"No Celery ID present for run {run.run_id}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"No Celery ID present for run {run.run_id}"
+        )
 
     # TODO: terminate=True might be iffy
     db.update_run_state_and_commit(run.run_id, states.STATE_CANCELING)
