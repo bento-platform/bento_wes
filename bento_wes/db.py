@@ -29,7 +29,6 @@ __all__ = [
     "get_db_with_event_bus",
     "DatabaseDep",
     "setup_database_on_startup",
-    "repair_database_on_startup",
 ]
 
 
@@ -355,8 +354,7 @@ def setup_database_on_startup(logger) -> None:
         # If the 'runs' table isn't present, run full schema.sql
         if db.c().execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runs'").fetchone() is None:
             db.init_schema()
-        
+
         db.update_stuck_runs()
     finally:
         db.close()
-
