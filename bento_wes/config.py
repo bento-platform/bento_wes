@@ -14,7 +14,7 @@ from bento_lib.service_info.types import BentoExtraServiceInfo
 
 from .constants import SERVICE_ID, SERVICE_NAME, BENTO_SERVICE_KIND, GIT_REPOSITORY
 
-__all__ = ["Settings", "get_settings", "SettingsDep"]
+__all__ = ["Settings", "get_settings", "SettingsDep", "BENTO_EXTRA_SERVICE_INFO"]
 
 BENTO_EXTRA_SERVICE_INFO: BentoExtraServiceInfo = {
     "serviceKind": BENTO_SERVICE_KIND,

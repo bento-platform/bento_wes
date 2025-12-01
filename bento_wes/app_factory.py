@@ -4,20 +4,19 @@ from contextlib import asynccontextmanager
 from .authz import get_authz_middleware
 from .config import get_settings, BENTO_EXTRA_SERVICE_INFO
 from .constants import SERVICE_TYPE
-from .db import setup_database_on_startup, repair_database_on_startup
+from .db import setup_database_on_startup
 from .logger import get_logger
 from . import __version__
 from .events import init_event_bus, shutdown_event_bus
 
 
 @asynccontextmanager
-async def lifespan(app: BentoFastAPI):
+async def lifespan(_app: BentoFastAPI):
     logger = get_logger()
     settings = get_settings()
     try:
         init_event_bus(logger, settings.bento_event_redis_url)
         setup_database_on_startup(logger)
-        repair_database_on_startup(logger)
         yield
     finally:
         await shutdown_event_bus(logger)
