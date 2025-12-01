@@ -17,8 +17,8 @@ class AuthHeaderModel(BaseModel):
         return self.model_dump(exclude_none=True)
 
     @classmethod
-    def from_header(cls, Authorization: Annotated[str | None, Header()] = None) -> "AuthHeaderModel":
-        return cls(Authorization=Authorization)
+    def from_header(cls, authorization: Annotated[str | None, Header()] = None) -> "AuthHeaderModel":
+        return cls(Authorization=authorization)
 
     @classmethod
     def from_form(cls, token: Annotated[str, Form(...)] = "") -> "AuthHeaderModel":
