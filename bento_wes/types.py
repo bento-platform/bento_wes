@@ -21,5 +21,5 @@ class AuthHeaderModel(BaseModel):
         return cls(Authorization=Authorization)
 
     @classmethod
-    def from_form(cls, token: Annotated[str, Form(...)] = None) -> "AuthHeaderModel":
-        return cls(Authorization=token)
+    def from_form(cls, token: Annotated[str, Form(...)] = "") -> "AuthHeaderModel":
+        return cls(Authorization=f"Bearer {token}")

@@ -1,6 +1,7 @@
 from fastapi import Depends, Request
 from fastapi.exceptions import HTTPException
 from fastapi import status
+from starlette.datastructures import Headers
 from typing import Awaitable, Callable, FrozenSet, Annotated, Iterable, Iterator
 from uuid import UUID
 
@@ -9,7 +10,7 @@ from bento_lib.auth.permissions import Permission, P_VIEW_RUNS
 from bento_wes import states
 from bento_wes.db import DatabaseDep
 from bento_wes.models import RunWithDetails
-from bento_wes.types import RunStream
+from bento_wes.types import RunStream, AuthHeaderModel
 from bento_wes.authz import AuthzMiddlewareDep
 from bento_wes.config import SettingsDep
 
@@ -78,6 +79,30 @@ def evaluate_run_permissions_function(
 
 
 AuthzDep = Annotated[AuthzCallable, Depends(evaluate_run_permissions_function)]
+
+
+def evaluate_run_permissions_function_from_form(
+    request: Request,
+    settings: SettingsDep,
+    authz_middleware: AuthzMiddlewareDep,
+    auth: Annotated[AuthHeaderModel, Depends(AuthHeaderModel.from_form)],
+) -> AuthzCallable:
+    async def _inner(permission: Permission, resource: dict) -> None:
+        if not settings.authz_enabled:
+            return None
+
+        # Create a modified request with authorization from form data
+        if auth.Authorization:
+            new_headers = dict(request.headers) | auth.as_dict()
+            request._headers = Headers(new_headers)
+
+        p: FrozenSet[Permission] = frozenset({permission})
+        return await authz_middleware.async_check_authz_evaluate(request, p, resource, set_authz_flag=True)
+
+    return _inner
+
+
+AuthzDepFromForm = Annotated[AuthzCallable, Depends(evaluate_run_permissions_function_from_form)]
 
 AuthzCompletionCallable = Callable[[], Awaitable[None]]
 

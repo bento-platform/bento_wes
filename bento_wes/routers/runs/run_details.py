@@ -14,7 +14,7 @@ from bento_wes.db import DatabaseDep
 from bento_wes.celery import celery
 from bento_wes.config import SettingsDep
 
-from .deps import stash_run_or_404, StreamDataDep, RunDep, AuthzDep
+from .deps import stash_run_or_404, StreamDataDep, RunDep, AuthzDep, AuthzDepFromForm
 from .utils import _denest_list
 from .constants import RUN_CANCEL_BAD_REQUEST_STATES
 
@@ -38,7 +38,7 @@ async def run_status(run: RunDep, authz_check: AuthzDep):
 async def run_download_artifact(
     run_id: UUID,
     run: RunDep,
-    authz_check: AuthzDep,
+    authz_check: AuthzDepFromForm,
     path: str = Form(...),
 ):
     await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
