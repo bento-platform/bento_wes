@@ -12,6 +12,11 @@ from bento_lib.logging import log_level_from_str
 __all__ = ["get_logger", "LoggerDep"]
 
 
+# quiet one noisy celery logger in debug mode
+# - we can't put this in the logger config below, since it doesn't run in time for initial startup spam.
+logging.getLogger("celery.utils.functional").setLevel(logging.INFO)
+
+
 @lru_cache
 def get_logger() -> Logger:
     logger = logging.getLogger("wes")
@@ -38,7 +43,6 @@ def get_logger() -> Logger:
             "loggers": {
                 # quiet noisy libs in dev
                 "asyncio": {"level": "INFO"},
-                "celery.utils.functional": {"level": "WARNING"},
                 "celery.app.trace": {"level": "INFO"},
                 "python_multipart.multipart": {
                     "level": "WARNING",
