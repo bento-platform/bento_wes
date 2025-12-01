@@ -76,8 +76,8 @@ class Settings(BentoFastAPIBaseConfig):
         return v if v.endswith("/") else v + "/"
 
     # --- Event bus / Redis ---
-    bento_event_redis_url: RedisDsn | str = Field(
-        "redis://localhost:6379",
+    bento_event_redis_url: RedisDsn = Field(
+        RedisDsn("redis://localhost:6379"),
         alias="BENTO_EVENT_REDIS_URL",
     )
 

@@ -79,10 +79,10 @@ def logger():
 
 
 @pytest.fixture
-def event_bus(logger):
+def event_bus(logger, settings):
     from bento_wes.events import get_event_bus
 
-    return get_event_bus(logger)
+    return get_event_bus(logger, settings)
 
 
 @pytest.fixture

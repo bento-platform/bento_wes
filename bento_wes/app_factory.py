@@ -13,8 +13,9 @@ from .events import init_event_bus, shutdown_event_bus
 @asynccontextmanager
 async def lifespan(app: BentoFastAPI):
     logger = get_logger()
+    settings = get_settings()
     try:
-        init_event_bus(logger)
+        init_event_bus(logger, settings.bento_event_redis_url)
         setup_database_on_startup(logger)
         repair_database_on_startup(logger)
         yield

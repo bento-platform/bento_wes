@@ -24,7 +24,7 @@ def run_workflow(self, run_id: uuid.UUID):
     settings: Settings = get_settings()
     logger = get_task_logger(__name__)
 
-    event_bus: EventBus = get_worker_event_bus(logger)
+    event_bus: EventBus = get_worker_event_bus(logger, settings.bento_event_redis_url)
     service_manager: ServiceManager = get_service_manager(settings, logger)
     workflow_manager: WorkflowManager = get_workflow_manager(settings, logger)
 

@@ -91,7 +91,7 @@ class Database:
         )
         self._conn.row_factory = sqlite3.Row
         self._apply_pragmas()
-        self.event_bus = event_bus or get_event_bus(logger)
+        self.event_bus = event_bus or get_event_bus(logger, settings)
         self._settings = settings
         self._logger = logger
 
@@ -329,10 +329,11 @@ def get_db(settings: SettingsDep, logger: LoggerDep, event_bus: EventBusDep) -> 
 
 
 def get_db_with_event_bus(
-    logger: Logger | None = None, event_bus: EventBus | None = None
+    logger: Logger | None = None, event_bus: EventBus | None = None, settings: Settings | None = None
 ) -> Generator["Database", None, None]:
     func_logger = logger or get_logger()
-    db = Database(get_settings(), func_logger, event_bus or get_event_bus(func_logger))
+    _settings = settings or get_settings()
+    db = Database(get_settings(), func_logger, event_bus or get_event_bus(func_logger, _settings))
     try:
         yield db
     finally:

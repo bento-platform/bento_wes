@@ -5,9 +5,10 @@ import os
 from bento_lib.events import EventBus, types as et
 from fastapi import Depends
 from logging import Logger
-from typing import Annotated, Optional
+from typing import Annotated
+from pydantic.networks import RedisDsn
 
-from .config import get_settings
+from .config import SettingsDep
 from .logger import LoggerDep
 
 __all__ = [
@@ -20,16 +21,15 @@ __all__ = [
 ]
 
 # ---------- Singleton state ----------
-_BUS: Optional[EventBus] = None
+_BUS: EventBus | None = None
 
 
 # ---------- Construction ----------
-def _create_event_bus(logger: Logger) -> EventBus:
+def _create_event_bus(logger: Logger, redis_url: RedisDsn) -> EventBus:
     """
     Create and configure the EventBus instance (no I/O side effects here).
     """
-    settings = get_settings()
-    bus = EventBus(url=settings.bento_event_redis_url, allow_fake=True, logger=logger)
+    bus = EventBus(url=str(redis_url), allow_fake=True, logger=logger)
 
     # Register all event types here
     bus.register_service_event_type(et.EVENT_WES_RUN_UPDATED, et.EVENT_WES_RUN_UPDATED_SCHEMA)
@@ -46,7 +46,7 @@ async def _close_event_bus(bus: EventBus, logger: Logger) -> None:
 
 
 # ---------- Lifecycle ----------
-def init_event_bus(logger: Logger) -> EventBus:
+def init_event_bus(logger: Logger, redis_url: RedisDsn) -> EventBus:
     """
     Initialize the global EventBus singleton if not already created.
     Safe to call multiple times.
@@ -54,7 +54,7 @@ def init_event_bus(logger: Logger) -> EventBus:
     global _BUS
     if _BUS is None:
         logger.info("Initializing EventBus")
-        _BUS = _create_event_bus(logger)
+        _BUS = _create_event_bus(logger, redis_url)
     return _BUS
 
 
@@ -71,13 +71,13 @@ async def shutdown_event_bus(logger: Logger) -> None:
 
 
 # ---------- Dependency ----------
-def get_event_bus(logger: LoggerDep) -> EventBus:
+def get_event_bus(logger: LoggerDep, settings: SettingsDep) -> EventBus:
     """
     Retrieve the global EventBus singleton.
     creates if not initialized.
     """
     if _BUS is None:
-        return init_event_bus(logger)
+        return init_event_bus(logger, settings.bento_event_redis_url)
     return _BUS
 
 
@@ -85,11 +85,11 @@ EventBusDep = Annotated[EventBus, Depends(get_event_bus)]
 
 # ---------- For Celery Workers ----------
 
-_WORKER_BUS: Optional[EventBus] = None
-_WORKER_PID: Optional[int] = None
+_WORKER_BUS: EventBus | None = None
+_WORKER_PID: int | None = None
 
 
-def get_worker_event_bus(logger: Logger) -> EventBus:
+def get_worker_event_bus(logger: Logger, redis_url: RedisDsn) -> EventBus:
     """
     Lazily create and return a per-process EventBus for Celery workers.
     Safe to call inside tasks; initializes after fork.
@@ -99,7 +99,7 @@ def get_worker_event_bus(logger: Logger) -> EventBus:
 
     if _WORKER_BUS is None or _WORKER_PID != pid:
         logger.debug("Initializing EventBus for Celery worker process (pid=%s)", pid)
-        _WORKER_BUS = _create_event_bus(logger)
+        _WORKER_BUS = _create_event_bus(logger, redis_url)
         _WORKER_PID = pid
 
     return _WORKER_BUS
