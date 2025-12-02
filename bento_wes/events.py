@@ -1,30 +1,117 @@
+from __future__ import annotations
+
+import os
+
 from bento_lib.events import EventBus, types as et
-from flask import g
+from fastapi import Depends
+from logging import Logger
+from typing import Annotated
+from pydantic.networks import RedisDsn
 
-from .config import BENTO_EVENT_REDIS_URL
-
+from .config import SettingsDep
+from .logger import LoggerDep
 
 __all__ = [
-    "get_new_event_bus",
-    "get_flask_event_bus",
-    "close_flask_event_bus",
+    "init_event_bus",
+    "shutdown_event_bus",
+    "get_event_bus",
+    "get_worker_event_bus",
+    "close_worker_event_bus",
+    "EventBusDep",
 ]
 
-
-def get_new_event_bus() -> EventBus:
-    event_bus = EventBus(url=BENTO_EVENT_REDIS_URL, allow_fake=True)
-    event_bus.register_service_event_type(et.EVENT_WES_RUN_UPDATED, et.EVENT_WES_RUN_UPDATED_SCHEMA)
-    event_bus.register_service_event_type(et.EVENT_WES_RUN_FINISHED, et.EVENT_WES_RUN_FINISHED_SCHEMA)
-    event_bus.register_service_event_type(et.EVENT_CREATE_NOTIFICATION, et.EVENT_CREATE_NOTIFICATION_SCHEMA)
-    return event_bus
+# ---------- Singleton state ----------
+_BUS: EventBus | None = None
 
 
-def get_flask_event_bus() -> EventBus:
-    if "event_bus" not in g:
-        g.event_bus = get_new_event_bus()
-    return g.event_bus
+# ---------- Construction ----------
+def _create_event_bus(logger: Logger, redis_url: RedisDsn) -> EventBus:
+    """
+    Create and configure the EventBus instance (no I/O side effects here).
+    """
+    bus = EventBus(url=str(redis_url), allow_fake=True, logger=logger)
+
+    # Register all event types here
+    bus.register_service_event_type(et.EVENT_WES_RUN_UPDATED, et.EVENT_WES_RUN_UPDATED_SCHEMA)
+    bus.register_service_event_type(et.EVENT_WES_RUN_FINISHED, et.EVENT_WES_RUN_FINISHED_SCHEMA)
+    bus.register_service_event_type(et.EVENT_CREATE_NOTIFICATION, et.EVENT_CREATE_NOTIFICATION_SCHEMA)
+    return bus
 
 
-def close_flask_event_bus(_e=None):
-    # TODO: More closing stuff?
-    g.pop("event_bus", None)
+async def _close_event_bus(bus: EventBus, logger: Logger) -> None:
+    try:
+        bus.stop_event_loop()
+    except Exception as e:
+        logger.exception("Error while shutting down EventBus", exc_info=e)
+
+
+# ---------- Lifecycle ----------
+def init_event_bus(logger: Logger, redis_url: RedisDsn) -> EventBus:
+    """
+    Initialize the global EventBus singleton if not already created.
+    Safe to call multiple times.
+    """
+    global _BUS
+    if _BUS is None:
+        logger.info("Initializing EventBus")
+        _BUS = _create_event_bus(logger, redis_url)
+    return _BUS
+
+
+async def shutdown_event_bus(logger: Logger) -> None:
+    """
+    Shut down the global EventBus singleton, if it exists.
+    """
+    global _BUS
+    if _BUS is None:
+        return
+    logger.info("Shutting down EventBus")
+    await _close_event_bus(_BUS, logger)
+    _BUS = None
+
+
+# ---------- Dependency ----------
+def get_event_bus(logger: LoggerDep, settings: SettingsDep) -> EventBus:
+    """
+    Retrieve the global EventBus singleton.
+    creates if not initialized.
+    """
+    if _BUS is None:
+        return init_event_bus(logger, settings.bento_event_redis_url)
+    return _BUS
+
+
+EventBusDep = Annotated[EventBus, Depends(get_event_bus)]
+
+# ---------- For Celery Workers ----------
+
+_WORKER_BUS: EventBus | None = None
+_WORKER_PID: int | None = None
+
+
+def get_worker_event_bus(logger: Logger, redis_url: RedisDsn) -> EventBus:
+    """
+    Lazily create and return a per-process EventBus for Celery workers.
+    Safe to call inside tasks; initializes after fork.
+    """
+    global _WORKER_BUS, _WORKER_PID
+    pid = os.getpid()
+
+    if _WORKER_BUS is None or _WORKER_PID != pid:
+        logger.debug("Initializing EventBus for Celery worker process (pid=%s)", pid)
+        _WORKER_BUS = _create_event_bus(logger, redis_url)
+        _WORKER_PID = pid
+
+    return _WORKER_BUS
+
+
+async def close_worker_event_bus(logger: Logger) -> None:
+    """
+    Close the per-process Celery worker EventBus, if present.
+    """
+    global _WORKER_BUS
+    if _WORKER_BUS is None:
+        return
+    logger.debug("Shutting down EventBus for Celery worker process (pid=%s)", os.getpid())
+    await _close_event_bus(_WORKER_BUS, logger)
+    _WORKER_BUS = None

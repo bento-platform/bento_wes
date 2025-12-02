@@ -1,30 +1,40 @@
-import requests
+import asyncio
+import httpx
 import uuid
 
+from bento_lib.events import EventBus
+from bento_lib.service_info.manager import ServiceManager
 from celery.utils.log import get_task_logger
-from flask import current_app
 
 from . import states
 from .backends.cromwell_local import CromwellLocalBackend
 from .backends.wes_backend import WESBackend
 from .celery import celery
-from .db import Database, get_db
-from .events import get_new_event_bus
-from .workflows import parse_workflow_host_allow_list
+from .db import Database, get_db_with_event_bus
+from .events import get_worker_event_bus, close_worker_event_bus
+from .config import get_settings, Settings
+from .service_registry import get_service_manager
+from .workflows import WorkflowManager, get_workflow_manager
 
 
 @celery.task(bind=True)
 def run_workflow(self, run_id: uuid.UUID):
+    # Initialize dependencies  ------------------------------------------------
+
+    settings: Settings = get_settings()
     logger = get_task_logger(__name__)
 
-    db: Database = get_db()
-    c = db.cursor()
-    event_bus = get_new_event_bus()
+    event_bus: EventBus = get_worker_event_bus(logger, settings.bento_event_redis_url)
+    service_manager: ServiceManager = get_service_manager(settings, logger)
+    workflow_manager: WorkflowManager = get_workflow_manager(settings, logger)
+
+    _db_gen = get_db_with_event_bus(logger, event_bus)
+    db: Database = next(_db_gen)
 
     # Checks ------------------------------------------------------------------
 
     # Check that the run and its associated objects exist
-    run = db.get_run_with_details(c, run_id, stream_content=False)
+    run = db.get_run_with_details(run_id, stream_content=False)
     if run is None:
         logger.error(f"Cannot find run {run_id}")
         return
@@ -34,30 +44,19 @@ def run_workflow(self, run_id: uuid.UUID):
     # TODO: Change based on workflow type / what's supported - get first runner
     #  'enabled' (somehow) which supports the type
     logger.info("Initializing backend")
-    validate_ssl = current_app.config["BENTO_VALIDATE_SSL"]
     backend: WESBackend = CromwellLocalBackend(
-        tmp_dir=current_app.config["SERVICE_TEMP"],
-        data_dir=current_app.config["SERVICE_DATA"],
-        workflow_timeout=current_app.config["WORKFLOW_TIMEOUT"],
-        # Dependencies
-        logger=logger,
         event_bus=event_bus,
-        # Get list of allowed workflow hosts from configuration for any checks inside the runner
-        workflow_host_allow_list=parse_workflow_host_allow_list(current_app.config["WORKFLOW_HOST_ALLOW_LIST"]),
-        # Bento-specific stuff
-        bento_url=(current_app.config["BENTO_URL"] or None),
-        # Debug/production flags (validate SSL must be ON in production; debug must be OFF)
-        validate_ssl=validate_ssl,
-        debug=current_app.config["BENTO_DEBUG"],
+        logger=logger,
+        service_manager=service_manager,
+        settings=settings,
+        workflow_manager=workflow_manager,
     )
 
     secrets: dict[str, str] = {"access_token": ""}
 
     # If we have credentials, obtain access token for use inside workflow to ingest data
     try:
-        if (client_id := current_app.config["WES_CLIENT_ID"]) and (
-            client_secret := current_app.config["WES_CLIENT_SECRET"]
-        ):
+        if (client_id := settings.wes_client_id) and (client_secret := settings.wes_client_secret.get_secret_value()):
             logger.info("Obtaining access token")
             # TODO: cache OpenID config
             # TODO: handle errors more elegantly/precisely
@@ -66,17 +65,17 @@ def run_workflow(self, run_id: uuid.UUID):
             #  - perhaps exchange the user's token for some type of limited-scope token (ingest only) which lasts
             #    48 hours, given out by the authorization service?
 
-            openid_config = requests.get(current_app.config["BENTO_OPENID_CONFIG_URL"], verify=validate_ssl).json()
-            token_res = requests.post(
-                openid_config["token_endpoint"],
-                verify=validate_ssl,
-                data={
-                    "grant_type": "client_credentials",
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                },
-            )
-            secrets["access_token"] = token_res.json()["access_token"]
+            with httpx.Client(verify=settings.bento_validate_ssl) as client:
+                openid_config = client.get(settings.bento_openid_config_url).json()
+                token_res = client.post(
+                    openid_config["token_endpoint"],
+                    data={
+                        "grant_type": "client_credentials",
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                    },
+                )
+                secrets["access_token"] = token_res.json()["access_token"]
         else:
             logger.warning(
                 "Missing WES credentials: WES_CLIENT_ID and/or WES_CLIENT_SECRET; setting job access token to ''"
@@ -84,15 +83,22 @@ def run_workflow(self, run_id: uuid.UUID):
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while obtaining access token: {type(e).__name__} {e}")
-        db.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, cursor=c, logger=logger)
+        db.finish_run(run, states.STATE_SYSTEM_ERROR)
         raise e
 
     # Perform the run
     try:
         logger.info("Starting workflow execution...")
-        backend.perform_run(run, self.request.id, secrets)
+        asyncio.run(backend.perform_run(run, self.request.id, secrets))
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while performing run: {type(e).__name__} {e}")
-        db.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, cursor=c, logger=logger)
+        db.finish_run(run, states.STATE_SYSTEM_ERROR)
         raise e
+    finally:
+        try:
+            next(_db_gen)
+        except StopIteration:
+            pass
+        asyncio.run(close_worker_event_bus(logger))
+        backend.close()

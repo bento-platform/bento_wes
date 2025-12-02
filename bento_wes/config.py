@@ -1,97 +1,133 @@
-import os
+from __future__ import annotations
+
+from fastapi import Depends
+from functools import lru_cache
 from pathlib import Path
+from typing import Annotated, Literal
 
-from .constants import SERVICE_ID
-from .logger import logger
+from pydantic import AliasChoices, AnyHttpUrl, Field, SecretStr, model_validator, field_validator
+from pydantic.networks import RedisDsn
+from pydantic_settings import SettingsConfigDict
 
+from bento_lib.config.pydantic import BentoFastAPIBaseConfig
+from bento_lib.service_info.types import BentoExtraServiceInfo
 
-__all__ = [
-    "AUTHZ_URL",
-    "AUTHZ_ENABLED",
-    "BENTO_DEBUG",
-    "BENTO_EVENT_REDIS_URL",
-    "Config",
-]
+from .constants import SERVICE_ID, SERVICE_NAME, BENTO_SERVICE_KIND, GIT_REPOSITORY
 
+__all__ = ["Settings", "get_settings", "SettingsDep", "BENTO_EXTRA_SERVICE_INFO"]
 
-def _get_from_environ_or_fail(var: str) -> str:
-    if (val := os.environ.get(var, "")) == "":
-        logger.critical(f"{var} must be set")
-        exit(1)
-    return val
-
-
-def _to_bool(val: str) -> bool:
-    return val.strip().lower() in TRUTH_VALUES
+BENTO_EXTRA_SERVICE_INFO: BentoExtraServiceInfo = {
+    "serviceKind": BENTO_SERVICE_KIND,
+    "dataService": False,
+    "workflowProvider": False,
+    "gitRepository": GIT_REPOSITORY,
+}
 
 
-TRUTH_VALUES = ("true", "1")
+# Even though hashable, the class isn't detected as hashable by the type checker requiring ignore comments
+class Settings(BentoFastAPIBaseConfig):
+    """
+    Centralized application configuration.
 
-AUTHZ_ENABLED = os.environ.get("AUTHZ_ENABLED", "true").strip().lower() in TRUTH_VALUES
+    Extends pydantic's BaseSettings.
+    Loads from environment variables (optionally .env), provides type-safety,
+    and normalizes values (e.g., URLs without trailing slashes, base URL with trailing slash).
+    """
 
-BENTO_DEBUG: bool = _to_bool(os.environ.get("BENTO_DEBUG", os.environ.get("FLASK_DEBUG", "false")))
-CELERY_DEBUG: bool = _to_bool(os.environ.get("CELERY_DEBUG", ""))
-BENTO_CONTAINER_LOCAL: bool = _to_bool(os.environ.get("BENTO_CONTAINER_LOCAL", "false"))
-BENTO_VALIDATE_SSL: bool = _to_bool(os.environ.get("BENTO_VALIDATE_SSL", str(not BENTO_DEBUG)))
-
-if not BENTO_VALIDATE_SSL:
-    # If we've turned off SSL validation, suppress insecure connection warnings
-    import urllib3
-
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-AUTHZ_URL: str = _get_from_environ_or_fail("BENTO_AUTHZ_SERVICE_URL").strip().rstrip("/")
-SERVICE_REGISTRY_URL: str = _get_from_environ_or_fail("SERVICE_REGISTRY_URL").strip().rstrip("/")
-
-BENTO_EVENT_REDIS_URL = os.environ.get("BENTO_EVENT_REDIS_URL", "redis://localhost:6379")
-
-SERVICE_BASE_URL: str = os.environ.get("SERVICE_BASE_URL", "http://127.0.0.1:5000/")
-if not SERVICE_BASE_URL.endswith("/"):
-    SERVICE_BASE_URL += "/"
-
-
-class Config:
-    BENTO_URL: str = os.environ.get("BENTO_URL", "http://127.0.0.1:5000/")
-
-    BENTO_DEBUG: bool = BENTO_DEBUG
-    BENTO_CONTAINER_LOCAL: bool = BENTO_CONTAINER_LOCAL
-    BENTO_VALIDATE_SSL: bool = BENTO_VALIDATE_SSL
-
-    SERVICE_ID = SERVICE_ID
-    SERVICE_DATA: Path = Path(os.environ.get("SERVICE_DATA", "data"))
-    DATABASE: Path = Path(os.environ.get("DATABASE", str(SERVICE_DATA / "bento_wes.db")))
-    SERVICE_TEMP: Path = Path(os.environ.get("SERVICE_TEMP", "tmp"))
-    SERVICE_BASE_URL: str = SERVICE_BASE_URL
-
-    # WDL-file-related configuration
-    WOM_TOOL_LOCATION: str | None = os.environ.get("WOM_TOOL_LOCATION")
-    WORKFLOW_HOST_ALLOW_LIST: str | None = os.environ.get("WORKFLOW_HOST_ALLOW_LIST")
-
-    # Backend configuration
-    CROMWELL_LOCATION: str = os.environ.get("CROMWELL_LOCATION", "/cromwell.jar")
-
-    # CORS
-    CORS_ORIGINS: list[str] | str = [x for x in os.environ.get("CORS_ORIGINS", "").split(";") if x] or "*"
-
-    # Authn/z-related configuration
-    AUTHZ_URL: str = AUTHZ_URL
-    AUTHZ_ENABLED: bool = AUTHZ_ENABLED
-    #  - ... for WES itself:
-    BENTO_OPENID_CONFIG_URL: str = os.environ.get(
-        "BENTO_OPENID_CONFIG_URL", "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration"
+    # --- Pydantic/Settings config ---
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+        frozen=True,
     )
-    WES_CLIENT_ID: str = os.environ.get("WES_CLIENT_ID", "bento_wes")
-    WES_CLIENT_SECRET: str = os.environ.get("WES_CLIENT_SECRET", "")
 
-    # Service registry URL, used for looking up service kinds to inject as workflow input
-    SERVICE_REGISTRY_URL: str = SERVICE_REGISTRY_URL
+    # --- Core / Bento ---
+    bento_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:5000/")
+    bento_debug: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("BENTO_DEBUG", "FLASK_DEBUG"),
+        description="Debug mode (BENTO_DEBUG takes precedence over FLASK_DEBUG).",
+    )
+    bento_container_local: bool = Field(default=False, alias="BENTO_CONTAINER_LOCAL")
 
-    # VEP-related configuration
-    VEP_CACHE_DIR: str | None = os.environ.get("VEP_CACHE_DIR")
+    @model_validator(mode="after")
+    def _derive_bento_validate_ssl_if_unset(self):
+        if "bento_validate_ssl" not in self.model_fields_set:
+            object.__setattr__(self, "bento_validate_ssl", not self.bento_debug)
+        return self
 
-    INGEST_POST_TIMEOUT: int = 60 * 60  # 1 hour
-    # Timeout for workflow runs themselves, in seconds - default to 48 hours
-    WORKFLOW_TIMEOUT: int = int(os.environ.get("WORKFLOW_TIMEOUT", str(60 * 60 * 48)))
+    # --- Service identity & paths ---
+    service_id: str = SERVICE_ID
+    service_name: str = SERVICE_NAME
+    service_data: Path = Path("data")
+    database: Path = service_data / "bento_wes.db"
+    service_temp: Path = Path("tmp")
 
-    # Enables interactive debug of Celery tasks locally, not possible with worker threads otherwise
-    CELERY_ALWAYS_EAGER: bool = CELERY_DEBUG
+    service_base_url: str = Field(
+        "http://127.0.0.1:5000/",
+        alias="SERVICE_BASE_URL",
+        description="Public base URL of this service (normalized to include trailing slash).",
+    )
+
+    @field_validator("service_base_url", mode="after")
+    def _ensure_trailing_slash(cls, v: str) -> str:
+        return v if v.endswith("/") else v + "/"
+
+    # --- Event bus / Redis ---
+    bento_event_redis_url: RedisDsn = Field(
+        RedisDsn("redis://localhost:6379"),
+        alias="BENTO_EVENT_REDIS_URL",
+    )
+
+    # --- AuthN/Z + Service registry ---
+    authz_url: str = Field(..., validation_alias="BENTO_AUTHZ_SERVICE_URL")
+    authz_enabled: bool = Field(True, alias="AUTHZ_ENABLED")
+    bento_authz_enabled: bool = True  # consumed by middleware
+
+    service_registry_url: str = Field(..., alias="SERVICE_REGISTRY_URL")
+
+    # OIDC / WES client
+    bento_openid_config_url: str = "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration"
+    wes_client_id: str = "bento_wes"
+    wes_client_secret: SecretStr = SecretStr("")
+
+    # --- Workflow backend / WDL ---
+    cromwell_location: Path = Path("/cromwell.jar")
+    wom_tool_location: str | None = None
+    workflow_host_allow_list: str | None = None
+
+    # --- CORS ---
+    cors_origins: tuple[str, ...] | Literal["*"] = "*"
+
+    # --- VEP / optional data ---
+    vep_cache_dir: Path | None = None
+
+    # --- Timeouts (in seconds) ---
+    ingest_post_timeout: int = 3600  # 1 hour
+    workflow_timeout: int = 172800  # 2 days
+
+    # --- Celery / local debug ---
+    celery_always_eager: bool = Field(False, validation_alias="CELERY_DEBUG")
+
+    # --- Normalizers / guards ---
+    @field_validator("authz_url", "service_registry_url", mode="before")
+    @classmethod
+    def _require_non_empty_and_strip(cls, v: str) -> str:
+        if not v or not str(v).strip():
+            raise ValueError("This URL must not be empty")
+        return str(v).strip().rstrip("/")
+
+    @field_validator("bento_event_redis_url", mode="before")
+    @classmethod
+    def _normalize_redis(cls, v: str) -> str:
+        return str(v).strip()
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+SettingsDep = Annotated[Settings, Depends(get_settings)]

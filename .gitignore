@@ -14,6 +14,7 @@ celery.log
 bento_services.json
 bento_wes/*.json
 data/
+.ruff_cache/*
 
 cromwell-executions
 cromwell-workflow-logs
@@ -26,3 +27,7 @@ cromwell-workflow-logs
 
 # Keep vscode debugger configuration
 !.vscode/launch.json
+
+# Claude Code
+CLAUDE.md
+.claude/

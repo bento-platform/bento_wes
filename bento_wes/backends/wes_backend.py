@@ -8,6 +8,7 @@ import uuid
 from abc import ABC, abstractmethod
 from bento_lib.events import EventBus
 from bento_lib.events.types import EVENT_WES_RUN_FINISHED
+from bento_lib.service_info.manager import ServiceManager
 from bento_lib.utils.headers import authz_bearer_header
 from bento_lib.workflows.models import (
     WorkflowSecretInput,
@@ -16,17 +17,17 @@ from bento_lib.workflows.models import (
     WorkflowDirectoryInput,
 )
 from bento_lib.workflows.utils import namespaced_input
-from flask import current_app
+from logging import Logger
 from pathlib import Path
-from typing import overload, Sequence
+from typing import overload, Sequence, Literal
 
 from bento_wes import states
+from bento_wes.config import Settings
 from bento_wes.constants import SERVICE_ARTIFACT
-from bento_wes.db import Database, get_db
+from bento_wes.db import Database, get_db_with_event_bus
 from bento_wes.models import Run, RunWithDetails, RunOutput
-from bento_wes.service_registry import get_bento_service_kind_url
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
-from bento_wes.utils import get_drop_box_resource_url, iso_now
+from bento_wes.utils import iso_now
 from bento_wes.workflows import WORKFLOW_IGNORE_FILE_PATH_INJECTION, WorkflowType, WorkflowManager
 
 from .backend_types import Command, ProcessResult
@@ -43,46 +44,35 @@ ParamDict = dict[str, str | int | float | bool]
 class WESBackend(ABC):
     def __init__(
         self,
-        tmp_dir: Path,
-        data_dir: Path,
-        workflow_timeout: int,  # Workflow timeout, in seconds
-        logger=None,
-        event_bus: EventBus | None = None,
-        workflow_host_allow_list: set | None = None,
-        bento_url: str | None = None,
-        validate_ssl: bool = True,
-        debug: bool = False,
+        event_bus: EventBus,
+        logger: Logger,
+        service_manager: ServiceManager,
+        settings: Settings,
+        workflow_manager: WorkflowManager,
     ):
-        self._workflow_timeout: int = workflow_timeout
+        self.event_bus = event_bus
+        self.logger = logger
+        self.service_manager = service_manager
+        self.settings = settings
 
-        self.db: Database = get_db()
+        self._workflow_timeout: int = settings.workflow_timeout
 
-        self.tmp_dir: Path = tmp_dir
-        self.data_dir: Path = data_dir
+        self.tmp_dir: Path = settings.service_temp
+        self.data_dir: Path = settings.service_data
 
-        self.output_dir: Path = data_dir / "output"  # For persistent file artifacts from workflows
+        self.output_dir: Path = self.data_dir / "output"  # For persistent file artifacts from workflows
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        self.logger = logger
-        self.event_bus = event_bus  # TODO: New event bus?
-
-        self.workflow_host_allow_list = workflow_host_allow_list
+        self._db_gen = get_db_with_event_bus(self.logger, self.event_bus)
+        self.db: Database = next(self._db_gen)
 
         # Bento-specific parameters
-        self.bento_url: str = bento_url
+        self.bento_url = str(settings.bento_url)
 
-        self.validate_ssl: bool = validate_ssl
-        self.debug: bool = debug
+        self.validate_ssl: bool = settings.bento_validate_ssl
+        self.debug: bool = settings.bento_debug
 
-        self._workflow_manager: WorkflowManager = WorkflowManager(
-            self.tmp_dir,
-            service_base_url=current_app.config["SERVICE_BASE_URL"],
-            bento_url=self.bento_url,
-            logger=self.logger,
-            workflow_host_allow_list=self.workflow_host_allow_list,
-            validate_ssl=validate_ssl,
-            debug=self.debug,
-        )
+        self._workflow_manager: WorkflowManager = workflow_manager
 
         self._runs = {}
 
@@ -172,9 +162,8 @@ class WESBackend(ABC):
         """
         pass
 
-    @staticmethod
-    def get_womtool_path_or_raise() -> str:
-        womtool_path = current_app.config["WOM_TOOL_LOCATION"]
+    def get_womtool_path_or_raise(self) -> str:
+        womtool_path = self.settings.wom_tool_location
         if not womtool_path:
             raise RunExceptionWithFailState(
                 STATE_SYSTEM_ERROR,
@@ -182,9 +171,8 @@ class WESBackend(ABC):
             )
         return womtool_path
 
-    @classmethod
-    def execute_womtool_command(cls, command: tuple[str, ...]) -> subprocess.Popen:
-        womtool_path = cls.get_womtool_path_or_raise()
+    def execute_womtool_command(self, command: tuple[str, ...]) -> subprocess.Popen:
+        womtool_path = self.get_womtool_path_or_raise()
 
         # Check for Java (needed to run WOMtool)
         try:
@@ -279,20 +267,20 @@ class WESBackend(ABC):
         self.log_debug("Downloaded file at %s to path %s", url, destination)
 
     @overload
-    def _download_input_files(self, inputs: str, token: str, run_dir: Path) -> str: ...
+    async def _download_input_files(self, inputs: str, token: str, run_dir: Path) -> str: ...
 
     @overload
-    def _download_input_files(self, inputs: list[str], token: str, run_dir: Path) -> list[str]: ...
+    async def _download_input_files(self, inputs: list[str], token: str, run_dir: Path) -> list[str]: ...
 
-    def _download_input_files(self, inputs: str | list[str], token: str, run_dir: Path) -> str | list[str]:
+    async def _download_input_files(self, inputs: str | list[str], token: str, run_dir: Path) -> str | list[str]:
         if not inputs:
             # Ignore empty inputs
             return inputs
 
         if isinstance(inputs, list):
-            return [self._download_input_file(f, token, run_dir) for f in inputs]
+            return [await self._download_input_file(f, token, run_dir) for f in inputs]
         else:
-            return self._download_input_file(inputs, token, run_dir)
+            return await self._download_input_file(inputs, token, run_dir)
 
     @staticmethod
     def _build_download_path(run_dir: Path) -> Path:
@@ -308,7 +296,12 @@ class WESBackend(ABC):
                 STATE_EXECUTOR_ERROR, f"Temporary path bust be a sub-path of directory {parent_dir}"
             )
 
-    def _download_input_file(self, obj_path: str, token: str, run_dir: Path) -> str:
+    async def _get_drop_box_resource_url(self, path: str, resource: Literal["objects", "tree"] = "objects") -> str:
+        drop_box_url = await self.service_manager.get_bento_service_url_by_kind("drop-box")
+        clean_path = path.lstrip("/")
+        return f"{drop_box_url}/{resource}/{clean_path}"
+
+    async def _download_input_file(self, obj_path: str, token: str, run_dir: Path) -> str:
         """
         Downloads an input file from Drop-Box in the run directory.
         Returns the path to the temp file to inject in the workflow params.
@@ -325,7 +318,7 @@ class WESBackend(ABC):
         self._validate_sub_path(download_dir, tmp_file_path)
 
         # Downloads file to /wes/tmp/<run_dir>/<file_name>
-        download_url = get_drop_box_resource_url(obj_path)
+        download_url = await self._get_drop_box_resource_url(obj_path)
         self._download_to_path(download_url, token, tmp_file_path)
         return str(tmp_file_path)
 
@@ -358,7 +351,7 @@ class WESBackend(ABC):
                 os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
                 self._download_to_path(uri, token, tmp_path)
 
-    def _download_input_directory(
+    async def _download_input_directory(
         self,
         directory: str,
         token: str,
@@ -367,7 +360,7 @@ class WESBackend(ABC):
     ) -> str:
         self.log_debug("_download_input_directory called (directory=%s)", directory)
 
-        drop_box_url = get_bento_service_kind_url("drop-box")
+        drop_box_url = await self.service_manager.get_bento_service_url_by_kind("drop-box")
 
         sub_tree = directory.lstrip("/")
 
@@ -424,7 +417,7 @@ class WESBackend(ABC):
         :param state: The value to set the run's current state to
         """
         self.log_debug("Setting state of run %s to %s", run_id, state)
-        self.db.update_run_state_and_commit(self.db.cursor(), run_id, state, event_bus=self.event_bus)
+        self.db.update_run_state_and_commit(run_id, state)
 
     def _finish_run_and_clean_up(self, run: Run, state: str) -> None:
         """
@@ -436,7 +429,7 @@ class WESBackend(ABC):
 
         # Finish run ----------------------------------------------------------
 
-        self.db.finish_run(self.event_bus, run, state)
+        self.db.finish_run(run, state)
 
         # Clean up ------------------------------------------------------------
 
@@ -450,7 +443,7 @@ class WESBackend(ABC):
         if not self.debug:
             shutil.rmtree(self.run_dir(run), ignore_errors=True)
 
-    def _initialize_run_and_get_command(
+    async def _initialize_run_and_get_command(
         self,
         run: RunWithDetails,
         celery_id: int,
@@ -506,7 +499,7 @@ class WESBackend(ABC):
                 input_param = run_req.workflow_params.get(param_key)
                 if not skip_file_input_injection:
                     # inject input(s) as temp files
-                    injected_input = self._download_input_files(input_param, secrets["access_token"], run_dir)
+                    injected_input = await self._download_input_files(input_param, secrets["access_token"], run_dir)
                 else:
                     injected_input = input_param
                 processed_workflow_params[param_key] = injected_input
@@ -521,7 +514,7 @@ class WESBackend(ABC):
                 filter_extensions: tuple[str, ...] | None = (".vcf", ".vcf.gz") if filter_vcfs else None
 
                 if not skip_file_input_injection:
-                    injected_dir = self._download_input_directory(
+                    injected_dir = await self._download_input_directory(
                         input_param, secrets["access_token"], run_dir, filter_extensions
                     )
                     self.log_info("input parameter %s: injecting directory %s", input_param, injected_dir)
@@ -568,8 +561,6 @@ class WESBackend(ABC):
         :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
         """
 
-        c = self.db.cursor()
-
         # Perform run ==================================================================================================
 
         # -- Start process running the generated command ---------------------------------------------------------------
@@ -578,7 +569,8 @@ class WESBackend(ABC):
         runner_process = subprocess.Popen(
             cmd, cwd=self.tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8"
         )
-        c.execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run.run_id))
+        self.db.c().execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run.run_id))
+        self.db.commit()
         self._update_run_state_and_commit(run.run_id, states.STATE_RUNNING)
 
         # -- Wait for and capture output -------------------------------------------------------------------------------
@@ -610,7 +602,7 @@ class WESBackend(ABC):
 
         # -- Update run log with stdout/stderr, exit code --------------------------------------------------------------
         #     - Explicitly don't commit here; sync with state update
-        c.execute(
+        self.db.c().execute(
             "UPDATE runs SET run_log__stdout = ?, run_log__stderr = ?, run_log__exit_code = ? WHERE id = ?",
             (stdout, stderr, exit_code, run.run_id),
         )
@@ -632,7 +624,7 @@ class WESBackend(ABC):
         workflow_outputs = self.get_workflow_outputs(run)
 
         # Explicitly don't commit here; sync with state update
-        self.db.set_run_outputs(c, run.run_id, workflow_outputs)
+        self.db.set_run_outputs(run.run_id, workflow_outputs)
 
         # Emit event if possible
         self.event_bus.publish_service_event(
@@ -652,7 +644,7 @@ class WESBackend(ABC):
 
         return ProcessResult((stdout, stderr, exit_code, timed_out))
 
-    def perform_run(self, run: RunWithDetails, celery_id: int, secrets: dict[str, str]) -> ProcessResult | None:
+    async def perform_run(self, run: RunWithDetails, celery_id: int, secrets: dict[str, str]) -> ProcessResult | None:
         """
         Executes a run from start to finish (initialization, startup, and completion / cleanup.)
         :param run: The run to execute
@@ -671,7 +663,7 @@ class WESBackend(ABC):
 
         # Initialization (loading / downloading files + secrets injection) ---------------------------------------------
         try:
-            init_vals = self._initialize_run_and_get_command(run, celery_id, secrets)
+            init_vals = await self._initialize_run_and_get_command(run, celery_id, secrets)
         except RunExceptionWithFailState as e:
             self.log_error(str(e))
             self._finish_run_and_clean_up(run, e.state)
@@ -684,3 +676,9 @@ class WESBackend(ABC):
 
         # Perform, finish, and clean up run ----------------------------------------------------------------------------
         return self._perform_run(run, cmd, params_with_secrets)
+
+    def close(self):
+        try:
+            next(self._db_gen)
+        except StopIteration:
+            pass

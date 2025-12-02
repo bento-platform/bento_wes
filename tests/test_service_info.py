@@ -1,9 +1,9 @@
-import bento_lib
 from jsonschema import validate
+from bento_lib.schemas.ga4gh import SERVICE_INFO_SCHEMA
 
 
-def test_service_info(client):
-    rv = client.get("/service-info")
-    data = rv.get_json()
+def test_health_ok(client):
+    r = client.get("/service-info")
+    assert r.status_code == 200
 
-    validate(data, bento_lib.schemas.ga4gh.SERVICE_INFO_SCHEMA)
+    validate(r.json(), SERVICE_INFO_SCHEMA)

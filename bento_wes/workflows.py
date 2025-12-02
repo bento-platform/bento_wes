@@ -1,15 +1,18 @@
+import asyncio
+import httpx
 import logging
-
 import shutil
-import requests
 
 from base64 import urlsafe_b64encode
+from fastapi import Depends, status
 from pathlib import Path
 from pydantic import AnyUrl
-from typing import NewType
+from typing import NewType, Annotated
 from urllib.parse import urlparse
 
 from bento_wes import states
+from bento_wes.config import Settings, SettingsDep
+from bento_wes.logger import LoggerDep
 
 __all__ = [
     "WorkflowType",
@@ -20,6 +23,8 @@ __all__ = [
     "UnsupportedWorkflowType",
     "WorkflowDownloadError",
     "WorkflowManager",
+    "get_workflow_manager",
+    "WorkflowManagerDep",
 ]
 
 WorkflowType = NewType("WorkflowType", str)
@@ -65,37 +70,18 @@ class WorkflowDownloadError(Exception):
 
 
 class WorkflowManager:
-    def __init__(
-        self,
-        tmp_dir: Path,
-        service_base_url: str,
-        bento_url: str | None = None,
-        logger: logging.Logger | None = None,
-        workflow_host_allow_list: str | None = None,
-        validate_ssl: bool = True,
-        debug: bool = False,
-    ):
-        self.tmp_dir: Path = tmp_dir
-        self.service_base_url: str = service_base_url
-        self.bento_url: str | None = bento_url
-        self.logger: logging.Logger | None = logger
-        self.workflow_host_allow_list: str | None = workflow_host_allow_list
-        self._validate_ssl: bool = validate_ssl
-        self._debug_mode: bool = debug
+    def __init__(self, settings: Settings, logger: logging.Logger):
+        self.tmp_dir: Path = settings.service_temp
+        self.service_base_url: str = settings.service_base_url
+        self.bento_url: str = str(settings.bento_url)
+        self.logger: logging.Logger = logger
+        self.workflow_host_allow_list: set[str] | None = parse_workflow_host_allow_list(
+            settings.workflow_host_allow_list
+        )
+        self._validate_ssl: bool = settings.bento_validate_ssl
+        self._debug_mode: bool = settings.bento_debug
 
-        self._debug(f"Instantiating WorkflowManager with debug_mode={self._debug_mode}")
-
-    def _debug(self, message: str):
-        if self.logger:
-            self.logger.debug(message)
-
-    def _info(self, message: str):
-        if self.logger:
-            self.logger.info(message)
-
-    def _error(self, message: str):
-        if self.logger:
-            self.logger.error(message)
+        self.logger.debug("Instantiating WorkflowManager with debug_mode=%s", self._debug_mode)
 
     def workflow_path(self, workflow_uri: AnyUrl, workflow_type: WorkflowType) -> Path:
         """
@@ -104,12 +90,13 @@ class WorkflowManager:
         if workflow_type not in WES_SUPPORTED_WORKFLOW_TYPES:
             raise UnsupportedWorkflowType(f"Unsupported workflow type: {workflow_type}")
 
-        workflow_name = str(urlsafe_b64encode(bytes(str(workflow_uri), encoding="utf-8")), encoding="utf-8").replace(
-            "=", ""
-        )
+        workflow_name = str(
+            urlsafe_b64encode(bytes(str(workflow_uri), encoding="utf-8")),
+            encoding="utf-8",
+        ).replace("=", "")
         return self.tmp_dir / f"workflow_{workflow_name}.{WORKFLOW_EXTENSIONS[workflow_type]}"
 
-    def download_or_copy_workflow(
+    async def download_or_copy_workflow(
         self,
         workflow_uri: AnyUrl,
         workflow_type: WorkflowType,
@@ -130,26 +117,28 @@ class WorkflowManager:
         if workflow_uri.scheme not in ALLOWED_WORKFLOW_REQUEST_SCHEMES:  # file://
             # TODO: Other else cases
             # TODO: Handle exceptions
-            shutil.copyfile(workflow_uri.path, workflow_path)
-            return
+            await asyncio.to_thread(shutil.copyfile, str(workflow_uri.path), workflow_path)
+            return None
 
         if self.workflow_host_allow_list is not None:
             # We need to check that the workflow in question is from an
             # allowed set of workflow hosts
             if workflow_uri.scheme != "file" and workflow_uri.host not in self.workflow_host_allow_list:
                 # Dis-allowed workflow URL
-                self._error(
-                    f"Dis-allowed workflow host: {workflow_uri.host} (allow list: {self.workflow_host_allow_list})"
+                self.logger.error(
+                    "Dis-allowed workflow host: %s (allow list: %s)",
+                    workflow_uri.host,
+                    str(self.workflow_host_allow_list),
                 )
                 return states.STATE_EXECUTOR_ERROR
 
-        self._info(f"Fetching workflow file from {workflow_uri}")
+        self.logger.info("Fetching workflow file from %s", workflow_uri)
 
         # SECURITY: We cannot pass our auth token outside the Bento instance. Validate that BENTO_URL is
         # a) a valid URL and b) a prefix of our workflow's URI before downloading.
-        # Only bother doing this if BENTO_URL is actually set.
+
         use_auth_headers: bool = False
-        if self.bento_url:
+        if workflow_uri.path is not None:
             parsed_bento_url = urlparse(self.bento_url)
             use_auth_headers = all(
                 (
@@ -163,34 +152,44 @@ class WorkflowManager:
         # TODO: Better auth? May only be allowed to access specific workflows
         try:
             url = str(workflow_uri)
-            wr = requests.get(
-                url,
-                headers={
-                    "Host": urlparse(url or "").netloc or "",
-                    **(auth_headers if use_auth_headers else {}),
-                },
-                verify=self._validate_ssl,
-            )
-        except requests.exceptions.ConnectionError as e:
-            if workflow_path.exists():  # Use cached version if needed, otherwise error
-                return
-            else:
-                # Network issues
-                raise e
-
-        if wr.status_code == 200 and len(wr.content) < MAX_WORKFLOW_FILE_BYTES:
+            async with httpx.AsyncClient(verify=self._validate_ssl, timeout=None, follow_redirects=True) as client:
+                resp = await client.get(
+                    url,
+                    headers={
+                        "Host": urlparse(url or "").netloc or "",
+                        **(auth_headers if use_auth_headers else {}),
+                    },
+                )
+        except httpx.RequestError as e:
             if workflow_path.exists():
-                workflow_path.unlink()
+                return None
+            raise e
 
-            with open(workflow_path, "wb") as nwf:
-                nwf.write(wr.content)
+        content = await resp.aread()
 
-            self._info("Workflow file downloaded")
+        if resp.status_code == status.HTTP_200_OK and len(content) < MAX_WORKFLOW_FILE_BYTES:
+            if workflow_path.exists():
+                await asyncio.to_thread(workflow_path.unlink)
+
+            await asyncio.to_thread(workflow_path.write_bytes, content)
+
+            self.logger.info("Workflow file downloaded")
 
         elif not workflow_path.exists():  # Use cached version if needed, otherwise error
             # Request issues
-            self._error(
-                f"Error downloading workflow: {workflow_uri} (use_auth_headers={use_auth_headers}, "
-                f"wr.status_code={wr.status_code})"
+            self.logger.error(
+                "Error downloading workflow: %s (use_auth_headers=%s, wr.status_code=%d)",
+                workflow_uri,
+                use_auth_headers,
+                resp.status_code,
             )
             raise WorkflowDownloadError(f"WorkflowDownloadError: {workflow_path} does not exist")
+
+        return None
+
+
+def get_workflow_manager(settings: SettingsDep, logger: LoggerDep) -> WorkflowManager:
+    return WorkflowManager(settings, logger)
+
+
+WorkflowManagerDep = Annotated[WorkflowManager, Depends(get_workflow_manager)]

@@ -1,42 +1,18 @@
-import requests
-from datetime import datetime
-from flask import current_app
+from functools import lru_cache
+from typing import Annotated
+from fastapi import Depends
 
-__all__ = [
-    "get_bento_services",
-    "get_bento_service_kind_url",
-]
+from bento_lib.service_info.manager import ServiceManager
 
+from .config import SettingsDep
+from .logger import LoggerDep
 
-# TODO: this will need to be re-done without a global cache for any async implementation
-
-_bento_services_cache: dict | None = None
-_bento_services_last_updated: datetime | None = None
-
-_cache_ttl: int = 30  # seconds
+__all__ = ["get_service_manager", "ServiceManagerDep"]
 
 
-def get_bento_services() -> dict:
-    global _bento_services_cache
-    global _bento_services_last_updated
-
-    if not (
-        _bento_services_cache
-        and _bento_services_last_updated
-        and (datetime.now() - _bento_services_last_updated).total_seconds() < _cache_ttl
-    ):
-        validate_ssl = current_app.config["BENTO_VALIDATE_SSL"]
-        res = requests.get(
-            current_app.config["SERVICE_REGISTRY_URL"].rstrip("/") + "/bento-services", verify=validate_ssl
-        )
-        res.raise_for_status()
-        _bento_services_cache = {v["service_kind"]: v for v in res.json().values()}
-        _bento_services_last_updated = datetime.now()
-
-    return _bento_services_cache
+@lru_cache
+def get_service_manager(settings: SettingsDep, logger: LoggerDep) -> ServiceManager:
+    return ServiceManager(logger, 60, settings.service_registry_url, settings.bento_validate_ssl)  # type: ignore
 
 
-def get_bento_service_kind_url(kind: str) -> str | None:
-    # TODO: replace this with upcoming bento_lib service registry utils
-    service_details: dict | None = get_bento_services().get(kind)
-    return (service_details or {}).get("url")
+ServiceManagerDep = Annotated[ServiceManager, Depends(get_service_manager)]

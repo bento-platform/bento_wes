@@ -1,20 +1,24 @@
-import logging
 import json
 import sqlite3
-import uuid
+import shlex
+from logging import Logger
+from fastapi import Depends
+from pathlib import Path
+from typing import Annotated, Any, Generator
+from urllib.parse import urljoin
+from uuid import UUID
 
 from bento_lib.events import EventBus
 from bento_lib.events.notifications import format_notification
 from bento_lib.events.types import EVENT_CREATE_NOTIFICATION, EVENT_WES_RUN_UPDATED
-from flask import current_app, g
-from typing import Any
-from urllib.parse import urljoin
 
 from . import states
 from .backends.backend_types import Command
+from .config import get_settings, Settings, SettingsDep
 from .constants import SERVICE_ARTIFACT
-from .events import get_flask_event_bus
-from .models import RunLog, RunRequest, Run, RunWithDetails
+from .events import get_event_bus, EventBusDep
+from .logger import get_logger, LoggerDep
+from .models import Run, RunLog, RunRequest, RunWithDetails
 from .types import RunStream
 from .utils import iso_now
 
@@ -22,9 +26,9 @@ from .utils import iso_now
 __all__ = [
     "Database",
     "get_db",
-    "close_db",
-    "init_db",
-    "update_db",
+    "get_db_with_event_bus",
+    "DatabaseDep",
+    "setup_database_on_startup",
 ]
 
 
@@ -43,23 +47,19 @@ def run_request_from_row(run: sqlite3.Row) -> RunRequest:
     )
 
 
-def _strip_first_slash(string: str) -> str:
-    return string[1:] if len(string) > 0 and string[0] == "/" else string
+def _stream_url(run_id: UUID | str, stream: RunStream, settings: Settings) -> str:
+    return urljoin(settings.service_base_url, f"runs/{str(run_id)}/{stream}")
 
 
-def _stream_url(run_id: uuid.UUID | str, stream: RunStream) -> str:
-    return urljoin(current_app.config["SERVICE_BASE_URL"], f"runs/{str(run_id)}/{stream}")
-
-
-def run_log_from_row(run: sqlite3.Row, stream_content: bool) -> RunLog:
+def run_log_from_row(run: sqlite3.Row, stream_content: bool, settings: Settings) -> RunLog:
     run_id = run["id"]
     return RunLog(
         name=run["run_log__name"],
         cmd=run["run_log__cmd"],
         start_time=run["run_log__start_time"] or None,
         end_time=run["run_log__end_time"] or None,
-        stdout=run["run_log__stdout"] if stream_content else _stream_url(run_id, "stdout"),
-        stderr=run["run_log__stderr"] if stream_content else _stream_url(run_id, "stderr"),
+        stdout=run["run_log__stdout"] if stream_content else _stream_url(run_id, "stdout", settings),
+        stderr=run["run_log__stderr"] if stream_content else _stream_url(run_id, "stderr", settings),
         exit_code=run["run_log__exit_code"],
     )
 
@@ -81,58 +81,63 @@ def run_from_row(run: sqlite3.Row) -> Run:
 
 
 class Database:
-    def __init__(self):
-        self._conn = sqlite3.connect(current_app.config["DATABASE"], detect_types=sqlite3.PARSE_DECLTYPES)
+    def __init__(self, settings: Settings, logger: Logger, event_bus: EventBus | None = None):
+        # One connection per request; okay for FastAPI threadpools
+        self._conn = sqlite3.connect(
+            settings.database,
+            detect_types=sqlite3.PARSE_DECLTYPES,
+            check_same_thread=False,
+        )
         self._conn.row_factory = sqlite3.Row
+        self._apply_pragmas()
+        self.event_bus = event_bus or get_event_bus(logger, settings)
+        self._settings = settings
+        self._logger = logger
 
-    def cursor(self):
+    def _apply_pragmas(self) -> None:
+        c = self._conn.cursor()
+        c.execute("PRAGMA foreign_keys=ON;")
+        c.execute("PRAGMA journal_mode=WAL;")
+        c.close()
+
+    def c(self):
+        """
+        Returns a NEW cursor instance for the database connection.
+        """
         return self._conn.cursor()
 
-    def commit(self):
+    def commit(self) -> None:
         self._conn.commit()
 
-    def close(self):
+    def close(self) -> None:
         self._conn.close()
 
-    def init(self):
-        with current_app.open_resource("schema.sql") as sf:
-            self.cursor().executescript(sf.read().decode("utf-8"))
-
+    def init_schema(self) -> None:
+        # Run once at startup (not per request!)
+        schema_path = Path(__file__).with_name("schema.sql")
+        with schema_path.open("r", encoding="utf-8") as sf:
+            self.c().executescript(sf.read())
         self.commit()
 
-    def finish_run(
-        self,
-        event_bus: EventBus,
-        run: Run,
-        state: str,
-        cursor: sqlite3.Cursor | None = None,
-        logger: logging.Logger | None = None,
-    ) -> None:
+    def finish_run(self, run: Run, state: str) -> None:
         """
         Updates a run's state, sets the run log's end time, and publishes an event corresponding with a run failure
         or a run success, depending on the state.
-        :param event_bus: A bento_lib-defined event bus implementation for sending events
         :param run: The run which just finished
         :param state: The terminal state for the finished run
-        :param cursor: An SQLite connection cursor to re-use (optional)
-        :param logger: An optionally-provided logger object.
-        :return:
         """
-
-        c: sqlite3.Cursor = cursor or self.cursor()
 
         run_id = run.run_id
         end_time = iso_now()
 
         # Explicitly don't commit here to sync with state update
-        c.execute("UPDATE runs SET run_log__end_time = ? WHERE id = ?", (end_time, run_id))
-        self.update_run_state_and_commit(c, run_id, state, event_bus=event_bus, logger=logger)
+        self.c().execute("UPDATE runs SET run_log__end_time = ? WHERE id = ?", (end_time, run_id))
+        self.update_run_state_and_commit(run_id, state)
 
-        if logger:
-            logger.info(f"Run {run_id} finished with state {state} at {end_time}")
+        self._logger.info(f"Run {run_id} finished with state {state} at {end_time}")
 
         if state in states.FAILURE_STATES:
-            event_bus.publish_service_event(
+            self.event_bus.publish_service_event(
                 SERVICE_ARTIFACT,
                 EVENT_CREATE_NOTIFICATION,
                 format_notification(
@@ -142,9 +147,8 @@ class Database:
                     action_target=run_id,
                 ),
             )
-
         elif state in states.SUCCESS_STATES:
-            event_bus.publish_service_event(
+            self.event_bus.publish_service_event(
                 SERVICE_ARTIFACT,
                 EVENT_CREATE_NOTIFICATION,
                 format_notification(
@@ -155,41 +159,99 @@ class Database:
                 ),
             )
 
-    def update_stuck_runs(self):
-        # Update all runs that have "stuck" states to have an error state instead on restart. This way, systems don't
-        # get stuck checking their status, and if they're in a weird state at boot they should receive an error status
-        # anyway.
+    def update_stuck_runs(self) -> None:
+        """
+        On process boot, convert initializing/running states into system error so
+        the UI/backend doesn't wait on orphaned work.
+        """
 
-        event_bus = get_flask_event_bus()
-
-        c = self.cursor()
-        logger: logging.Logger = current_app.logger
-
-        c.execute("SELECT id FROM runs WHERE state IN (?, ?)", (states.STATE_INITIALIZING, states.STATE_RUNNING))
-        stuck_run_ids: list[sqlite3.Row] = c.fetchall()
+        stuck_run_ids: list[sqlite3.Row] = (
+            self.c()
+            .execute(
+                "SELECT id FROM runs WHERE state IN (?, ?)",
+                (states.STATE_INITIALIZING, states.STATE_RUNNING),
+            )
+            .fetchall()
+        )
 
         for r in stuck_run_ids:
-            run = self.get_run_with_details(c, r["id"], stream_content=True)
+            run = self.get_run_with_details(r["id"], stream_content=True)
             if run is None:
-                logger.error(f"Missing run: {r['id']}")
+                self._logger.error(f"Missing run: {r['id']}")
                 continue
 
-            logger.info(
+            self._logger.info(
                 f"Found stuck run: {run.run_id} at state {run.state}. Setting state to {states.STATE_SYSTEM_ERROR}"
             )
-            self.finish_run(event_bus, run, states.STATE_SYSTEM_ERROR, cursor=c)
+            self.finish_run(run, states.STATE_SYSTEM_ERROR)
 
         self.commit()
 
-    @staticmethod
-    def get_task_logs(c: sqlite3.Cursor, run_id: uuid.UUID | str) -> list:
-        c.execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
-        return [task_log_dict(task_log) for task_log in c.fetchall()]
+    def insert_run(self, run_id: UUID, run: RunRequest, run_params: dict) -> None:
+        """
+        Insert a new run into the database.
 
-    @classmethod
+        Args:
+            run_id (UUID): The run identifier.
+            run (RunRequest): The details of the run to be inserted.
+            run_params (dict): Workflow parameters for the run.
+        """
+        self.c().execute(
+            """
+            INSERT INTO runs (
+                id,
+                state,
+                outputs,
+                request__workflow_params,
+                request__workflow_type,
+                request__workflow_type_version,
+                request__workflow_engine_parameters,
+                request__workflow_url,
+                request__tags,
+                run_log__name
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(run_id),
+                states.STATE_UNKNOWN,
+                json.dumps({}),
+                json.dumps(run_params),
+                run.workflow_type,
+                run.workflow_type_version,
+                json.dumps(run.workflow_engine_parameters),
+                str(run.workflow_url),
+                run.tags.model_dump_json(),
+                run.tags.workflow_id,
+            ),
+        )
+        self.commit()
+
+    def fetch_all_runs(self) -> list[RunWithDetails]:
+        """
+        Fetch all runs from the database.
+
+        Returns:
+            list[RunWithDetails]: A list of all runs, converted into RunWithDetails objects.
+        """
+        rows = self.c().execute("SELECT * FROM runs").fetchall()
+        return [self.run_with_details_from_row(r, False) for r in rows]
+
+    def fetch_runs_by_state(self, state: str) -> list[RunWithDetails]:
+        """
+        Fetch all runs from the database with a given state.
+
+        Args:
+            state (str): The run state to filter by (e.g., states.STATE_COMPLETE).
+
+        Returns:
+            list[tuple]: List of rows matching the state.
+        """
+        query = "SELECT * FROM runs WHERE state = ?"
+        rows = self.c().execute(query, (state,)).fetchall()
+        return [self.run_with_details_from_row(r, False) for r in rows]
+
     def run_with_details_from_row(
-        cls,
-        c: sqlite3.Cursor,
+        self,
         run: sqlite3.Row,
         stream_content: bool,
     ) -> RunWithDetails:
@@ -198,97 +260,101 @@ class Database:
                 run_id=run["id"],
                 state=run["state"],
                 request=run_request_from_row(run),
-                run_log=run_log_from_row(run, stream_content),
-                task_logs=cls.get_task_logs(c, run["id"]),
+                run_log=run_log_from_row(run, stream_content, self._settings),
+                task_logs=self.get_task_logs(run["id"]),
                 outputs=json.loads(run["outputs"]),
             )
         )
 
-    @staticmethod
-    def _get_run_row(c: sqlite3.Cursor, run_id: uuid.UUID | str) -> sqlite3.Row | None:
-        return c.execute("SELECT * FROM runs WHERE id = ?", (str(run_id),)).fetchone()
+    def get_task_logs(self, run_id: UUID | str) -> list:
+        self.c().execute("SELECT * FROM task_logs WHERE run_id = ?", (str(run_id),))
+        return [task_log_dict(task_log) for task_log in self.c().fetchall()]
 
-    @classmethod
-    def get_run(cls, c: sqlite3.Cursor, run_id: uuid.UUID | str) -> Run | None:
-        if run := cls._get_run_row(c, run_id):
+    def _get_run_row(self, run_id: UUID | str) -> sqlite3.Row | None:
+        return self.c().execute("SELECT * FROM runs WHERE id = ?", (str(run_id),)).fetchone()
+
+    def get_run(self, run_id: UUID | str) -> Run | None:
+        if run := self._get_run_row(run_id):
             return run_from_row(run)
         return None
 
-    @classmethod
     def get_run_with_details(
-        cls,
-        c: sqlite3.Cursor,
-        run_id: uuid.UUID | str,
+        self,
+        run_id: UUID | str,
         stream_content: bool,
     ) -> RunWithDetails | None:
-        if run := cls._get_run_row(c, run_id):
-            return cls.run_with_details_from_row(c, run, stream_content)
+        if run := self._get_run_row(run_id):
+            return self.run_with_details_from_row(run, stream_content)
         return None
 
-    def set_run_log_name(self, run: Run, workflow_name: str):
-        # TODO: To avoid having multiple names, we should maybe only set this once?
-        self.cursor().execute("UPDATE runs SET run_log__name = ? WHERE id = ?", (workflow_name, run.run_id))
-        self.commit()
-
-    def set_run_log_command_and_celery_id(self, run: Run, cmd: Command, celery_id: int):
-        self.cursor().execute(
-            "UPDATE runs SET run_log__cmd = ?, run_log__celery_id = ? WHERE id = ?",
-            (" ".join(cmd), celery_id, run.run_id),
+    def set_run_log_name(self, run: Run, workflow_name: str) -> None:
+        self.c().execute(
+            "UPDATE runs SET run_log__name = ? WHERE id = ?",
+            (workflow_name, run.run_id),
         )
         self.commit()
 
-    @staticmethod
-    def set_run_outputs(c: sqlite3.Cursor, run_id: str, outputs: dict[str, Any]):
-        c.execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(outputs), str(run_id)))
+    def set_run_log_command_and_celery_id(self, run: Run, cmd: Command, celery_id: int) -> None:
+        self.c().execute(
+            "UPDATE runs SET run_log__cmd = ?, run_log__celery_id = ? WHERE id = ?",
+            (" ".join(shlex.quote(str(x)) for x in cmd), celery_id, run.run_id),
+        )
+        self.commit()
+
+    def set_run_outputs(self, run_id: str, outputs: dict[str, Any]) -> None:
+        self.c().execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(outputs), str(run_id)))
 
     def update_run_state_and_commit(
         self,
-        c: sqlite3.Cursor,
-        run_id: uuid.UUID | str,
+        run_id: UUID | str,
         state: str,
-        event_bus: EventBus | None = None,
-        logger: logging.Logger | None = None,
         publish_event: bool = True,
-    ):
-        if logger:
-            logger.info(f"Updating run state of {run_id} to {state}")
-        c.execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
+    ) -> None:
+        self._logger.info(f"Updating run state of {run_id} to {state}")
+        self.c().execute("UPDATE runs SET state = ? WHERE id = ?", (state, str(run_id)))
         self.commit()
-        if event_bus and publish_event:
-            event_bus.publish_service_event(
-                SERVICE_ARTIFACT,
-                EVENT_WES_RUN_UPDATED,
-                self.get_run_with_details(c, run_id, stream_content=False).model_dump(mode="json"),
-            )
+        if publish_event and (run := self.get_run_with_details(run_id, stream_content=False)) is not None:
+            payload = run.model_dump(mode="json")
+            self.event_bus.publish_service_event(SERVICE_ARTIFACT, EVENT_WES_RUN_UPDATED, payload)
 
 
-def get_db() -> Database:
-    if "db" not in g:
-        g.db = Database()
-
-    return g.db
-
-
-def close_db(_e=None):
-    db: Database | None = g.pop("db", None)
-    if db is not None:
+# === FastAPI dependency: one connection per request, auto-closed ===
+def get_db(settings: SettingsDep, logger: LoggerDep, event_bus: EventBusDep) -> Generator["Database", None, None]:
+    db = Database(settings, logger, event_bus)
+    try:
+        yield db
+    finally:
         db.close()
 
 
-def init_db():
-    db: Database = get_db()
-    db.init()
+def get_db_with_event_bus(
+    logger: Logger | None = None, event_bus: EventBus | None = None, settings: Settings | None = None
+) -> Generator["Database", None, None]:
+    func_logger = logger or get_logger()
+    _settings = settings or get_settings()
+    db = Database(get_settings(), func_logger, event_bus or get_event_bus(func_logger, _settings))
+    try:
+        yield db
+    finally:
+        db.close()
 
 
-def update_db():
-    db: Database = get_db()
-    c = db.cursor()
+DatabaseDep = Annotated[Database, Depends(get_db)]
 
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runs'")
-    if c.fetchone() is None:
-        init_db()
-        return
 
-    db.update_stuck_runs()
+# === Startup helper (call these from your FastAPI lifespan) ===
+def setup_database_on_startup(logger) -> None:
+    """
+    Ensure schema exists and apply PRAGMAs once at startup and
+    perform boot-time repairs (e.g., mark stuck runs as system error).
+    """
+    logger.info("Starting up database...")
+    db = Database(get_settings(), logger)
+    try:
+        # If the 'runs' table isn't present, run full schema.sql
+        if db.c().execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runs'").fetchone() is None:
+            db.init_schema()
 
-    # TODO: Migrations if needed
+        db.update_stuck_runs()
+    finally:
+        db.close()

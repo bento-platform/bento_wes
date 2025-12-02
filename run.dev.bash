@@ -1,33 +1,59 @@
 #!/bin/bash
+set -euo pipefail
 
-# Update dependencies and install module locally
+# ---------- Dev install ----------
 /poetry_user_install_dev.bash
 
-export FLASK_APP="bento_wes.app:application"
+# ---------- Defaults ----------
+: "${INTERNAL_PORT:=5000}"                               # API port
+: "${HOST:=0.0.0.0}"                                     # Bind host
+: "${DEBUGGER_PORT:=5680}"                               # debugpy port
+: "${APP_FACTORY:=bento_wes.app_factory:create_app}"     # "module.path:factory_fn"
+: "${UVICORN_EXTRA:=}"                                   # e.g. "--lifespan on"
 
-# Create temporary directory if needed
+# ---------- Temp dir ----------
 mkdir -p /wes/tmp
 
-# Start Celery worker with log level dependent on BENTO_DEBUG
-echo "[bento_wes] [entrypoint] Starting celery worker"
+# ---------- Log levels ----------
 celery_log_level="INFO"
-if [[
-  "${BENTO_DEBUG}" == "true" ||
-  "${BENTO_DEBUG}" == "True" ||
-  "${BENTO_DEBUG}" == "1"
-]]; then
+uvicorn_log_level="info"
+if [[ "${BENTO_DEBUG:-}" == "true" || "${BENTO_DEBUG:-}" == "True" || "${BENTO_DEBUG:-}" == "1" ]]; then
   celery_log_level="DEBUG"
+  uvicorn_log_level="debug"
 fi
-celery --app bento_wes.app worker --loglevel="${celery_log_level}" &
 
-# Set default internal port to 5000
-: "${INTERNAL_PORT:=5000}"
+# ---------- Celery worker ----------
+echo "[bento_wes] [entrypoint-dev] Starting Celery worker"
+watchfiles \
+  --filter python \
+  --ignore-path .venv \
+  --ignore-path /wes/tmp \
+  --target-type command \
+  "celery -q -A bento_wes.celery worker --loglevel=${celery_log_level} --pool=solo" \
+  /wes &
+CELERY_PID=$!
 
-# Set internal debug port, falling back to debugpy default
-: "${DEBUGGER_PORT:=5680}"
+# ---------- Graceful shutdown ----------
+terminate() {
+  echo "[bento_wes] [entrypoint-dev] Terminating..."
+  if kill -0 "${CELERY_PID}" 2>/dev/null; then
+    kill -TERM "${CELERY_PID}" || true
+    wait "${CELERY_PID}" || true
+  fi
+  exit 143
+}
+trap terminate TERM INT
 
-# Start API server
-echo "[bento_wes] [entrypoint] Starting Flask server"
-python -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:${DEBUGGER_PORT} -m flask run \
-  --host 0.0.0.0 \
-  --port "${INTERNAL_PORT}"
+# ---------- ASGI server (Uvicorn --factory + debugpy) ----------
+echo "[bento_wes] [entrypoint-dev] Starting Uvicorn (factory: ${APP_FACTORY}, reload enabled)"
+exec python -Xfrozen_modules=off -m debugpy --listen "0.0.0.0:${DEBUGGER_PORT}" -m uvicorn \
+  "${APP_FACTORY}" \
+  --factory \
+  --host "${HOST}" \
+  --port "${INTERNAL_PORT}" \
+  --workers 1 \
+  --reload \
+  --log-level "${uvicorn_log_level}" \
+  --timeout-keep-alive 65 \
+  --proxy-headers \
+  ${UVICORN_EXTRA}

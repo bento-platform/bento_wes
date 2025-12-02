@@ -1,6 +1,6 @@
 import re
 
-from flask import current_app, json
+import json
 from pathlib import Path
 from typing import TypeVar
 
@@ -63,7 +63,7 @@ class CromwellLocalBackend(WESBackend):
         :return: The command, in the form of a tuple of strings, to be passed to subprocess.run
         """
 
-        cromwell = current_app.config["CROMWELL_LOCATION"]
+        cromwell = self.settings.cromwell_location
 
         # Create workflow options file
         options_file = run_dir / "_workflow_options.json"
