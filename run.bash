@@ -3,9 +3,9 @@
 # ---------- Defaults ----------
 : "${INTERNAL_PORT:=5000}"                # Container port
 : "${HOST:=0.0.0.0}"                      # Bind host
-: "${APP_IMPORT:=bento_wes.app_factory:create_app}"      # ASGI app import path (module:var)
+: "${APP_FACTORY:=bento_wes.app_factory:create_app}"      # ASGI app import path (module:var)
 : "${WEB_CONCURRENCY:=}"                  # If empty, we auto-calc below
-: "${UVICORN_EXTRA:=}"                             # Extra flags, e.g. "--http h11" or "--lifespan on"
+: "${UVICORN_EXTRA:=}"                    # Extra flags, e.g. "--http h11" or "--lifespan on"
 
 echo "[bento_wes] [entrypoint] Starting services"
 
