@@ -21,7 +21,7 @@ fi
 
 # ---------- Celery worker ----------
 echo "[bento_wes] [entrypoint] Starting Celery worker"
-poetry run celery --app bento_wes.celery worker --loglevel="${celery_log_level}" &
+celery --app bento_wes.celery worker --loglevel="${celery_log_level}" &
 CELERY_PID=$!
 
 # ---------- Worker count (ASGI) ----------
@@ -44,7 +44,7 @@ trap terminate TERM INT
 
 # ---------- FastAPI (ASGI) with Uvicorn ----------
 echo "[bento_wes] [entrypoint] Starting Uvicorn (factory: ${APP_FACTORY})"
-exec poetry run python -Xfrozen_modules=off -m uvicorn "${APP_FACTORY}" \
+exec python -Xfrozen_modules=off -m uvicorn "${APP_FACTORY}" \
   --factory \
   --host "${HOST}" \
   --port "${INTERNAL_PORT}" \
