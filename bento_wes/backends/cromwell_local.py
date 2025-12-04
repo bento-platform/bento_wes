@@ -101,39 +101,56 @@ class CromwellLocalBackend(WESBackend):
         )
 
     @staticmethod
-    def _rewrite_tmp_dir_paths(v: T, tmp_dir_str: str, output_dir_str: str) -> T:
-        if isinstance(v, str) and v.startswith(tmp_dir_str):
+    def _rewrite_tmp_dir_paths(output_type: str, v: T, tmp_dir_str: str, output_dir_str: str) -> T:
+        if output_type == "Path" and isinstance(v, str) and v.startswith(tmp_dir_str):
             # If we have a file output, it should be a path starting with a prefix like
             # /<tmp_dir>/cromwell-executions/... from executing Cromwell with the PWD as /<tmp_dir>/.
             # Cromwell outputs the same folder structure in whatever is set for `final_workflow_outputs_dir` in
             # _get_command() above, so we can rewrite this prefix to be the output directory instead, since this
             # will be preserved after the run is finished:
             return output_dir_str + v.removeprefix(tmp_dir_str)
-        elif isinstance(v, list):
+        elif output_type.startswith("Array") and isinstance(v, list):
             # If we have a list, it may be a nested list of paths, in which case we need to recursively rewrite:
-            return [CromwellLocalBackend._rewrite_tmp_dir_paths(w, tmp_dir_str, output_dir_str) for w in v]
+            output_type = output_type.removeprefix("Array[").removesuffix("]")
+            return [CromwellLocalBackend._rewrite_tmp_dir_paths(output_type, w, tmp_dir_str, output_dir_str) for w in v]
         else:
             return v
+
+    @staticmethod
+    def process_workflow_outputs(outputs: dict, output_types: dict, tmp_dir: Path, output_dir: Path) -> dict:
+        """
+        Re-points temporary file outputs to a permanent location (as copied by Cromwell) for future download, and
+        annotates all output values with their type from the WDL.
+        :param outputs: A key-value dictionary of outputs.
+        :param output_types: A key-value dictionary of output keys to their corresponding types.
+        :param tmp_dir: A path to the Cromwell execution directory.
+        :param output_dir: A path to the permanent output directory.
+        :return: Processed outputs: a dictionary of output key --> { type: <WDL type>, value: <output value> }
+        """
+
+        tmp_dir_str = str(tmp_dir)
+        output_dir_str = str(output_dir)
+
+        return {
+            k: {
+                "type": output_types[k],
+                "value": CromwellLocalBackend._rewrite_tmp_dir_paths(output_types[k], v, tmp_dir_str, output_dir_str),
+            }
+            for k, v in outputs.items()
+        }
 
     def get_workflow_outputs(self, run: RunWithDetails) -> dict[str, dict]:
         p = self.execute_womtool_command(("outputs", str(self.workflow_path(run))))
 
         stdout, _ = p.communicate()
-        workflow_types = json.loads(stdout)
+        output_types = json.loads(stdout)
 
         with open(self.get_workflow_metadata_output_json_path(self.run_dir(run)), "r") as fh:
             outputs = json.load(fh).get("outputs", {})
 
-        # Re-point temporary file outputs to a permanent location (as copied by Cromwell) for future download, and
-        # annotate all output values with their type from the WDL.
-
-        tmp_dir_str = str(self.tmp_dir / "cromwell-executions")
-        output_dir_str = str(self.output_dir)
-
-        return {
-            k: {
-                "type": workflow_types[k],
-                "value": self._rewrite_tmp_dir_paths(v, tmp_dir_str, output_dir_str),
-            }
-            for k, v in outputs.items()
-        }
+        return self.process_workflow_outputs(
+            outputs=outputs,
+            output_types=output_types,
+            tmp_dir=self.tmp_dir,
+            output_dir=self.output_dir,
+        )
