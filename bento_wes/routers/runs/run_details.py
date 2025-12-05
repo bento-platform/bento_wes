@@ -15,7 +15,7 @@ from bento_wes.celery import celery
 from bento_wes.config import SettingsDep
 
 from .deps import stash_run_or_404, StreamDataDep, RunDep, AuthzDep, AuthzDepFromForm
-from .utils import _denest_list
+from .utils import denest_list
 from .constants import RUN_CANCEL_BAD_REQUEST_STATES
 
 detail_router = APIRouter(prefix="/{run_id}")
@@ -52,7 +52,7 @@ async def run_download_artifact(
     artifacts: set[str] = set()
     for o in run.outputs.values():
         if "File" in o.type:
-            artifacts.update(set(_denest_list(o.value)))
+            artifacts.update(set(denest_list(o.value)))
 
     if artifact_path not in artifacts:
         raise HTTPException(
