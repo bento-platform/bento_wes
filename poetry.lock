@@ -2576,14 +2576,14 @@ files = [
 
 [[package]]
 name = "werkzeug"
-version = "3.1.4"
+version = "3.1.5"
 description = "The comprehensive WSGI web application library."
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "werkzeug-3.1.4-py3-none-any.whl", hash = "sha256:2ad50fb9ed09cc3af22c54698351027ace879a0b60a3b5edf5730b2f7d876905"},
-    {file = "werkzeug-3.1.4.tar.gz", hash = "sha256:cd3cd98b1b92dc3b7b3995038826c68097dcb16f9baa63abe35f20eafeb9fe5e"},
+    {file = "werkzeug-3.1.5-py3-none-any.whl", hash = "sha256:5111e36e91086ece91f93268bb39b4a35c1e6f1feac762c9c822ded0a4e322dc"},
+    {file = "werkzeug-3.1.5.tar.gz", hash = "sha256:6a548b0e88955dd07ccb25539d7d0cc97417ee9e179677d22c7041c8f078ce67"},
 ]
 
 [package.dependencies]
@@ -2740,4 +2740,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12.0"
-content-hash = "9b0ebadec082bf5a3cef4ca3df2d052f9c56ae737eee87c9ede7e3fe8f789a78"
+content-hash = "2d95f9e3ce6cc6bfc1aef08e3d4e2f78acdedd4bb6c33ef44b6d435c2627b025"
