@@ -28,7 +28,7 @@ bento-lib = {extras = ["fastapi"], version = "^14.0.4"}
 celery = {extras = ["redis"], version = "^5.5.3"}
 requests = "^2.32.4"
 pydantic = "^2.7.1"
-werkzeug = "~3.1.4"
+werkzeug = "~3.1.5"
 asgiref = "^3.8.1"
 fastapi = "^0.123.10"
 uvicorn = "^0.37.0"
