@@ -7,6 +7,7 @@ from base64 import urlsafe_b64encode
 from fastapi import Depends, status
 from pathlib import Path
 from pydantic import AnyUrl
+from structlog.stdlib import BoundLogger
 from typing import NewType, Annotated
 from urllib.parse import urlparse
 
@@ -70,18 +71,18 @@ class WorkflowDownloadError(Exception):
 
 
 class WorkflowManager:
-    def __init__(self, settings: Settings, logger: logging.Logger):
+    def __init__(self, settings: Settings, logger: BoundLogger):
         self.tmp_dir: Path = settings.service_temp
         self.service_base_url: str = settings.service_base_url
         self.bento_url: str = str(settings.bento_url)
-        self.logger: logging.Logger = logger
+        self.logger: BoundLogger = logger
         self.workflow_host_allow_list: set[str] | None = parse_workflow_host_allow_list(
             settings.workflow_host_allow_list
         )
         self._validate_ssl: bool = settings.bento_validate_ssl
         self._debug_mode: bool = settings.bento_debug
 
-        self.logger.debug("Instantiating WorkflowManager with debug_mode=%s", self._debug_mode)
+        self.logger.debug("instantiating WorkflowManager", debug_mode=self._debug_mode)
 
     def workflow_path(self, workflow_uri: AnyUrl, workflow_type: WorkflowType) -> Path:
         """
@@ -112,6 +113,8 @@ class WorkflowManager:
 
         # TODO: Handle references to attachments
 
+        logger = self.logger.bind(workflow_uri=workflow_uri)
+
         workflow_path = self.workflow_path(workflow_uri, workflow_type)
 
         if workflow_uri.scheme not in ALLOWED_WORKFLOW_REQUEST_SCHEMES:  # file://
@@ -125,14 +128,13 @@ class WorkflowManager:
             # allowed set of workflow hosts
             if workflow_uri.scheme != "file" and workflow_uri.host not in self.workflow_host_allow_list:
                 # Dis-allowed workflow URL
-                self.logger.error(
-                    "Dis-allowed workflow host: %s (allow list: %s)",
-                    workflow_uri.host,
-                    str(self.workflow_host_allow_list),
+                await logger.aerror(
+                    "dis-allowed workflow host",
+                    allow_list=self.workflow_host_allow_list,
                 )
                 return states.STATE_EXECUTOR_ERROR
 
-        self.logger.info("Fetching workflow file from %s", workflow_uri)
+        await logger.ainfo("fetching workflow file", workflow_uri)
 
         # SECURITY: We cannot pass our auth token outside the Bento instance. Validate that BENTO_URL is
         # a) a valid URL and b) a prefix of our workflow's URI before downloading.
@@ -148,6 +150,8 @@ class WorkflowManager:
                     workflow_uri.path.startswith(parsed_bento_url.path),
                 )
             )
+
+        logger = logger.bind(use_auth_headers=use_auth_headers)
 
         # TODO: Better auth? May only be allowed to access specific workflows
         try:
@@ -173,16 +177,11 @@ class WorkflowManager:
 
             await asyncio.to_thread(workflow_path.write_bytes, content)
 
-            self.logger.info("Workflow file downloaded")
+            await logger.ainfo("workflow file downloaded")
 
         elif not workflow_path.exists():  # Use cached version if needed, otherwise error
             # Request issues
-            self.logger.error(
-                "Error downloading workflow: %s (use_auth_headers=%s, wr.status_code=%d)",
-                workflow_uri,
-                use_auth_headers,
-                resp.status_code,
-            )
+            await logger.aerror("error downloading workflow", status_code=resp.status_code)
             raise WorkflowDownloadError(f"WorkflowDownloadError: {workflow_path} does not exist")
 
         return None

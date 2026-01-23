@@ -1,3 +1,5 @@
+import aiofiles.os
+import aiofiles.ospath
 import os
 import re
 import requests
@@ -17,8 +19,8 @@ from bento_lib.workflows.models import (
     WorkflowDirectoryInput,
 )
 from bento_lib.workflows.utils import namespaced_input
-from logging import Logger
 from pathlib import Path
+from structlog.stdlib import BoundLogger
 from typing import overload, Sequence, Literal
 
 from bento_wes import states
@@ -45,15 +47,15 @@ class WESBackend(ABC):
     def __init__(
         self,
         event_bus: EventBus,
-        logger: Logger,
+        logger: BoundLogger,
         service_manager: ServiceManager,
         settings: Settings,
         workflow_manager: WorkflowManager,
     ):
-        self.event_bus = event_bus
-        self.logger = logger
-        self.service_manager = service_manager
-        self.settings = settings
+        self.event_bus: EventBus = event_bus
+        self.logger: BoundLogger = logger
+        self.service_manager: ServiceManager = service_manager
+        self.settings: Settings = settings
 
         self._workflow_timeout: int = settings.workflow_timeout
 
@@ -76,39 +78,7 @@ class WESBackend(ABC):
 
         self._runs = {}
 
-        self.log_debug("Instantiating WESBackend with debug=%s", self.debug)
-
-    def log_debug(self, message: str, *args) -> None:
-        """
-        Given a message, logs it as DEBUG.
-        :param message: A message to log
-        """
-        if self.logger:
-            self.logger.debug(message, *args)
-
-    def log_info(self, message: str, *args) -> None:
-        """
-        Given a message, logs it as INFO.
-        :param message: A message to log
-        """
-        if self.logger:
-            self.logger.info(message, *args)
-
-    def log_warning(self, warning: str, *args) -> None:
-        """
-        Given a warning string, logs the warning.
-        :param warning: A warning string
-        """
-        if self.logger:
-            self.logger.warning(warning, *args)
-
-    def log_error(self, error: str, *args) -> None:
-        """
-        Given an error string, logs the error.
-        :param error: An error string
-        """
-        if self.logger:
-            self.logger.error(error, *args)
+        self.logger.debug("Instantiating WESBackend with debug=%s", self.debug)
 
     @abstractmethod
     def _get_supported_types(self) -> tuple[WorkflowType, ...]:
@@ -127,7 +97,7 @@ class WESBackend(ABC):
         pass
 
     @abstractmethod
-    def _serialize_params(self, workflow_params: ParamDict) -> str:
+    def _serialize_params(self, workflow_params: ParamDict) -> bytes:
         """
         Serializes parameters for a particular workflow run into the format expected by the backend's runner.
         :param workflow_params: A dictionary of key-value pairs representing the workflow parameters
@@ -249,11 +219,12 @@ class WESBackend(ABC):
             # Invalid/non-workflow-specifying WDL file if false-y
             return workflow_id_match.group(1) if workflow_id_match else None
 
-    def _download_to_path(self, url: str, token: str, destination: Path | str):
+    async def _download_to_path(self, url: str, token: str, destination: Path | str, logger: BoundLogger):
         """
         Download a file from a URL to a destination directory.
         Bearer token auth works with Drop-Box and DRS.
         """
+        # TODO: use aiohttp
         with requests.get(url, headers=authz_bearer_header(token), verify=self.validate_ssl, stream=True) as response:
             if response.status_code != 200:
                 raise RunExceptionWithFailState(
@@ -264,23 +235,27 @@ class WESBackend(ABC):
                 # chunk_size=None to use the chunk size from the stream
                 for chunk in response.iter_content(chunk_size=None):
                     f.write(chunk)
-        self.log_debug("Downloaded file at %s to path %s", url, destination)
+        await logger.adebug("downloaded file", file_url=url, file_destination=destination)
 
     @overload
-    async def _download_input_files(self, inputs: str, token: str, run_dir: Path) -> str: ...
+    async def _download_input_files(self, inputs: str, token: str, run_dir: Path, logger: BoundLogger) -> str: ...
 
     @overload
-    async def _download_input_files(self, inputs: list[str], token: str, run_dir: Path) -> list[str]: ...
+    async def _download_input_files(
+        self, inputs: list[str], token: str, run_dir: Path, logger: BoundLogger
+    ) -> list[str]: ...
 
-    async def _download_input_files(self, inputs: str | list[str], token: str, run_dir: Path) -> str | list[str]:
+    async def _download_input_files(
+        self, inputs: str | list[str], token: str, run_dir: Path, logger: BoundLogger
+    ) -> str | list[str]:
         if not inputs:
             # Ignore empty inputs
             return inputs
 
         if isinstance(inputs, list):
-            return [await self._download_input_file(f, token, run_dir) for f in inputs]
+            return [await self._download_input_file(f, token, run_dir, logger) for f in inputs]
         else:
-            return await self._download_input_file(inputs, token, run_dir)
+            return await self._download_input_file(inputs, token, run_dir, logger)
 
     @staticmethod
     def _build_download_path(run_dir: Path) -> Path:
@@ -288,10 +263,13 @@ class WESBackend(ABC):
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def _validate_sub_path(self, parent_dir: Path, child_path: Path):
+    @staticmethod
+    async def _validate_sub_path(parent_dir: Path, child_path: Path, logger: BoundLogger):
         # Validate our file path hasn't escaped the run directory
         if not str(child_path.resolve()).startswith(str(parent_dir.resolve())):
-            self.log_error("Temporary path %s must be a sub-path of directory %s", child_path, parent_dir)
+            await logger.aerror(
+                "temporary path must be a sub-path of directory", child_path=child_path, parent_dir=parent_dir
+            )
             raise RunExceptionWithFailState(
                 STATE_EXECUTOR_ERROR, f"Temporary path bust be a sub-path of directory {parent_dir}"
             )
@@ -301,7 +279,7 @@ class WESBackend(ABC):
         clean_path = path.lstrip("/")
         return f"{drop_box_url}/{resource}/{clean_path}"
 
-    async def _download_input_file(self, obj_path: str, token: str, run_dir: Path) -> str:
+    async def _download_input_file(self, obj_path: str, token: str, run_dir: Path, logger: BoundLogger) -> str:
         """
         Downloads an input file from Drop-Box in the run directory.
         Returns the path to the temp file to inject in the workflow params.
@@ -315,18 +293,19 @@ class WESBackend(ABC):
         tmp_file_path = download_dir / file_name
 
         # Validate our file path hasn't escaped the run directory
-        self._validate_sub_path(download_dir, tmp_file_path)
+        await self._validate_sub_path(download_dir, tmp_file_path, logger)
 
         # Downloads file to /wes/tmp/<run_dir>/<file_name>
         download_url = await self._get_drop_box_resource_url(obj_path)
-        self._download_to_path(download_url, token, tmp_file_path)
+        await self._download_to_path(download_url, token, tmp_file_path, logger)
         return str(tmp_file_path)
 
-    def _download_directory_tree(
+    async def _download_directory_tree(
         self,
         tree: list[dict],
         token: str,
         download_dir: Path,
+        logger: BoundLogger,
     ):
         """
         Downloads the contents of a given Drop Box tree or subtree to the temporary run_dir directory
@@ -336,29 +315,31 @@ class WESBackend(ABC):
         for node in tree:
             if contents := node.get("contents"):
                 # Node is a directory: go inside recursively to find files
-                self._download_directory_tree(contents, token, download_dir)
+                await self._download_directory_tree(contents, token, download_dir, logger)
             elif uri := node.get("uri"):
                 # Node is a file: download
                 #  - we need to strip the starting "/", otherwise this escapes the run directory.
                 tmp_path = download_dir.joinpath(node["relativePath"].lstrip("/"))
 
-                # Validate our file path hasn't escaped the run directory
-                self._validate_sub_path(download_dir, tmp_path)
+                logger = logger.bind(node_uri=node["uri"], tmp_path=tmp_path)
 
-                self.log_debug(
-                    "_download_directory_tree: downloading node %s to temporary path %s", node["uri"], tmp_path
-                )
-                os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
-                self._download_to_path(uri, token, tmp_path)
+                # Validate our file path hasn't escaped the run directory
+                await self._validate_sub_path(download_dir, tmp_path, logger)
+
+                await logger.adebug("_download_directory_tree: downloading node to temporary path")
+                await aiofiles.os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
+                await self._download_to_path(uri, token, tmp_path, logger)
 
     async def _download_input_directory(
         self,
         directory: str,
         token: str,
         run_dir: Path,
+        logger: BoundLogger,
         ignore_extensions: Sequence[str] | None = None,
     ) -> str:
-        self.log_debug("_download_input_directory called (directory=%s)", directory)
+        logger = logger.bind(directory_to_download=directory)
+        await logger.adebug("_download_input_directory called")
 
         drop_box_url = await self.service_manager.get_bento_service_url_by_kind("drop-box")
 
@@ -377,15 +358,15 @@ class WESBackend(ABC):
         download_dir = self._build_download_path(run_dir)
         final_dir = download_dir.joinpath(sub_tree)
 
-        self._validate_sub_path(download_dir, final_dir)
+        await self._validate_sub_path(download_dir, final_dir, logger)
 
         # Fetch directory subtree from Drop Box
         with requests.get(url, headers=authz_bearer_header(token), verify=self.validate_ssl, stream=True) as response:
             if response.status_code != 200:
-                self.log_error(
-                    "Tree request to drop box gave error response: %d %s",
-                    response.status_code,
-                    response.content.decode("utf-8"),
+                await logger.aerror(
+                    "tree request to drop box gave error response",
+                    status_code=response.status_code,
+                    response_content=response.content.decode("utf-8"),
                 )
                 raise RunExceptionWithFailState(
                     STATE_EXECUTOR_ERROR,
@@ -394,7 +375,7 @@ class WESBackend(ABC):
             tree = response.json()
 
             # Download tree content under download_dir
-            self._download_directory_tree(tree, token, download_dir)
+            await self._download_directory_tree(tree, token, download_dir, logger)
 
         return str(final_dir)
 
@@ -416,7 +397,7 @@ class WESBackend(ABC):
         :param run_id: The ID of the run whose state is getting updated
         :param state: The value to set the run's current state to
         """
-        self.log_debug("Setting state of run %s to %s", run_id, state)
+        self.logger.debug("setting state of run", run_state=state)
         self.db.update_run_state_and_commit(run_id, state)
 
     def _finish_run_and_clean_up(self, run: Run, state: str) -> None:
@@ -463,10 +444,12 @@ class WESBackend(ABC):
 
         run_dir = self.run_dir(run)
 
+        logger = self.logger.bind(run_dir=run_dir)
+
         # -- Check that the run directory exists -----------------------------------------------------------------------
-        if not run_dir.exists():
+        if not await aiofiles.ospath.exists(run_dir):
             # TODO: Log error in run log
-            self.log_error("Run directory not found: %s", run_dir)
+            await logger.aerror("run directory not found")
             return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
 
         run_req = run.request
@@ -485,11 +468,12 @@ class WESBackend(ABC):
 
         # -- Inject workflow inputs that should NOT be stored in DB (secrets, temporary files) -------------------------
         for run_input in run_req.tags.workflow_metadata.inputs:
+            lg = logger.bind(input_key=run_input.key, input_type=run_input.type)
             if isinstance(run_input, WorkflowSecretInput):
                 # Find which inputs are secrets, which need to be injected here (so they don't end up in the database)
                 secret_value = secrets.get(run_input.key)
                 if secret_value is None:
-                    self.log_error("Could not find injectable secret for key %s", run_input.key)
+                    await lg.aerror("could not find injectable secret for key")
                     return self._finish_run_and_clean_up(run, STATE_EXECUTOR_ERROR)
                 processed_workflow_params[namespaced_input(run_req.tags.workflow_id, run_input.id)] = secret_value
             elif isinstance(run_input, (WorkflowFileInput, WorkflowFileArrayInput)):
@@ -497,9 +481,10 @@ class WESBackend(ABC):
                 # Downloads the file(s) in a temp dir and injects the path(s)
                 param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
                 input_param = run_req.workflow_params.get(param_key)
+                lg = lg.bind(input_param=input_param)
                 if not skip_file_input_injection:
                     # inject input(s) as temp files
-                    injected_input = await self._download_input_files(input_param, secrets["access_token"], run_dir)
+                    injected_input = await self._download_input_files(input_param, secrets["access_token"], run_dir, lg)
                 else:
                     injected_input = input_param
                 processed_workflow_params[param_key] = injected_input
@@ -508,6 +493,7 @@ class WESBackend(ABC):
                 # Downloads the directory's contents to a temp directory and injects the path
                 param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
                 input_param = run_req.workflow_params.get(param_key)
+                lg = lg.bind(input_param=input_param)
 
                 # TODO: directory workflows should simply include a list of file extentions to filter out.
                 filter_vcfs = run_req.workflow_params.get("experiments_json_with_files.filter_out_vcf_files")
@@ -515,9 +501,11 @@ class WESBackend(ABC):
 
                 if not skip_file_input_injection:
                     injected_dir = await self._download_input_directory(
-                        input_param, secrets["access_token"], run_dir, filter_extensions
+                        input_param, secrets["access_token"], run_dir, logger, filter_extensions
                     )
-                    self.log_info("input parameter %s: injecting directory %s", input_param, injected_dir)
+                    await lg.ainfo(
+                        "input parameter: injecting directory", input_param=input_param, injected_dir=injected_dir
+                    )
                 else:
                     injected_dir = input_param
                 processed_workflow_params[param_key] = injected_dir
@@ -530,13 +518,13 @@ class WESBackend(ABC):
         workflow_name = self.get_workflow_name(self.workflow_path(run))
         if workflow_name is None:
             # Invalid/non-workflow-specifying workflow file
-            self.log_error("Could not find workflow name in workflow file")
+            await logger.aerror("could not find workflow name in workflow file", workflow_name=workflow_name)
             return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
 
         self.db.set_run_log_name(run, workflow_name)
 
         # -- Store input for the workflow in a file in the temporary folder --------------------------------------------
-        with open(self._params_path(run), "w") as pf:
+        with aiofiles.open(self._params_path(run), "wb") as pf:
             pf.write(self._serialize_params(processed_workflow_params))
 
         # -- Create the runner command based on inputs -----------------------------------------------------------------
@@ -548,10 +536,12 @@ class WESBackend(ABC):
         return cmd, processed_workflow_params
 
     @abstractmethod
-    def get_workflow_outputs(self, run: RunWithDetails) -> dict[str, RunOutput]:
+    async def get_workflow_outputs(self, run: RunWithDetails) -> dict[str, RunOutput]:
         pass
 
-    def _perform_run(self, run: RunWithDetails, cmd: Command, params_with_secrets: ParamDict) -> ProcessResult | None:
+    async def _perform_run(
+        self, run: RunWithDetails, cmd: Command, params_with_secrets: ParamDict
+    ) -> ProcessResult | None:
         """
         Performs a run based on a provided command and returns stdout, stderr, exit code, and whether the process timed
         out while running.
@@ -609,19 +599,19 @@ class WESBackend(ABC):
 
         if timed_out:
             # TODO: Report error somehow
-            self.log_error("Encountered timeout while performing run")
+            await self.logger.aerror("encountered timeout while performing run")
             return self._finish_run_and_clean_up(run, states.STATE_SYSTEM_ERROR)
 
         # -- Final steps: check exit code and report results -----------------------------------------------------------
 
         if exit_code != 0:
             # TODO: Report error somehow
-            self.log_error("Encountered a non-zero exit code while performing run")
+            await self.logger.aerror("encountered a non-zero exit code while performing run")
             return self._finish_run_and_clean_up(run, states.STATE_EXECUTOR_ERROR)
 
         # Exit code is 0 otherwise; complete the run
 
-        workflow_outputs = self.get_workflow_outputs(run)
+        workflow_outputs = await self.get_workflow_outputs(run)
 
         # Explicitly don't commit here; sync with state update
         self.db.set_run_outputs(run.run_id, workflow_outputs)
@@ -654,10 +644,14 @@ class WESBackend(ABC):
         :return: A ProcessResult tuple of (stdout, stderr, exit_code, timed_out)
         """
 
+        # Logger should already have bound:
+        #  - run_id
+        #  - celery_id
+
         if run.run_id in self._runs:
             raise ValueError("Run has already been registered")
 
-        self.log_debug("Performing run with ID %s (celery_id=%s)", run.run_id, celery_id)
+        await self.logger.adebug("performing run")
 
         self._runs[run.run_id] = run
 
@@ -665,7 +659,7 @@ class WESBackend(ABC):
         try:
             init_vals = await self._initialize_run_and_get_command(run, celery_id, secrets)
         except RunExceptionWithFailState as e:
-            self.log_error(str(e))
+            self.logger.error(str(e))
             self._finish_run_and_clean_up(run, e.state)
             return None
 
@@ -675,7 +669,7 @@ class WESBackend(ABC):
         cmd, params_with_secrets = init_vals
 
         # Perform, finish, and clean up run ----------------------------------------------------------------------------
-        return self._perform_run(run, cmd, params_with_secrets)
+        return await self._perform_run(run, cmd, params_with_secrets)
 
     def close(self):
         try:

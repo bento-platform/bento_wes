@@ -1,9 +1,9 @@
-import json
+import orjson
 import sqlite3
 import shlex
-from logging import Logger
 from fastapi import Depends
 from pathlib import Path
+from structlog.stdlib import BoundLogger
 from typing import Annotated, Any, Generator
 from urllib.parse import urljoin
 from uuid import UUID
@@ -81,7 +81,7 @@ def run_from_row(run: sqlite3.Row) -> Run:
 
 
 class Database:
-    def __init__(self, settings: Settings, logger: Logger, event_bus: EventBus | None = None):
+    def __init__(self, settings: Settings, logger: BoundLogger, event_bus: EventBus | None = None):
         # One connection per request; okay for FastAPI threadpools
         self._conn = sqlite3.connect(
             settings.database,
@@ -214,11 +214,11 @@ class Database:
             (
                 str(run_id),
                 states.STATE_UNKNOWN,
-                json.dumps({}),
-                json.dumps(run_params),
+                orjson.dumps({}),
+                orjson.dumps(run_params),
                 run.workflow_type,
                 run.workflow_type_version,
-                json.dumps(run.workflow_engine_parameters),
+                orjson.dumps(run.workflow_engine_parameters),
                 str(run.workflow_url),
                 run.tags.model_dump_json(),
                 run.tags.workflow_id,
@@ -262,7 +262,7 @@ class Database:
                 request=run_request_from_row(run),
                 run_log=run_log_from_row(run, stream_content, self._settings),
                 task_logs=self.get_task_logs(run["id"]),
-                outputs=json.loads(run["outputs"]),
+                outputs=orjson.loads(run["outputs"]),
             )
         )
 
@@ -302,7 +302,7 @@ class Database:
         self.commit()
 
     def set_run_outputs(self, run_id: str, outputs: dict[str, Any]) -> None:
-        self.c().execute("UPDATE runs SET outputs = ? WHERE id = ?", (json.dumps(outputs), str(run_id)))
+        self.c().execute("UPDATE runs SET outputs = ? WHERE id = ?", (orjson.dumps(outputs), str(run_id)))
 
     def update_run_state_and_commit(
         self,
@@ -328,10 +328,10 @@ def get_db(settings: SettingsDep, logger: LoggerDep, event_bus: EventBusDep) -> 
 
 
 def get_db_with_event_bus(
-    logger: Logger | None = None, event_bus: EventBus | None = None, settings: Settings | None = None
+    logger: BoundLogger | None = None, event_bus: EventBus | None = None, settings: Settings | None = None
 ) -> Generator["Database", None, None]:
-    func_logger = logger or get_logger()
     _settings = settings or get_settings()
+    func_logger = logger or get_logger(_settings)
     db = Database(get_settings(), func_logger, event_bus or get_event_bus(func_logger, _settings))
     try:
         yield db

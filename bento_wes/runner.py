@@ -5,6 +5,9 @@ import uuid
 from bento_lib.events import EventBus
 from bento_lib.service_info.manager import ServiceManager
 from celery.utils.log import get_task_logger
+from structlog import wrap_logger
+from structlog.stdlib import BoundLogger
+from typing import cast
 
 from . import states
 from .backends.cromwell_local import CromwellLocalBackend
@@ -22,7 +25,9 @@ def run_workflow(self, run_id: uuid.UUID):
     # Initialize dependencies  ------------------------------------------------
 
     settings: Settings = get_settings()
-    logger = get_task_logger(__name__)
+    logger: BoundLogger = cast(BoundLogger, wrap_logger(get_task_logger(__name__))).bind(
+        run_id=run_id, celery_id=self.request.id
+    )
 
     event_bus: EventBus = get_worker_event_bus(logger, settings.bento_event_redis_url)
     service_manager: ServiceManager = get_service_manager(settings, logger)
@@ -36,7 +41,7 @@ def run_workflow(self, run_id: uuid.UUID):
     # Check that the run and its associated objects exist
     run = db.get_run_with_details(run_id, stream_content=False)
     if run is None:
-        logger.error(f"Cannot find run {run_id}")
+        logger.error("cannot find run")
         return
 
     # Pass to workflow execution backend---------------------------------------
@@ -46,7 +51,7 @@ def run_workflow(self, run_id: uuid.UUID):
     logger.info("Initializing backend")
     backend: WESBackend = CromwellLocalBackend(
         event_bus=event_bus,
-        logger=logger,
+        logger=logger,  # run_id already bound
         service_manager=service_manager,
         settings=settings,
         workflow_manager=workflow_manager,
@@ -82,17 +87,17 @@ def run_workflow(self, run_id: uuid.UUID):
             )
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
-        logger.error(f"Uncaught exception while obtaining access token: {type(e).__name__} {e}")
+        logger.exception("uncaught exception while obtaining access token", exc_info=e)
         db.finish_run(run, states.STATE_SYSTEM_ERROR)
         raise e
 
     # Perform the run
     try:
-        logger.info("Starting workflow execution...")
+        logger.info("starting workflow execution")
         asyncio.run(backend.perform_run(run, self.request.id, secrets))
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state
-        logger.error(f"Uncaught exception while performing run: {type(e).__name__} {e}")
+        logger.exception("uncaught exception while performing run", exc_info=e)
         db.finish_run(run, states.STATE_SYSTEM_ERROR)
         raise e
     finally:

@@ -1,13 +1,12 @@
 import logging
-import logging.config
-from typing import Annotated
+import structlog.stdlib
+from bento_lib.logging.structured.configure import configure_structlog_from_bento_config, configure_structlog_uvicorn
 from fastapi import Depends
-from logging import Logger
 from functools import lru_cache
+from logging import Logger
+from typing import Annotated
 
-import os
-
-from bento_lib.logging import log_level_from_str
+from .config import SettingsDep
 
 __all__ = ["get_logger", "LoggerDep"]
 
@@ -18,42 +17,21 @@ logging.getLogger("celery.utils.functional").setLevel(logging.INFO)
 
 
 @lru_cache
-def get_logger() -> Logger:
-    logger = logging.getLogger("wes")
+def get_logger(settings: SettingsDep) -> structlog.stdlib.BoundLogger:
+    configure_structlog_from_bento_config(settings)
+    configure_structlog_uvicorn()
 
-    log_level = log_level_from_str(os.environ.get("LOG_LEVEL", "info").strip().lower())
+    # TODO
+    # quiet noisy libs in dev
+    # "asyncio": {"level": "INFO"},
+    # "celery.app.trace": {"level": "INFO"},
+    # "python_multipart.multipart": {
+    #     "level": "WARNING",
+    #     "handlers": ["console"],
+    #     "propagate": False,
+    # },
 
-    logging.config.dictConfig(
-        {
-            "version": 1,
-            "disable_existing_loggers": False,
-            "formatters": {
-                "default": {"format": "%(levelname)s:%(name)s:%(message)s"},
-            },
-            "handlers": {
-                "console": {
-                    "class": "logging.StreamHandler",
-                    "formatter": "default",
-                }
-            },
-            "root": {
-                "level": log_level,
-                "handlers": ["console"],
-            },
-            "loggers": {
-                # quiet noisy libs in dev
-                "asyncio": {"level": "INFO"},
-                "celery.app.trace": {"level": "INFO"},
-                "python_multipart.multipart": {
-                    "level": "WARNING",
-                    "handlers": ["console"],
-                    "propagate": False,
-                },
-            },
-        }
-    )
-
-    return logger
+    return structlog.stdlib.get_logger("wes")
 
 
-LoggerDep = Annotated[Logger, Depends(get_logger)]
+LoggerDep = Annotated[structlog.stdlib.BoundLogger, Depends(get_logger)]

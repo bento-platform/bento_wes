@@ -1,8 +1,8 @@
 import aiofiles
 from datetime import datetime, timezone
 from fastapi import UploadFile
-from logging import Logger
 from pathlib import Path
+from structlog.stdlib import BoundLogger
 from typing import Iterable, NotRequired, TypedDict
 
 
@@ -41,7 +41,7 @@ UploadFileResult = UploadFileError | UploadFileSuccess
 async def save_upload_files(
     files: Iterable[UploadFile],
     dest_dir: Path,
-    logger: Logger,
+    logger: BoundLogger,
 ) -> list[UploadFileResult]:
     """
     Streams each UploadFile to disk (non-blocking).
@@ -75,7 +75,7 @@ async def save_upload_files(
                     size += len(chunk)
                     await out.write(chunk)
         except Exception as e:
-            logger.exception("encountered error while saving file upload", exc_info=e)
+            await logger.aexception("encountered error while saving file upload", exc_info=e)
             error = f"I/O error: {e}"
         finally:
             await f.close()
@@ -85,7 +85,7 @@ async def save_upload_files(
             try:
                 dest.unlink(missing_ok=True)
             except Exception as e:
-                logger.exception("encountered error while removing partial file upload", exc_info=e)
+                await logger.aexception("encountered error while removing partial file upload", exc_info=e)
 
         results.append(
             UploadFileError(filename=safe_name, content_type=f.content_type, error=error)
