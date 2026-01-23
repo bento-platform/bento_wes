@@ -1,6 +1,6 @@
+import aiofiles
+import orjson
 import re
-
-import json
 from pathlib import Path
 from typing import TypeVar
 
@@ -35,13 +35,13 @@ class CromwellLocalBackend(WESBackend):
         """
         return "params.json"
 
-    def _serialize_params(self, workflow_params: dict) -> str:
+    def _serialize_params(self, workflow_params: dict) -> bytes:
         """
         Serializes parameters for a particular workflow run into the format expected by toil-wdl-runner.
         :param workflow_params: A dictionary of key-value pairs representing the workflow parameters
         :return: The serialized form of the parameters
         """
-        return json.dumps(workflow_params)
+        return orjson.dumps(workflow_params)
 
     def _check_workflow(self, run: RunWithDetails) -> None:
         return self._check_workflow_wdl(run)
@@ -139,14 +139,14 @@ class CromwellLocalBackend(WESBackend):
             for k, v in outputs.items()
         }
 
-    def get_workflow_outputs(self, run: RunWithDetails) -> dict[str, dict]:
+    async def get_workflow_outputs(self, run: RunWithDetails) -> dict[str, dict]:
         p = self.execute_womtool_command(("outputs", str(self.workflow_path(run))))
 
         stdout, _ = p.communicate()
-        output_types = json.loads(stdout)
+        output_types = orjson.loads(stdout)
 
-        with open(self.get_workflow_metadata_output_json_path(self.run_dir(run)), "r") as fh:
-            outputs = json.load(fh).get("outputs", {})
+        async with aiofiles.open(self.get_workflow_metadata_output_json_path(self.run_dir(run)), "r") as fh:
+            outputs = orjson.loads(await fh.read()).get("outputs", {})
 
         return self.process_workflow_outputs(
             outputs=outputs,

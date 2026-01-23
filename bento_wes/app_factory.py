@@ -12,8 +12,8 @@ from .events import init_event_bus, shutdown_event_bus
 
 @asynccontextmanager
 async def lifespan(_app: BentoFastAPI):
-    logger = get_logger()
     settings = get_settings()
+    logger = get_logger(settings)
     try:
         init_event_bus(logger, settings.bento_event_redis_url)
         setup_database_on_startup(logger)
@@ -24,7 +24,7 @@ async def lifespan(_app: BentoFastAPI):
 
 def create_app():
     settings = get_settings()
-    logger = get_logger()
+    logger = get_logger(settings)
     authz_middleware = get_authz_middleware(settings, logger)
 
     app = BentoFastAPI(
