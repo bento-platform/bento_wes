@@ -1,4 +1,3 @@
-from functools import lru_cache
 from typing import Annotated
 from fastapi import Depends
 
@@ -10,8 +9,8 @@ from .logger import LoggerDep
 __all__ = ["get_service_manager", "ServiceManagerDep"]
 
 
-@lru_cache
 def get_service_manager(settings: SettingsDep, logger: LoggerDep) -> ServiceManager:
+    # BoundLogger isn't hashable; cannot memoize with this
     return ServiceManager(logger, 60, settings.service_registry_url, settings.bento_validate_ssl)  # type: ignore
 
 

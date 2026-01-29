@@ -1,6 +1,6 @@
 import asyncio
+
 import httpx
-import logging
 import shutil
 
 from base64 import urlsafe_b64encode
@@ -134,7 +134,7 @@ class WorkflowManager:
                 )
                 return states.STATE_EXECUTOR_ERROR
 
-        await logger.ainfo("fetching workflow file", workflow_uri)
+        await logger.ainfo("fetching workflow file")
 
         # SECURITY: We cannot pass our auth token outside the Bento instance. Validate that BENTO_URL is
         # a) a valid URL and b) a prefix of our workflow's URI before downloading.
@@ -188,6 +188,7 @@ class WorkflowManager:
 
 
 def get_workflow_manager(settings: SettingsDep, logger: LoggerDep) -> WorkflowManager:
+    # BoundLogger isn't hashable; cannot memoize this
     return WorkflowManager(settings, logger)
 
 

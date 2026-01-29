@@ -48,7 +48,7 @@ def run_workflow(self, run_id: uuid.UUID):
 
     # TODO: Change based on workflow type / what's supported - get first runner
     #  'enabled' (somehow) which supports the type
-    logger.info("Initializing backend")
+    logger.info("initializing WES backend")
     backend: WESBackend = CromwellLocalBackend(
         event_bus=event_bus,
         logger=logger,  # run_id already bound
@@ -62,7 +62,7 @@ def run_workflow(self, run_id: uuid.UUID):
     # If we have credentials, obtain access token for use inside workflow to ingest data
     try:
         if (client_id := settings.wes_client_id) and (client_secret := settings.wes_client_secret.get_secret_value()):
-            logger.info("Obtaining access token")
+            logger.info("obtaining access token", oidc_client_id=client_id)
             # TODO: cache OpenID config
             # TODO: handle errors more elegantly/precisely
 
@@ -83,7 +83,7 @@ def run_workflow(self, run_id: uuid.UUID):
                 secrets["access_token"] = token_res.json()["access_token"]
         else:
             logger.warning(
-                "Missing WES credentials: WES_CLIENT_ID and/or WES_CLIENT_SECRET; setting job access token to ''"
+                "missing WES credentials: WES_CLIENT_ID and/or WES_CLIENT_SECRET; setting job access token to ''"
             )
     except Exception as e:
         # Intercept any uncaught exceptions and finish with an error state

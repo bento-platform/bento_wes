@@ -53,7 +53,7 @@ class CromwellLocalBackend(WESBackend):
     def get_workflow_metadata_output_json_path(run_dir: Path) -> Path:
         return run_dir / "_job_metadata_output.json"
 
-    def _get_command(self, workflow_path: Path, params_path: Path, run_dir: Path) -> Command:
+    async def _get_command(self, workflow_path: Path, params_path: Path, run_dir: Path) -> Command:
         """
         Creates the command which will run Cromwell in CLI mode on the specified WDL workflow, with the specified
         serialized parameters in JSON format, and in the specified run directory.
@@ -67,16 +67,15 @@ class CromwellLocalBackend(WESBackend):
 
         # Create workflow options file
         options_file = run_dir / "_workflow_options.json"
-        with open(options_file, "w") as of:
-            json.dump(
+        async with aiofiles.open(options_file, "wb") as of:
+            await of.write(orjson.dumps(
                 {
                     # already namespaced by cromwell ID, so don't need to incorporate run ID into this path:
                     "final_workflow_outputs_dir": str(self.output_dir),
                     "final_workflow_log_dir": str(run_dir / "wf_logs"),
                     "final_call_logs_dir": str(run_dir / "call_logs"),
-                },
-                of,
-            )
+                }
+            ))
 
         # TODO: Separate cleaning process from run?
         return Command(

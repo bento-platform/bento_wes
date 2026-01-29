@@ -380,7 +380,7 @@ class WESBackend(ABC):
         return str(final_dir)
 
     @abstractmethod
-    def _get_command(self, workflow_path: Path, params_path: Path, run_dir: Path) -> Command:
+    async def _get_command(self, workflow_path: Path, params_path: Path, run_dir: Path) -> Command:
         """
         Creates the command which will run the backend runner on the specified workflow, with the specified
         serialized parameters, and in the specified run directory.
@@ -468,32 +468,43 @@ class WESBackend(ABC):
 
         # -- Inject workflow inputs that should NOT be stored in DB (secrets, temporary files) -------------------------
         for run_input in run_req.tags.workflow_metadata.inputs:
-            lg = logger.bind(input_key=run_input.key, input_type=run_input.type)
+            lg = logger.bind(input_type=run_input.type, input_id=run_input.id)
             if isinstance(run_input, WorkflowSecretInput):
                 # Find which inputs are secrets, which need to be injected here (so they don't end up in the database)
-                secret_value = secrets.get(run_input.key)
+                secret_key = run_input.key
+                secret_value = secrets.get(secret_key)
+                lg_ = lg.bind(input_secret_key=secret_key)
                 if secret_value is None:
-                    await lg.aerror("could not find injectable secret for key")
+                    await lg_.aerror("could not find injectable secret for key")
                     return self._finish_run_and_clean_up(run, STATE_EXECUTOR_ERROR)
                 processed_workflow_params[namespaced_input(run_req.tags.workflow_id, run_input.id)] = secret_value
+                # don't log actual secret or even actual secret length
+                await lg_.adebug(
+                    "injecting secret as parameter",
+                    input_value="***",  # don't log actual secret or even actual secret length, but keep structure
+                )
             elif isinstance(run_input, (WorkflowFileInput, WorkflowFileArrayInput)):
                 # Finds workflow inputs for drop-box file(s)
                 # Downloads the file(s) in a temp dir and injects the path(s)
                 param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
                 input_param = run_req.workflow_params.get(param_key)
-                lg = lg.bind(input_param=input_param)
+                lg_ = lg.bind(input_param=input_param)
                 if not skip_file_input_injection:
                     # inject input(s) as temp files
                     injected_input = await self._download_input_files(input_param, secrets["access_token"], run_dir, lg)
                 else:
                     injected_input = input_param
                 processed_workflow_params[param_key] = injected_input
+                await lg_.adebug(
+                    "injecting file or file array as parameter",
+                    input_value=injected_input,
+                )
             elif isinstance(run_input, WorkflowDirectoryInput):
                 # Finds workflow inputs for a drop-box directory
                 # Downloads the directory's contents to a temp directory and injects the path
                 param_key = namespaced_input(run_req.tags.workflow_id, run_input.id)
                 input_param = run_req.workflow_params.get(param_key)
-                lg = lg.bind(input_param=input_param)
+                lg_ = lg.bind(input_param=input_param)
 
                 # TODO: directory workflows should simply include a list of file extentions to filter out.
                 filter_vcfs = run_req.workflow_params.get("experiments_json_with_files.filter_out_vcf_files")
@@ -503,12 +514,16 @@ class WESBackend(ABC):
                     injected_dir = await self._download_input_directory(
                         input_param, secrets["access_token"], run_dir, logger, filter_extensions
                     )
-                    await lg.ainfo(
+                    await lg_.ainfo(
                         "input parameter: injecting directory", input_param=input_param, injected_dir=injected_dir
                     )
                 else:
                     injected_dir = input_param
                 processed_workflow_params[param_key] = injected_dir
+                await lg_.adebug(
+                    "injecting directory as parameter",
+                    input_value=injected_dir,
+                )
 
         # -- Validate the workflow -------------------------------------------------------------------------------------
 
@@ -524,11 +539,11 @@ class WESBackend(ABC):
         self.db.set_run_log_name(run, workflow_name)
 
         # -- Store input for the workflow in a file in the temporary folder --------------------------------------------
-        with aiofiles.open(self._params_path(run), "wb") as pf:
-            pf.write(self._serialize_params(processed_workflow_params))
+        async with aiofiles.open(self._params_path(run), "wb") as pf:
+            await pf.write(self._serialize_params(processed_workflow_params))
 
         # -- Create the runner command based on inputs -----------------------------------------------------------------
-        cmd = self._get_command(self.workflow_path(run), self._params_path(run), self.run_dir(run))
+        cmd = await self._get_command(self.workflow_path(run), self._params_path(run), self.run_dir(run))
 
         # -- Update run log with command and Celery ID -----------------------------------------------------------------
         self.db.set_run_log_command_and_celery_id(run, cmd, celery_id)

@@ -60,7 +60,8 @@ async def create_run(
     # Authz: check permission corresponding to the workflow definition before continuing
     await authz_check(run.get_workflow_permission(), run.get_authz_resource())
 
-    logger.info(f"Starting run creation for workflow {run.tags.workflow_id}")
+    logger = logger.bind(workflow_id=run.tags.workflow_id, workflow_url=run.workflow_url)
+    logger.info("starting run creation for workflow")
 
     auth_header = authorization.as_dict()
 
@@ -73,12 +74,14 @@ async def create_run(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported workflow type: {run.workflow_type}"
         )
     except (WorkflowDownloadError, httpx.RequestError) as e:
+        await logger.aexception("could not access workflow file", exc_info=e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Could not access workflow file: {run.workflow_url} (Python error: {e})",
         )
 
     run_id = uuid.uuid4()
+    logger = logger.bind(run_id=str(run_id))
 
     run_dir: Path = settings.service_temp / str(run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -88,12 +91,12 @@ async def create_run(
             # TODO: Check and fix input if filename is non-secure
             # TODO: Do we put these in a subdirectory?
             # TODO: Support WDL uploads for workflows
-            logger.info("Received file: %s with size %d bytes", file.filename, file.size or -1)
+            await logger.ainfo("received workflow attachment", filename=file.filename, file_size=file.size or -1)
         # TODO: do something with these?
         response = await save_upload_files(workflow_attachment, run_dir, logger)
-        logger.info("saved uploaded workflow attachments: %s", response)
+        await logger.ainfo("saved uploaded workflow attachments", save_upload_files_response=response)
     else:
-        logger.info("No workflow attachments provided")
+        await logger.ainfo("no workflow attachments provided")
 
     # Process parameters & inject non-secret values
     #  - Get injectable run config for processing inputs
@@ -101,25 +104,33 @@ async def create_run(
     #  - Set up parameters
     run_params = {**run.workflow_params}
     for run_input in run.tags.workflow_metadata.inputs:
+        lg = logger.bind(input_type=run_input.type, input_id=run_input.id)
         input_key = namespaced_input(run.tags.workflow_id, run_input.id)
         if isinstance(run_input, WorkflowConfigInput):
-            config_value = run_injectable_config.get(run_input.key)
+            config_key = run_input.key
+            lg_ = lg.bind(input_config_key=config_key)
+            config_value = run_injectable_config.get(config_key)
             if config_value is None:
-                err = f"Could not find injectable configuration value for key {run_input.key}"
-                logger.error(err)
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
-            logger.debug(
-                f"Injecting configuration parameter '{run_input.key}' into run {run_id}: {run_input.id}={config_value}"
+                err = "could not find injectable configuration value for key"
+                await lg_.aerror(err)
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{err} {config_key}")
+            await lg_.adebug(
+                "injecting configuration value as parameter",
+                input_value=config_value,
             )
             run_params[input_key] = config_value
         elif isinstance(run_input, WorkflowServiceUrlInput):
             config_value: str | None = await service_manager.get_bento_service_url_by_kind(run_input.service_kind)
             sk = run_input.service_kind
+            lg_ = lg.bind(input_service_kind=sk)
             if config_value is None:
-                err = f"Could not find URL/service record for service kind '{sk}'"
-                logger.error(err)
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
-            logger.debug(f"Injecting URL for service kind '{sk}' into run {run_id}: {run_input.id}={config_value}")
+                err = "could not find URL/service record for service kind"
+                await lg_.aerror(err, service_kind=sk)
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{err} '{sk}'")
+            await lg_.adebug(
+                "injecting URL for service kind as parameter",
+                input_value=config_value,
+            )
             run_params[input_key] = config_value
 
     db.insert_run(run_id, run, run_params)
@@ -130,6 +141,8 @@ async def create_run(
     db.update_run_state_and_commit(run_id, states.STATE_QUEUED, publish_event=False)
 
     run_workflow.delay(run_id)
+
+    logger.info("created run")
 
     return RunIDResponse(run_id=run_id)
 
