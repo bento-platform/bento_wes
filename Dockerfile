@@ -19,7 +19,7 @@ RUN apt-get update -y && \
     rm -rf vcf2maf
 
 # Download Cromwell + WOMtool
-ENV CROMWELL_VERSION=87
+ENV CROMWELL_VERSION=92
 WORKDIR /
 RUN curl -L \
     https://github.com/broadinstitute/cromwell/releases/download/${CROMWELL_VERSION}/cromwell-${CROMWELL_VERSION}.jar \
@@ -47,7 +47,7 @@ RUN curl -L https://github.com/Ensembl/ensembl-xs/archive/2.3.2.zip -o ensembl-x
 
 WORKDIR /
 
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2026.01.14 AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2026.02.01 AS base-deps
 
 SHELL ["/bin/bash", "-c"]
 
