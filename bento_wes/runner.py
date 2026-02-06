@@ -74,6 +74,7 @@ def run_workflow(self, run_id: uuid.UUID):
                         "client_id": client_id,
                         "client_secret": client_secret,
                     },
+                    timeout=settings.token_obtain_timeout,
                 )
                 secrets["access_token"] = token_res.json()["access_token"]
         else:

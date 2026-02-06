@@ -92,6 +92,7 @@ class Settings(BentoFastAPIBaseConfig):
     bento_openid_config_url: str = "https://bentov2auth.local/realms/bentov2/.well-known/openid-configuration"
     wes_client_id: str = "bento_wes"
     wes_client_secret: SecretStr = SecretStr("")
+    token_obtain_timeout: int = 30  # in seconds; timeout for obtaining a token
 
     # --- Workflow backend / WDL ---
     cromwell_location: Path = Path("/cromwell.jar")
