@@ -74,7 +74,7 @@ RUN apt-get update -y && \
         bcftools \
         curl \
         jq \
-        openjdk-17-jre \
+        openjdk-25-jre \
     && \
     rm -rf /var/lib/apt/lists/*
 
