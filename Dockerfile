@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM debian:bullseye-slim AS downloaded-deps
+FROM --platform=$BUILDPLATFORM debian:trixie-slim AS downloaded-deps
 
 SHELL ["/bin/bash", "-c"]
 
@@ -47,7 +47,7 @@ RUN curl -L https://github.com/Ensembl/ensembl-xs/archive/2.3.2.zip -o ensembl-x
 
 WORKDIR /
 
-FROM ghcr.io/bento-platform/bento_base_image:python-debian-2026.03.01 AS base-deps
+FROM ghcr.io/bento-platform/bento_base_image:python-debian-2026.04.01 AS base-deps
 
 SHELL ["/bin/bash", "-c"]
 
@@ -63,7 +63,7 @@ RUN apt-get update -y && \
         bcftools \
         curl \
         jq \
-        openjdk-17-jre \
+        openjdk-25-jre \
     && \
     rm -rf /var/lib/apt/lists/*
 
