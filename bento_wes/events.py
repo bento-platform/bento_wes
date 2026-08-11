@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import os
-
-from bento_lib.events import EventBus, types as et
-from fastapi import Depends
 from logging import Logger
 from typing import Annotated
+
+from bento_lib.events import EventBus
+from bento_lib.events import types as et
+from fastapi import Depends
 from pydantic.networks import RedisDsn
 
 from .config import SettingsDep

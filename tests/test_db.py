@@ -1,4 +1,4 @@
-from bento_wes.db import get_db, Database
+from bento_wes.db import Database, get_db
 
 
 def test_db(settings, logger, event_bus):

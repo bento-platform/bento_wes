@@ -1,9 +1,10 @@
-import pytest
-from fastapi.testclient import TestClient
-import respx
-import httpx
 import os
 from pathlib import Path
+
+import httpx
+import pytest
+import respx
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture(autouse=True)
@@ -36,8 +37,8 @@ def settings_env(monkeypatch):
 
 @pytest.fixture
 def client(settings_env):
-    from bento_wes.config import get_settings
     from bento_wes.app_factory import create_app
+    from bento_wes.config import get_settings
 
     app = create_app()
     app.dependency_overrides[get_settings] = lambda: settings_env

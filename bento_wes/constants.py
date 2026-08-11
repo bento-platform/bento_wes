@@ -1,8 +1,8 @@
-import bento_wes
 import os
 
 from bento_lib.service_info.helpers import build_bento_service_type
 
+from bento_wes import __version__
 
 __all__ = [
     "BENTO_SERVICE_KIND",
@@ -11,11 +11,13 @@ __all__ = [
     "SERVICE_TYPE",
     "SERVICE_ID",
     "SERVICE_NAME",
+    "PUBLIC_RUN_DETAILS_SHAPE",
+    "PRIVATE_RUN_DETAILS_SHAPE",
 ]
 
 BENTO_SERVICE_KIND = "wes"
 SERVICE_ARTIFACT = BENTO_SERVICE_KIND
-SERVICE_TYPE = build_bento_service_type(SERVICE_ARTIFACT, bento_wes.__version__)
+SERVICE_TYPE = build_bento_service_type(SERVICE_ARTIFACT, __version__)
 SERVICE_ID = os.environ.get("SERVICE_ID", ":".join(SERVICE_TYPE.values()))
 SERVICE_NAME = "Bento WES"
 GIT_REPOSITORY = "https://github.com/bento-platform/bento_wes"

@@ -1,6 +1,6 @@
-from pydantic_settings import BaseSettings
-from pydantic import ConfigDict
 from celery import Celery
+from pydantic import ConfigDict
+from pydantic_settings import BaseSettings
 
 
 class CeleryConfig(BaseSettings):

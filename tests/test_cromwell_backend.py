@@ -1,8 +1,8 @@
-import pytest
 from pathlib import Path
 
-from bento_wes.backends.cromwell_local import CromwellLocalBackend
+import pytest
 
+from bento_wes.backends.cromwell_local import CromwellLocalBackend
 
 FAKE_TMP_DIR = Path("/tmp/cromwell-executions")
 FAKE_OUTPUT_DIR = Path("/o")

@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-from fastapi import Depends
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import AliasChoices, AnyHttpUrl, Field, SecretStr, model_validator, field_validator
+from bento_lib.config.pydantic import BentoFastAPIBaseConfig
+from bento_lib.service_info.types import BentoExtraServiceInfo
+from fastapi import Depends
+from pydantic import AliasChoices, AnyHttpUrl, Field, SecretStr, field_validator, model_validator
 from pydantic.networks import RedisDsn
 from pydantic_settings import SettingsConfigDict
 
-from bento_lib.config.pydantic import BentoFastAPIBaseConfig
-from bento_lib.service_info.types import BentoExtraServiceInfo
-
-from .constants import SERVICE_ID, SERVICE_NAME, BENTO_SERVICE_KIND, GIT_REPOSITORY
+from .constants import BENTO_SERVICE_KIND, GIT_REPOSITORY, SERVICE_ID, SERVICE_NAME
 
 __all__ = ["Settings", "get_settings", "SettingsDep", "BENTO_EXTRA_SERVICE_INFO"]
 

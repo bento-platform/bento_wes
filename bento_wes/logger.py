@@ -1,13 +1,12 @@
 import logging
 import logging.config
-from typing import Annotated
-from fastapi import Depends
-from logging import Logger
-from functools import lru_cache
-
 import os
+from functools import lru_cache
+from logging import Logger
+from typing import Annotated
 
 from bento_lib.logging import log_level_from_str
+from fastapi import Depends
 
 __all__ = ["get_logger", "LoggerDep"]
 

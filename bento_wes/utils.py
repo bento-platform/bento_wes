@@ -1,10 +1,11 @@
-import aiofiles
+from collections.abc import Iterable
 from datetime import datetime, timezone
-from fastapi import UploadFile
 from logging import Logger
 from pathlib import Path
-from typing import Iterable, NotRequired, TypedDict
+from typing import NotRequired, TypedDict
 
+import aiofiles
+from fastapi import UploadFile
 
 __all__ = [
     "UploadFileError",

@@ -1,22 +1,21 @@
 import shutil
 import urllib.parse
+from pathlib import Path
+from uuid import UUID
 
 from bento_lib.auth.permissions import P_VIEW_RUNS
-from fastapi import APIRouter, Depends, Form
-from fastapi.responses import PlainTextResponse, FileResponse
+from fastapi import APIRouter, Depends, Form, status
 from fastapi.exceptions import HTTPException
-from fastapi import status
-from uuid import UUID
-from pathlib import Path
+from fastapi.responses import FileResponse, PlainTextResponse
 
 from bento_wes import states
-from bento_wes.db import DatabaseDep
 from bento_wes.celery import celery
 from bento_wes.config import SettingsDep
+from bento_wes.db import DatabaseDep
 
-from .deps import stash_run_or_404, StreamDataDep, RunDep, AuthzDep, AuthzDepFromForm
-from .utils import denest_list
 from .constants import RUN_CANCEL_BAD_REQUEST_STATES
+from .deps import AuthzDep, AuthzDepFromForm, RunDep, StreamDataDep, stash_run_or_404
+from .utils import denest_list
 
 detail_router = APIRouter(prefix="/{run_id}")
 detail_router.dependencies.append(Depends(stash_run_or_404))

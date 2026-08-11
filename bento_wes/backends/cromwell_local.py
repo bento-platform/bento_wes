@@ -1,15 +1,13 @@
-import re
-
 import json
+import re
 from pathlib import Path
 from typing import TypeVar
 
 from bento_wes.models import Run, RunWithDetails
-from bento_wes.workflows import WorkflowType, WES_WORKFLOW_TYPE_WDL
+from bento_wes.workflows import WES_WORKFLOW_TYPE_WDL, WorkflowType
 
 from .backend_types import Command
 from .wes_backend import WESBackend
-
 
 __all__ = ["CromwellLocalBackend"]
 

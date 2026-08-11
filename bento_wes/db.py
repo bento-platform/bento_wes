@@ -1,27 +1,27 @@
 import json
-import sqlite3
 import shlex
+import sqlite3
+from collections.abc import Generator
 from logging import Logger
-from fastapi import Depends
 from pathlib import Path
-from typing import Annotated, Any, Generator
+from typing import Annotated, Any
 from urllib.parse import urljoin
 from uuid import UUID
 
 from bento_lib.events import EventBus
 from bento_lib.events.notifications import format_notification
 from bento_lib.events.types import EVENT_CREATE_NOTIFICATION, EVENT_WES_RUN_UPDATED
+from fastapi import Depends
 
 from . import states
 from .backends.backend_types import Command
-from .config import get_settings, Settings, SettingsDep
+from .config import Settings, SettingsDep, get_settings
 from .constants import SERVICE_ARTIFACT
-from .events import get_event_bus, EventBusDep
-from .logger import get_logger, LoggerDep
+from .events import EventBusDep, get_event_bus
+from .logger import LoggerDep, get_logger
 from .models import Run, RunLog, RunRequest, RunWithDetails
 from .types import RunStream
 from .utils import iso_now
-
 
 __all__ = [
     "Database",
@@ -48,7 +48,7 @@ def run_request_from_row(run: sqlite3.Row) -> RunRequest:
 
 
 def _stream_url(run_id: UUID | str, stream: RunStream, settings: Settings) -> str:
-    return urljoin(settings.service_base_url, f"runs/{str(run_id)}/{stream}")
+    return urljoin(settings.service_base_url, f"runs/{run_id!s}/{stream}")
 
 
 def run_log_from_row(run: sqlite3.Row, stream_content: bool, settings: Settings) -> RunLog:
@@ -256,14 +256,14 @@ class Database:
         stream_content: bool,
     ) -> RunWithDetails:
         return RunWithDetails.model_validate(
-            dict(
-                run_id=run["id"],
-                state=run["state"],
-                request=run_request_from_row(run),
-                run_log=run_log_from_row(run, stream_content, self._settings),
-                task_logs=self.get_task_logs(run["id"]),
-                outputs=json.loads(run["outputs"]),
-            )
+            {
+                "run_id": run["id"],
+                "state": run["state"],
+                "request": run_request_from_row(run),
+                "run_log": run_log_from_row(run, stream_content, self._settings),
+                "task_logs": self.get_task_logs(run["id"]),
+                "outputs": json.loads(run["outputs"]),
+            }
         )
 
     def get_task_logs(self, run_id: UUID | str) -> list:

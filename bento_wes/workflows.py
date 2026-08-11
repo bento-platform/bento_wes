@@ -1,14 +1,14 @@
 import asyncio
-import httpx
 import logging
 import shutil
-
 from base64 import urlsafe_b64encode
-from fastapi import Depends, status
 from pathlib import Path
-from pydantic import AnyUrl
-from typing import NewType, Annotated
+from typing import Annotated, NewType
 from urllib.parse import urlparse
+
+import httpx
+from fastapi import Depends, status
+from pydantic import AnyUrl
 
 from bento_wes import states
 from bento_wes.config import Settings, SettingsDep
@@ -120,17 +120,19 @@ class WorkflowManager:
             await asyncio.to_thread(shutil.copyfile, str(workflow_uri.path), workflow_path)
             return None
 
-        if self.workflow_host_allow_list is not None:
-            # We need to check that the workflow in question is from an
-            # allowed set of workflow hosts
-            if workflow_uri.scheme != "file" and workflow_uri.host not in self.workflow_host_allow_list:
-                # Dis-allowed workflow URL
-                self.logger.error(
-                    "Dis-allowed workflow host: %s (allow list: %s)",
-                    workflow_uri.host,
-                    str(self.workflow_host_allow_list),
-                )
-                return states.STATE_EXECUTOR_ERROR
+        # We need to check that the workflow in question is from an allowed set of workflow hosts
+        if (
+            self.workflow_host_allow_list is not None
+            and workflow_uri.scheme != "file"
+            and workflow_uri.host not in self.workflow_host_allow_list
+        ):
+            # Dis-allowed workflow URL
+            self.logger.error(
+                "Dis-allowed workflow host: %s (allow list: %s)",
+                workflow_uri.host,
+                str(self.workflow_host_allow_list),
+            )
+            return states.STATE_EXECUTOR_ERROR
 
         self.logger.info("Fetching workflow file from %s", workflow_uri)
 
@@ -160,10 +162,10 @@ class WorkflowManager:
                         **(auth_headers if use_auth_headers else {}),
                     },
                 )
-        except httpx.RequestError as e:
+        except httpx.RequestError:
             if workflow_path.exists():
                 return None
-            raise e
+            raise  # re-raise
 
         content = await resp.aread()
 

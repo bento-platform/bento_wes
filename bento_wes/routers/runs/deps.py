@@ -1,18 +1,18 @@
-from fastapi import Depends, Request
-from fastapi.exceptions import HTTPException
-from fastapi import status
-from starlette.datastructures import Headers
-from typing import Awaitable, Callable, FrozenSet, Annotated, Iterable, Iterator
+from collections.abc import Awaitable, Callable, Iterator, Sequence
+from typing import Annotated
 from uuid import UUID
 
-from bento_lib.auth.permissions import Permission, P_VIEW_RUNS
+from bento_lib.auth.permissions import P_VIEW_RUNS, Permission
+from fastapi import Depends, Request, status
+from fastapi.exceptions import HTTPException
+from starlette.datastructures import Headers
 
 from bento_wes import states
-from bento_wes.db import DatabaseDep
-from bento_wes.models import RunWithDetails
-from bento_wes.types import RunStream, AuthHeaderModel
 from bento_wes.authz import AuthzMiddlewareDep
 from bento_wes.config import SettingsDep
+from bento_wes.db import DatabaseDep
+from bento_wes.models import RunWithDetails
+from bento_wes.types import AuthHeaderModel, RunStream
 
 
 # TODO: middleware just to check if run_id is valid
@@ -72,7 +72,7 @@ def evaluate_run_permissions_function(
         if not settings.authz_enabled:
             return None
 
-        p: FrozenSet[Permission] = frozenset({permission})
+        p: frozenset[Permission] = frozenset({permission})
         return await authz_middleware.async_check_authz_evaluate(request, p, resource, set_authz_flag=True)
 
     return _inner
@@ -96,7 +96,7 @@ def evaluate_run_permissions_function_from_form(
             new_headers = dict(request.headers) | auth.as_dict()
             request._headers = Headers(new_headers)
 
-        p: FrozenSet[Permission] = frozenset({permission})
+        p: frozenset[Permission] = frozenset({permission})
         return await authz_middleware.async_check_authz_evaluate(request, p, resource, set_authz_flag=True)
 
     return _inner
@@ -117,13 +117,13 @@ def mark_authz_done(authz_middleware: AuthzMiddlewareDep, request: Request):
 AuthzCompletionDep = Annotated[AuthzCompletionCallable, Depends(mark_authz_done)]
 
 
-AuthzViewRunsEvaluateCallable = Callable[[Iterable[dict]], Iterator[bool]]
+AuthzViewRunsEvaluateCallable = Callable[[Sequence[dict]], Iterator[bool]]
 
 
 def authz_evaluate_view(
     authz_middleware: AuthzMiddlewareDep, request: Request, settings: SettingsDep
 ) -> AuthzViewRunsEvaluateCallable:
-    def _inner(resources: Iterable[dict]) -> Iterator[bool]:
+    def _inner(resources: Sequence[dict]) -> Iterator[bool]:
         if not settings.authz_enabled:
             yield from [True] * len(resources)
         yield from [r[0] for r in authz_middleware.evaluate(request, resources, [P_VIEW_RUNS])]

@@ -1,8 +1,8 @@
 from functools import lru_cache
 from typing import Annotated
-from fastapi import Depends
 
 from bento_lib.service_info.manager import ServiceManager
+from fastapi import Depends
 
 from .config import SettingsDep
 from .logger import LoggerDep
