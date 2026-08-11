@@ -1,9 +1,9 @@
 import json
 import uuid
 
-from .constants import EXAMPLE_RUN, EXAMPLE_RUN_BODY
+from bento_wes.states import STATE_COMPLETE, STATE_QUEUED
 
-from bento_wes.states import STATE_QUEUED, STATE_COMPLETE
+from .constants import EXAMPLE_RUN, EXAMPLE_RUN_BODY
 
 
 def _create_valid_run(client):

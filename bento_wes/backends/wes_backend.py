@@ -1,34 +1,36 @@
 import os
 import re
-import requests
 import shutil
 import subprocess
 import uuid
-
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
+from logging import Logger
+from pathlib import Path
+from typing import Literal, overload
+
+import aiofiles
+import requests
 from bento_lib.events import EventBus
 from bento_lib.events.types import EVENT_WES_RUN_FINISHED
 from bento_lib.service_info.manager import ServiceManager
 from bento_lib.utils.headers import authz_bearer_header
 from bento_lib.workflows.models import (
-    WorkflowSecretInput,
-    WorkflowFileInput,
-    WorkflowFileArrayInput,
     WorkflowDirectoryInput,
+    WorkflowFileArrayInput,
+    WorkflowFileInput,
+    WorkflowSecretInput,
 )
 from bento_lib.workflows.utils import namespaced_input
-from logging import Logger
-from pathlib import Path
-from typing import overload, Sequence, Literal
 
 from bento_wes import states
 from bento_wes.config import Settings
 from bento_wes.constants import SERVICE_ARTIFACT
 from bento_wes.db import Database, get_db_with_event_bus
-from bento_wes.models import Run, RunWithDetails, RunOutput
+from bento_wes.models import Run, RunOutput, RunWithDetails
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
 from bento_wes.utils import iso_now
-from bento_wes.workflows import WORKFLOW_IGNORE_FILE_PATH_INJECTION, WorkflowType, WorkflowManager
+from bento_wes.workflows import WORKFLOW_IGNORE_FILE_PATH_INJECTION, WorkflowManager, WorkflowType
 
 from .backend_types import Command, ProcessResult
 from .exceptions import RunExceptionWithFailState
@@ -115,7 +117,6 @@ class WESBackend(ABC):
         """
         Returns a tuple of the workflow types this backend supports.
         """
-        pass
 
     @abstractmethod
     def _get_params_file(self, run: Run) -> str:
@@ -124,7 +125,6 @@ class WESBackend(ABC):
         :param run: The run description
         :return: The name of the params file
         """
-        pass
 
     @abstractmethod
     def _serialize_params(self, workflow_params: ParamDict) -> str:
@@ -133,7 +133,6 @@ class WESBackend(ABC):
         :param workflow_params: A dictionary of key-value pairs representing the workflow parameters
         :return: The serialized form of the parameters
         """
-        pass
 
     def workflow_path(self, run: RunWithDetails) -> Path:
         """
@@ -160,7 +159,6 @@ class WESBackend(ABC):
         raised if the workflow is not valid.
         :param run: The run, including a request with the workflow URI
         """
-        pass
 
     def get_womtool_path_or_raise(self) -> str:
         womtool_path = self.settings.wom_tool_location
@@ -176,7 +174,7 @@ class WESBackend(ABC):
 
         # Check for Java (needed to run WOMtool)
         try:
-            subprocess.run(("java", "-version"))
+            subprocess.run(("java", "-version"), check=True)
         except FileNotFoundError:
             raise RunExceptionWithFailState(STATE_SYSTEM_ERROR, "Java is missing (required to validate WDL files)")
 
@@ -232,7 +230,6 @@ class WESBackend(ABC):
         :param workflow_path: The path to the workflow definition file
         :return: None if the file could not be parsed for some reason; the name string otherwise
         """
-        pass
 
     @staticmethod
     def get_workflow_name_wdl(workflow_path: Path) -> str | None:
@@ -262,8 +259,7 @@ class WESBackend(ABC):
                 )
             with open(destination, "wb") as f:
                 # chunk_size=None to use the chunk size from the stream
-                for chunk in response.iter_content(chunk_size=None):
-                    f.write(chunk)
+                f.writelines(response.iter_content(chunk_size=None))
         self.log_debug("Downloaded file at %s to path %s", url, destination)
 
     @overload
@@ -351,6 +347,20 @@ class WESBackend(ABC):
                 os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
                 self._download_to_path(uri, token, tmp_path)
 
+    def _fetch_drop_box_tree(self, url: str, token: str):
+        with requests.get(url, headers=authz_bearer_header(token), verify=self.validate_ssl, stream=True) as response:
+            if response.status_code != 200:
+                self.log_error(
+                    "Tree request to drop box gave error response: %d %s",
+                    response.status_code,
+                    response.content.decode("utf-8"),
+                )
+                raise RunExceptionWithFailState(
+                    STATE_EXECUTOR_ERROR,
+                    f"Tree request to drop box resulted in a non 200 status code: {response.status_code}",
+                )
+            return response.json()
+
     async def _download_input_directory(
         self,
         directory: str,
@@ -361,6 +371,9 @@ class WESBackend(ABC):
         self.log_debug("_download_input_directory called (directory=%s)", directory)
 
         drop_box_url = await self.service_manager.get_bento_service_url_by_kind("drop-box")
+        if drop_box_url is None:
+            self.log_error("Could not obtain drop-box URL")
+            raise RunExceptionWithFailState(STATE_EXECUTOR_ERROR, "Could not obtain drop-box URL")
 
         sub_tree = directory.lstrip("/")
 
@@ -380,21 +393,10 @@ class WESBackend(ABC):
         self._validate_sub_path(download_dir, final_dir)
 
         # Fetch directory subtree from Drop Box
-        with requests.get(url, headers=authz_bearer_header(token), verify=self.validate_ssl, stream=True) as response:
-            if response.status_code != 200:
-                self.log_error(
-                    "Tree request to drop box gave error response: %d %s",
-                    response.status_code,
-                    response.content.decode("utf-8"),
-                )
-                raise RunExceptionWithFailState(
-                    STATE_EXECUTOR_ERROR,
-                    f"Tree request to drop box resulted in a non 200 status code: {response.status_code}",
-                )
-            tree = response.json()
+        tree = self._fetch_drop_box_tree(url, token)
 
-            # Download tree content under download_dir
-            self._download_directory_tree(tree, token, download_dir)
+        # Download tree content under download_dir
+        self._download_directory_tree(tree, token, download_dir)
 
         return str(final_dir)
 
@@ -408,7 +410,6 @@ class WESBackend(ABC):
         :param run_dir: The directory to run the workflow in
         :return: The command, in the form of a tuple of strings, to be passed to subprocess.run
         """
-        pass
 
     def _update_run_state_and_commit(self, run_id: uuid.UUID | str, state: str) -> None:
         """
@@ -536,8 +537,8 @@ class WESBackend(ABC):
         self.db.set_run_log_name(run, workflow_name)
 
         # -- Store input for the workflow in a file in the temporary folder --------------------------------------------
-        with open(self._params_path(run), "w") as pf:
-            pf.write(self._serialize_params(processed_workflow_params))
+        async with aiofiles.open(self._params_path(run), "w") as pf:
+            await pf.write(self._serialize_params(processed_workflow_params))
 
         # -- Create the runner command based on inputs -----------------------------------------------------------------
         cmd = self._get_command(self.workflow_path(run), self._params_path(run), self.run_dir(run))

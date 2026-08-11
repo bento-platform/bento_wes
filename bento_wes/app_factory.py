@@ -1,13 +1,14 @@
-from bento_lib.apps.fastapi import BentoFastAPI
 from contextlib import asynccontextmanager
 
+from bento_lib.apps.fastapi import BentoFastAPI
+
+from . import __version__
 from .authz import get_authz_middleware
-from .config import get_settings, BENTO_EXTRA_SERVICE_INFO
+from .config import BENTO_EXTRA_SERVICE_INFO, get_settings
 from .constants import SERVICE_TYPE
 from .db import setup_database_on_startup
-from .logger import get_logger
-from . import __version__
 from .events import init_event_bus, shutdown_event_bus
+from .logger import get_logger
 
 
 @asynccontextmanager

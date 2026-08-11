@@ -1,8 +1,9 @@
 from functools import lru_cache
 from typing import Annotated
-from fastapi import Depends
 
 from bento_lib.auth.middleware.fastapi import FastApiAuthMiddleware
+from fastapi import Depends
+
 from .config import SettingsDep
 from .logger import LoggerDep
 

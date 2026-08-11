@@ -1,13 +1,13 @@
-import httpx
 import uuid
-
-from bento_lib.workflows.utils import namespaced_input
-from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlInput
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
-from fastapi.responses import JSONResponse
 from pathlib import Path
-from pydantic import BaseModel
 from typing import Annotated
+
+import httpx
+from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlInput
+from bento_lib.workflows.utils import namespaced_input
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from bento_wes import states
 from bento_wes.config import Settings, SettingsDep
@@ -16,16 +16,16 @@ from bento_wes.logger import LoggerDep
 from bento_wes.models import RunRequest
 from bento_wes.runner import run_workflow
 from bento_wes.service_registry import ServiceManagerDep
+from bento_wes.types import AuthHeaderModel
+from bento_wes.utils import save_upload_files
 from bento_wes.workflows import (
-    WorkflowType,
     UnsupportedWorkflowType,
     WorkflowDownloadError,
     WorkflowManagerDep,
+    WorkflowType,
 )
-from bento_wes.types import AuthHeaderModel
-from bento_wes.utils import save_upload_files
 
-from .deps import AuthzDep, AuthzCompletionDep, AuthzViewRunsEvaluateDep
+from .deps import AuthzCompletionDep, AuthzDep, AuthzViewRunsEvaluateDep
 
 runs_router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -55,7 +55,7 @@ async def create_run(
     logger: LoggerDep,
     service_manager: ServiceManagerDep,
     workflow_manager: WorkflowManagerDep,
-    workflow_attachment: list[UploadFile] | None = File(None),
+    workflow_attachment: list[UploadFile] | None = File(None),  # noqa: B008
 ) -> RunIDResponse:
     # Authz: check permission corresponding to the workflow definition before continuing
     await authz_check(run.get_workflow_permission(), run.get_authz_resource())

@@ -1,7 +1,7 @@
 import asyncio
-import httpx
 import uuid
 
+import httpx
 from bento_lib.events import EventBus
 from bento_lib.service_info.manager import ServiceManager
 from celery.utils.log import get_task_logger
@@ -10,9 +10,9 @@ from . import states
 from .backends.cromwell_local import CromwellLocalBackend
 from .backends.wes_backend import WESBackend
 from .celery import celery
+from .config import Settings, get_settings
 from .db import Database, get_db_with_event_bus
-from .events import get_worker_event_bus, close_worker_event_bus
-from .config import get_settings, Settings
+from .events import close_worker_event_bus, get_worker_event_bus
 from .service_registry import get_service_manager
 from .workflows import WorkflowManager, get_workflow_manager
 
@@ -85,7 +85,7 @@ def run_workflow(self, run_id: uuid.UUID):
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while obtaining access token: {type(e).__name__} {e}")
         db.finish_run(run, states.STATE_SYSTEM_ERROR)
-        raise e
+        raise  # re-raise
 
     # Perform the run
     try:
@@ -95,7 +95,7 @@ def run_workflow(self, run_id: uuid.UUID):
         # Intercept any uncaught exceptions and finish with an error state
         logger.error(f"Uncaught exception while performing run: {type(e).__name__} {e}")
         db.finish_run(run, states.STATE_SYSTEM_ERROR)
-        raise e
+        raise  # re-raise
     finally:
         try:
             next(_db_gen)
