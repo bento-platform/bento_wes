@@ -5,7 +5,7 @@
 [![codecov](https://codecov.io/gh/bento-platform/bento_wes/branch/master/graph/badge.svg)](https://codecov.io/gh/bento-platform/bento_wes)
 
 
-Developing `bento_wes` requires Python 3.10+ and Poetry `>=1.5.1`.
+Developing `bento_wes` requires Python 3.12+ and Poetry `>=2.4.1`.
 
 
 ## Overview
