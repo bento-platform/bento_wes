@@ -1,4 +1,4 @@
-gunicorn==26.2.2
+gunicorn==26.2.0
 gevent==26.9.0
 pysam>=0.24.1,<0.25.0
 fasta-checksum-utils>=0.5.2,<0.6
