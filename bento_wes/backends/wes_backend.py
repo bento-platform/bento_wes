@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 import shutil
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Literal, overload
 
 import aiofiles
+import aiohttp
 import requests
 from bento_lib.events import EventBus
 from bento_lib.events.types import EVENT_WES_RUN_FINISHED
@@ -169,7 +171,7 @@ class WESBackend(ABC):
             )
         return womtool_path
 
-    def execute_womtool_command(self, command: tuple[str, ...]) -> subprocess.Popen:
+    async def execute_womtool_command(self, command: tuple[str, ...]) -> asyncio.subprocess.Process:
         womtool_path = self.get_womtool_path_or_raise()
 
         # Check for Java (needed to run WOMtool)
@@ -179,35 +181,36 @@ class WESBackend(ABC):
             raise RunExceptionWithFailState(STATE_SYSTEM_ERROR, "Java is missing (required to validate WDL files)")
 
         # Execute WOMtool command
-        return subprocess.Popen(
-            ("java", "-jar", womtool_path, *command), stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8"
+        return await asyncio.create_subprocess_exec(
+            "java", "-jar", womtool_path, *command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
 
-    def _check_workflow_wdl(self, run: RunWithDetails) -> None:
+    async def _check_workflow_wdl(self, run: RunWithDetails) -> None:
         """
         Checks that a particular WDL workflow is valid. A RunExceptionWithFailState is raised if the WDL is not valid.
         :param run: The run whose workflow is being checked
         """
 
         # Validate WDL, listing dependencies:
-        vr = self.execute_womtool_command(("validate", "-l", str(self.workflow_path(run))))
+        vr = await self.execute_womtool_command(("validate", "-l", str(self.workflow_path(run))))
 
-        v_out, v_err = vr.communicate()
+        v_out, v_err = await vr.communicate()
 
         if vr.returncode != 0:
             # Validation error with WDL file
             raise RunExceptionWithFailState(
                 STATE_EXECUTOR_ERROR,
                 f"Failed with {STATE_EXECUTOR_ERROR} due to non-0 validation return code:\n"
-                f"\tstdout: {v_out}\n\tstderr: {v_err}",
+                f"\tstdout: {v_out.decode('utf-8')}\n\tstderr: {v_err.decode('utf-8')}",
             )
 
         #  - Since Toil doesn't support WDL imports right now, any dependencies will result in an error
-        if "None" not in v_out:  # No dependencies
+        if b"None" not in v_out:  # No dependencies
             # Toil can't process WDL dependencies right now  TODO
             raise RunExceptionWithFailState(
                 STATE_EXECUTOR_ERROR,
-                f"Failed with {STATE_EXECUTOR_ERROR} due to dependencies in WDL:\n\tstdout: {v_out}\n\tstderr: {v_err}",
+                f"Failed with {STATE_EXECUTOR_ERROR} due to dependencies in WDL:\n"
+                f"\tstdout: {v_out.decode('utf-8')}\n\tstderr: {v_err.decode('utf-8')}",
             )
 
     def _check_workflow_and_type(self, run: RunWithDetails) -> None:
@@ -246,20 +249,24 @@ class WESBackend(ABC):
             # Invalid/non-workflow-specifying WDL file if false-y
             return workflow_id_match.group(1) if workflow_id_match else None
 
-    def _download_to_path(self, url: str, token: str, destination: Path | str):
+    async def _download_to_path(self, url: str, token: str, destination: Path | str):
         """
         Download a file from a URL to a destination directory.
         Bearer token auth works with Drop-Box and DRS.
         """
-        with requests.get(url, headers=authz_bearer_header(token), verify=self.validate_ssl, stream=True) as response:
-            if response.status_code != 200:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(url, headers=authz_bearer_header(token), ssl=self.validate_ssl) as response,
+        ):
+            if response.status != 200:
                 raise RunExceptionWithFailState(
                     STATE_EXECUTOR_ERROR,
-                    f"Download request to drop-box resulted in a non 200 status code: {response.status_code}",
+                    f"Download request to drop-box resulted in a non 200 status code: {response.status}",
                 )
-            with open(destination, "wb") as f:
+            async with aiofiles.open(destination, "wb") as f:
                 # chunk_size=None to use the chunk size from the stream
-                f.writelines(response.iter_content(chunk_size=None))
+                while chunk := await response.content.read(chunk_size=None):
+                    await f.write(chunk)
         self.log_debug("Downloaded file at %s to path %s", url, destination)
 
     @overload
@@ -292,8 +299,15 @@ class WESBackend(ABC):
                 STATE_EXECUTOR_ERROR, f"Temporary path bust be a sub-path of directory {parent_dir}"
             )
 
-    async def _get_drop_box_resource_url(self, path: str, resource: Literal["objects", "tree"] = "objects") -> str:
+    async def _get_drop_box_url(self) -> str:
         drop_box_url = await self.service_manager.get_bento_service_url_by_kind("drop-box")
+        if drop_box_url is None:
+            self.log_error("Could not obtain drop box URL")
+            raise RunExceptionWithFailState(STATE_EXECUTOR_ERROR, "Could not obtain drop box URL")
+        return drop_box_url
+
+    async def _get_drop_box_resource_url(self, path: str, resource: Literal["objects", "tree"] = "objects") -> str:
+        drop_box_url = await self._get_drop_box_url()
         clean_path = path.lstrip("/")
         return f"{drop_box_url}/{resource}/{clean_path}"
 
@@ -315,10 +329,10 @@ class WESBackend(ABC):
 
         # Downloads file to /wes/tmp/<run_dir>/<file_name>
         download_url = await self._get_drop_box_resource_url(obj_path)
-        self._download_to_path(download_url, token, tmp_file_path)
+        await self._download_to_path(download_url, token, tmp_file_path)
         return str(tmp_file_path)
 
-    def _download_directory_tree(
+    async def _download_directory_tree(
         self,
         tree: list[dict],
         token: str,
@@ -332,7 +346,7 @@ class WESBackend(ABC):
         for node in tree:
             if contents := node.get("contents"):
                 # Node is a directory: go inside recursively to find files
-                self._download_directory_tree(contents, token, download_dir)
+                await self._download_directory_tree(contents, token, download_dir)
             elif uri := node.get("uri"):
                 # Node is a file: download
                 #  - we need to strip the starting "/", otherwise this escapes the run directory.
@@ -345,21 +359,24 @@ class WESBackend(ABC):
                     "_download_directory_tree: downloading node %s to temporary path %s", node["uri"], tmp_path
                 )
                 os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
-                self._download_to_path(uri, token, tmp_path)
+                await self._download_to_path(uri, token, tmp_path)
 
-    def _fetch_drop_box_tree(self, url: str, token: str):
-        with requests.get(url, headers=authz_bearer_header(token), verify=self.validate_ssl, stream=True) as response:
-            if response.status_code != 200:
+    async def _fetch_drop_box_tree(self, url: str, token: str):
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(url, headers=authz_bearer_header(token), ssl=self.validate_ssl) as response,
+        ):
+            if response.status != 200:
                 self.log_error(
                     "Tree request to drop box gave error response: %d %s",
-                    response.status_code,
-                    response.content.decode("utf-8"),
+                    response.status,
+                    (await response.content.read()).decode("utf-8"),
                 )
                 raise RunExceptionWithFailState(
                     STATE_EXECUTOR_ERROR,
-                    f"Tree request to drop box resulted in a non 200 status code: {response.status_code}",
+                    f"Tree request to drop box resulted in a non 200 status code: {response.status}",
                 )
-            return response.json()
+            return await response.json()
 
     async def _download_input_directory(
         self,
@@ -370,10 +387,7 @@ class WESBackend(ABC):
     ) -> str:
         self.log_debug("_download_input_directory called (directory=%s)", directory)
 
-        drop_box_url = await self.service_manager.get_bento_service_url_by_kind("drop-box")
-        if drop_box_url is None:
-            self.log_error("Could not obtain drop-box URL")
-            raise RunExceptionWithFailState(STATE_EXECUTOR_ERROR, "Could not obtain drop-box URL")
+        drop_box_url = await self._get_drop_box_url()
 
         sub_tree = directory.lstrip("/")
 
@@ -393,10 +407,10 @@ class WESBackend(ABC):
         self._validate_sub_path(download_dir, final_dir)
 
         # Fetch directory subtree from Drop Box
-        tree = self._fetch_drop_box_tree(url, token)
+        tree = await self._fetch_drop_box_tree(url, token)
 
         # Download tree content under download_dir
-        self._download_directory_tree(tree, token, download_dir)
+        await self._download_directory_tree(tree, token, download_dir)
 
         return str(final_dir)
 
