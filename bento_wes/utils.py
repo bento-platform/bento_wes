@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from logging import Logger
 from pathlib import Path
 from typing import NotRequired, TypedDict
@@ -17,7 +17,7 @@ __all__ = [
 
 
 def iso_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")  # ISO date format
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")  # ISO date format
 
 
 CHUNK_SIZE = 1024 * 1024  # 1 MiB

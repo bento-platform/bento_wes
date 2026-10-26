@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "bento_wes"
-version = "0.16.9"
+version = "0.16.10"
 description = "Workflow execution service for the Bento platform."
 authors = [
     "David Lougheed <david.lougheed@mail.mcgill.ca>",
@@ -25,15 +25,15 @@ classifiers = [
 [tool.poetry.dependencies]
 python = "^3.12.0"
 aiofiles = "^25.1.0"
-bento-lib = {extras = ["fastapi"], version = "^17.0.0"}
+bento-lib = {extras = ["fastapi"], version = "^18.1.4"}
 celery = {extras = ["redis"], version = "^5.5.3"}
 requests = "^2.33.0"
 pydantic = "^2.7.1"
 pydantic-settings = "^2.15.0"
 werkzeug = "~3.1.5"
 asgiref = "^3.8.1"
-fastapi = "^0.141.1"
-uvicorn = "^0.52.1"
+fastapi = "^0.162.0"
+uvicorn = "^0.54.0"
 httpx = "^0.28.1"
 python-multipart = ">=0.0.32,<0.0.33"
 
@@ -44,7 +44,7 @@ pytest = "^9.0.1"
 pytest-cov = "^7.0.0"
 tox = "^4.32.0"
 debugpy = "^1.8.17"
-ruff = "^0.16.1"
+ruff = "^0.17.2"
 watchfiles = "^1.1.0"
 respx = "^0.23.1"
 
