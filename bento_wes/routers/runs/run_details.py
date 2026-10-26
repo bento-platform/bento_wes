@@ -12,6 +12,7 @@ from bento_wes import states
 from bento_wes.celery import celery
 from bento_wes.config import SettingsDep
 from bento_wes.db import DatabaseDep
+from bento_wes.models import RunWithDetails
 
 from .constants import RUN_CANCEL_BAD_REQUEST_STATES
 from .deps import AuthzDep, AuthzDepFromForm, RunDep, StreamDataDep, stash_run_or_404
@@ -22,9 +23,9 @@ detail_router.dependencies.append(Depends(stash_run_or_404))
 
 
 @detail_router.get("")
-async def get_run(run: RunDep, authz_check: AuthzDep):
+async def get_run(run: RunDep, authz_check: AuthzDep) -> RunWithDetails:
     await authz_check(P_VIEW_RUNS, run.request.get_authz_resource())
-    return run.model_dump(mode="json")
+    return run
 
 
 @detail_router.get("/status")

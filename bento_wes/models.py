@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -44,7 +46,7 @@ class RunRequest(BaseModel):
         workflow_engine_parameters: Annotated[str, Form(...)],
         workflow_url: Annotated[str, Form(...)],
         tags: Annotated[str, Form(...)],
-    ) -> "RunRequest":
+    ) -> RunRequest:
         return cls(
             workflow_params=workflow_params,
             workflow_type=workflow_type,
