@@ -2,9 +2,7 @@ import json
 
 __all__ = [
     "METADATA_URL",
-    "DROP_BOX_URL",
     "TEST_SERVICES",
-    "EXAMPLE_PROJECT_ID",
     "EXAMPLE_DATASET_ID",
     "EXAMPLE_WORKFLOW_DEFINITION",
     "EXAMPLE_RUN",
