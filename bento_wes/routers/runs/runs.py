@@ -7,17 +7,18 @@ from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlIn
 from bento_lib.workflows.utils import namespaced_input
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import AnyUrl, BaseModel
 
 from bento_wes import states
 from bento_wes.config import Settings, SettingsDep
 from bento_wes.db import DatabaseDep
 from bento_wes.logger import LoggerDep
-from bento_wes.models import RunRequest
+from bento_wes.models import InvalidRunRequest, RunRequest
 from bento_wes.runner import run_workflow
 from bento_wes.service_registry import ServiceManagerDep
 from bento_wes.types import AuthHeaderModel
 from bento_wes.utils import save_upload_files
+from bento_wes.workflow_resolver import WorkflowResolutionError, WorkflowResolverDep
 from bento_wes.workflows import (
     UnsupportedWorkflowType,
     WorkflowDownloadError,
@@ -55,10 +56,39 @@ async def create_run(
     logger: LoggerDep,
     service_manager: ServiceManagerDep,
     workflow_manager: WorkflowManagerDep,
+    workflow_resolver: WorkflowResolverDep,
     workflow_attachment: list[UploadFile] | None = File(None),  # noqa: B008
 ) -> RunIDResponse:
-    # Authz: check permission corresponding to the workflow definition before continuing
-    await authz_check(run.get_workflow_permission(), run.get_authz_resource())
+    # SECURITY: The client-supplied workflow definition (tags.workflow_metadata) and workflow URL cannot be trusted,
+    # since they decide which permission/resource is checked, which inputs the server injects, and which inputs
+    # receive secrets. Replace both with the definition/WDL URL from the workflow provider service, BEFORE authz and
+    # before the run is saved (the runner reads the definition back from the database.)
+    try:
+        resolved = await workflow_resolver.resolve(run.tags.workflow_id)
+    except WorkflowResolutionError as e:
+        logger.warning(f"Could not resolve workflow {run.tags.workflow_id!r}: {e}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    run.tags.workflow_metadata = resolved.definition
+    run.workflow_url = AnyUrl(resolved.wdl_url)
+
+    # Note: with authz enabled, errors raised before authz_check(...) surface as 403s via the authz middleware.
+    try:
+        permission = run.get_workflow_permission()
+        resources = run.get_authz_resources()
+    except InvalidRunRequest as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    # Authz: check permission corresponding to the workflow definition, on every dataset it touches, before continuing
+    for resource in resources:
+        await authz_check(permission, resource)
+
+    # Only accept parameters for declared, user-settable inputs; server-injected inputs are always set below/in the
+    # runner. This also blocks overriding WDL inputs with defaults that the definition doesn't list (e.g. service URLs.)
+    try:
+        run.workflow_params = run.user_workflow_params()
+    except InvalidRunRequest as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     logger.info(f"Starting run creation for workflow {run.tags.workflow_id}")
 
