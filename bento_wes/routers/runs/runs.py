@@ -5,7 +5,7 @@ from typing import Annotated
 import httpx
 from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlInput
 from bento_lib.workflows.utils import namespaced_input
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import AnyUrl, BaseModel
 
@@ -17,7 +17,6 @@ from bento_wes.models import InvalidRunRequest, RunRequest
 from bento_wes.runner import run_workflow
 from bento_wes.service_registry import ServiceManagerDep
 from bento_wes.types import AuthHeaderModel
-from bento_wes.utils import save_upload_files
 from bento_wes.workflow_resolver import WorkflowResolutionError, WorkflowResolverDep
 from bento_wes.workflows import (
     UnsupportedWorkflowType,
@@ -57,7 +56,6 @@ async def create_run(
     service_manager: ServiceManagerDep,
     workflow_manager: WorkflowManagerDep,
     workflow_resolver: WorkflowResolverDep,
-    workflow_attachment: list[UploadFile] | None = File(None),  # noqa: B008
 ) -> RunIDResponse:
     try:
         resolved = await workflow_resolver.resolve(run.tags.workflow_id, run.workflow_url)
@@ -105,18 +103,6 @@ async def create_run(
 
     run_dir: Path = settings.service_temp / str(run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
-
-    if workflow_attachment:
-        for file in workflow_attachment:
-            # TODO: Check and fix input if filename is non-secure
-            # TODO: Do we put these in a subdirectory?
-            # TODO: Support WDL uploads for workflows
-            logger.info("Received file: %s with size %d bytes", file.filename, file.size or -1)
-        # TODO: do something with these?
-        response = await save_upload_files(workflow_attachment, run_dir, logger)
-        logger.info("saved uploaded workflow attachments: %s", response)
-    else:
-        logger.info("No workflow attachments provided")
 
     # Process parameters & inject non-secret values
     #  - Get injectable run config for processing inputs

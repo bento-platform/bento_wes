@@ -1,18 +1,10 @@
-from collections.abc import Iterable
+import os
+import re
 from datetime import UTC, datetime
-from logging import Logger
-from pathlib import Path
-from typing import NotRequired, TypedDict
-
-import aiofiles
-from fastapi import UploadFile
 
 __all__ = [
-    "UploadFileError",
-    "UploadFileSuccess",
-    "UploadFileResult",
     "iso_now",
-    "save_upload_files",
+    "subprocess_env",
 ]
 
 
@@ -20,78 +12,12 @@ def iso_now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")  # ISO date format
 
 
-CHUNK_SIZE = 1024 * 1024  # 1 MiB
+SENSITIVE_ENV_VAR_PATTERN = re.compile(r"SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|PRIVATE_KEY|API_KEY", re.IGNORECASE)
 
 
-class UploadFileError(TypedDict):
-    filename: str
-    error: str
-    content_type: NotRequired[str | None]
-
-
-class UploadFileSuccess(TypedDict):
-    filename: str
-    path: str
-    content_type: str | None
-    size: int
-
-
-UploadFileResult = UploadFileError | UploadFileSuccess
-
-
-async def save_upload_files(
-    files: Iterable[UploadFile],
-    dest_dir: Path,
-    logger: Logger,
-) -> list[UploadFileResult]:
+def subprocess_env() -> dict[str, str]:
     """
-    Streams each UploadFile to disk (non-blocking).
-
-    Returns a list of per-file results:
-      success: { "filename": ..., "path": ..., "content_type": ..., "size": ... } (type: UploadFileSuccess)
-      error:   { "filename": ..., "error": ..., ["content_type": ...] }           (type: UploadFileError)
+    Environment for child processes (Cromwell, WOMtool). Workflow task commands run as shell processes under Cromwell
+    and inherit its environment, so strip anything that looks like a credential (e.g. WES_CLIENT_SECRET.)
     """
-    dest_dir.mkdir(parents=True, exist_ok=True)
-
-    results: list[UploadFileResult] = []
-
-    for f in files:
-        safe_name = Path(f.filename or "unnamed").name  # sanitize path traversal
-        dest = dest_dir / safe_name
-
-        # Generate unique name if file exists
-        if dest.exists():
-            stem, suffix = dest.stem, dest.suffix
-            i = 1
-            while dest.exists():
-                dest = dest_dir / f"{stem} ({i}){suffix}"
-                i += 1
-
-        size: int = 0
-        error: str | None = None
-
-        try:
-            async with aiofiles.open(dest, "wb") as out:
-                while chunk := await f.read(CHUNK_SIZE):
-                    size += len(chunk)
-                    await out.write(chunk)
-        except Exception as e:
-            logger.exception("encountered error while saving file upload", exc_info=e)
-            error = f"I/O error: {e}"
-        finally:
-            await f.close()
-
-        # If error occurred, remove partial file
-        if error and dest.exists():
-            try:
-                dest.unlink(missing_ok=True)
-            except Exception as e:
-                logger.exception("encountered error while removing partial file upload", exc_info=e)
-
-        results.append(
-            UploadFileError(filename=safe_name, content_type=f.content_type, error=error)
-            if error
-            else UploadFileSuccess(filename=safe_name, path=str(dest), content_type=f.content_type, size=size)
-        )
-
-    return results
+    return {k: v for k, v in os.environ.items() if not SENSITIVE_ENV_VAR_PATTERN.search(k)}

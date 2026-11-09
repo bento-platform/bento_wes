@@ -29,7 +29,7 @@ from bento_wes.constants import SERVICE_ARTIFACT
 from bento_wes.db import Database, get_db_with_event_bus
 from bento_wes.models import Run, RunOutput, RunWithDetails
 from bento_wes.states import STATE_EXECUTOR_ERROR, STATE_SYSTEM_ERROR
-from bento_wes.utils import iso_now
+from bento_wes.utils import iso_now, subprocess_env
 from bento_wes.workflows import WORKFLOW_IGNORE_FILE_PATH_INJECTION, WorkflowManager, WorkflowType
 
 from .backend_types import Command, ProcessResult
@@ -174,13 +174,17 @@ class WESBackend(ABC):
 
         # Check for Java (needed to run WOMtool)
         try:
-            subprocess.run(("java", "-version"), check=True)
+            subprocess.run(("java", "-version"), check=True, env=subprocess_env())
         except FileNotFoundError:
             raise RunExceptionWithFailState(STATE_SYSTEM_ERROR, "Java is missing (required to validate WDL files)")
 
         # Execute WOMtool command
         return subprocess.Popen(
-            ("java", "-jar", womtool_path, *command), stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8"
+            ("java", "-jar", womtool_path, *command),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            encoding="utf-8",
+            env=subprocess_env(),
         )
 
     def _check_workflow_wdl(self, run: RunWithDetails) -> None:
@@ -568,7 +572,12 @@ class WESBackend(ABC):
         #  - Cromwell creates the `cromwell-executions` and `cromwell-workflow-logs` folders in the CWD, so we set the
         #    CWD of the subprocess to our WES temporary directory.
         runner_process = subprocess.Popen(
-            cmd, cwd=self.tmp_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8"
+            cmd,
+            cwd=self.tmp_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            encoding="utf-8",
+            env=subprocess_env(),
         )
         self.db.c().execute("UPDATE runs SET run_log__start_time = ? WHERE id = ?", (iso_now(), run.run_id))
         self.db.commit()
