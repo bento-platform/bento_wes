@@ -59,12 +59,12 @@ async def create_run(
     workflow_resolver: WorkflowResolverDep,
     workflow_attachment: list[UploadFile] | None = File(None),  # noqa: B008
 ) -> RunIDResponse:
-    # SECURITY: The client-supplied workflow definition (tags.workflow_metadata) and workflow URL cannot be trusted,
-    # since they decide which permission/resource is checked, which inputs the server injects, and which inputs
-    # receive secrets. Replace both with the definition/WDL URL from the workflow provider service, BEFORE authz and
-    # before the run is saved (the runner reads the definition back from the database.)
+    # SECURITY: The client-supplied workflow definition (tags.workflow_metadata) cannot be trusted, since it decides
+    # which permission/resource is checked, which inputs the server injects, and which inputs receive secrets.
+    # workflow_url must point at a registered workflow provider; we fetch the definition from that provider and replace
+    # the client's copy BEFORE authz and before the run is saved (the runner reads the definition back from the DB.)
     try:
-        resolved = await workflow_resolver.resolve(run.tags.workflow_id)
+        resolved = await workflow_resolver.resolve(run.tags.workflow_id, run.workflow_url)
     except WorkflowResolutionError as e:
         logger.warning(f"Could not resolve workflow {run.tags.workflow_id!r}: {e}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

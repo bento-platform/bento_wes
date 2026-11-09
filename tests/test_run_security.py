@@ -12,12 +12,14 @@ import respx
 from bento_lib.auth.permissions import P_INGEST_DATA
 from bento_lib.auth.resources import RESOURCE_EVERYTHING, build_resource
 from bento_lib.workflows.models import WorkflowDefinition
+from pydantic import AnyUrl
 
 from bento_wes.models import InvalidRunRequest, RunRequest
 from bento_wes.workflow_resolver import WorkflowResolutionError, WorkflowResolver
 
 from .conftest import FakeServiceManager, mock_workflow_provider
 from .constants import (
+    DROP_BOX_URL,
     EXAMPLE_DATASET_ID,
     EXAMPLE_PROJECT_ID,
     EXAMPLE_RUN,
@@ -113,14 +115,29 @@ def test_injected_service_url_cannot_be_overridden(client, katsu_provider, authz
     ]
 
 
-def test_client_workflow_url_is_ignored(client, katsu_provider, authz_calls):
+@pytest.mark.parametrize(
+    "workflow_url",
+    [
+        f"{METADATA_URL}/workflows/other.wdl",  # registered provider, but a different workflow than workflow_id
+        f"{METADATA_URL}/workflows/{WID}.wdl?x=1",  # query string
+        f"{METADATA_URL}/workflows/{WID}.wdl#x",  # fragment
+        f"{METADATA_URL}/other/workflows/{WID}.wdl",  # same host, different path
+        f"https://metadata.local/workflows/{WID}.wdl",  # different scheme
+        f"{DROP_BOX_URL}/workflows/{WID}.wdl",  # registered service, but not a workflow provider
+        f"{ATTACKER_URL}/workflows/{WID}.wdl",  # unregistered host
+    ],
+)
+def test_workflow_url_must_be_registered_provider(client, katsu_provider, authz_calls, workflow_url):
     params = {f"{WID}.project_dataset": OWN_PD, f"{WID}.json_document": "test.json"}
-    # Same allow-listed host, different WDL. respx would raise if WES tried to download it.
-    rv = client.post("/runs", data=_body(params, ATTACKER_METADATA, f"{METADATA_URL}/workflows/other.wdl"))
-    assert rv.status_code == 200, rv.text
+    rv = client.post("/runs", data=_body(params, ATTACKER_METADATA, workflow_url))
+    assert rv.status_code == 400, rv.text
+    assert authz_calls == []
 
-    run = client.get(f"/runs/{rv.json()['run_id']}").json()
-    assert run["request"]["workflow_url"] == f"{METADATA_URL}/workflows/{WID}.wdl"
+
+def test_workflow_url_host_case_insensitive(client, katsu_provider, authz_calls):
+    params = {f"{WID}.project_dataset": OWN_PD, f"{WID}.json_document": "test.json"}
+    rv = client.post("/runs", data=_body(params, ATTACKER_METADATA, f"http://METADATA.local/workflows/{WID}.wdl"))
+    assert rv.status_code == 200, rv.text
 
 
 def test_undeclared_param_rejected(client, katsu_provider, authz_calls):
@@ -225,10 +242,14 @@ def resolver(settings, logger):
     return WorkflowResolver(FakeServiceManager([dict(s) for s in TEST_SERVICES]), settings, logger)
 
 
-def test_resolver_resolves_from_provider_only(resolver):
-    with respx.mock as respx_mock:  # respx raises if the non-provider drop-box service is queried
+def _wdl_url(provider_url: str, workflow_id: str = WID) -> AnyUrl:
+    return AnyUrl(f"{provider_url}/workflows/{workflow_id}.wdl")
+
+
+def test_resolver_resolves_from_named_provider(resolver):
+    with respx.mock as respx_mock:  # respx raises on any request that isn't mocked
         mock_workflow_provider(respx_mock, WID, KATSU_LIKE_DEFINITION)
-        resolved = asyncio.run(resolver.resolve(WID))
+        resolved = asyncio.run(resolver.resolve(WID, _wdl_url(METADATA_URL)))
     assert resolved.wdl_url == f"{METADATA_URL}/workflows/{WID}.wdl"
     assert resolved.definition.type == "ingestion"
 
@@ -236,19 +257,29 @@ def test_resolver_resolves_from_provider_only(resolver):
 @pytest.mark.parametrize("bad_id", ["../evil", "a/b", "x?y=z", ""])
 def test_resolver_rejects_bad_ids(resolver, bad_id):
     with pytest.raises(WorkflowResolutionError):
-        asyncio.run(resolver.resolve(bad_id))
+        asyncio.run(resolver.resolve(bad_id, _wdl_url(METADATA_URL)))
 
 
-def test_resolver_rejects_ambiguous_ids(settings, logger):
+def test_resolver_only_queries_named_provider(settings, logger):
+    # Two providers serve the same workflow ID; only the one workflow_url points at may be queried.
     other = "http://gohan.local"
     sm = FakeServiceManager(
-        [
-            *TEST_SERVICES,
-            {"url": other, "bento": {"serviceKind": "gohan", "workflowProvider": True}},
-        ]
+        [*TEST_SERVICES, {"url": other, "bento": {"serviceKind": "gohan", "workflowProvider": True}}]
     )
+    gohan_definition = {**KATSU_LIKE_DEFINITION, "type": "analysis"}
     with respx.mock as respx_mock:
-        mock_workflow_provider(respx_mock, WID, KATSU_LIKE_DEFINITION)
-        mock_workflow_provider(respx_mock, WID, KATSU_LIKE_DEFINITION, provider_url=other)
-        with pytest.raises(WorkflowResolutionError, match="multiple services"):
-            asyncio.run(WorkflowResolver(sm, settings, logger).resolve(WID))
+        metadata_route = respx_mock.get(f"{METADATA_URL}/workflows/{WID}").mock(
+            return_value=httpx.Response(200, json=KATSU_LIKE_DEFINITION)
+        )
+        mock_workflow_provider(respx_mock, WID, gohan_definition, provider_url=other)
+        resolved = asyncio.run(WorkflowResolver(sm, settings, logger).resolve(WID, _wdl_url(other)))
+    assert resolved.definition.type == "analysis"
+    assert not metadata_route.called
+
+
+def test_resolver_provider_errors(resolver):
+    for res in (httpx.Response(500), httpx.Response(200, json={"not": "a definition"})):
+        with respx.mock as respx_mock:
+            respx_mock.get(f"{METADATA_URL}/workflows/{WID}").mock(return_value=res)
+            with pytest.raises(WorkflowResolutionError):
+                asyncio.run(resolver.resolve(WID, _wdl_url(METADATA_URL)))

@@ -2,13 +2,14 @@
 Server-side resolution of workflow definitions.
 
 Run requests carry a client-supplied copy of the workflow definition (tags.workflow_metadata) and a client-supplied
-workflow URL. Neither can be trusted: the definition decides which permission/resource is checked, which parameters
-are injected by the server, and which inputs receive secrets (e.g., the WES access token). Instead, we look the
-workflow up by ID in the Bento services which declare themselves as workflow providers, and use that definition and
-its canonical WDL URL for everything.
+workflow URL. The definition cannot be trusted: it decides which permission/resource is checked, which parameters
+are injected by the server, and which inputs receive secrets (e.g., the WES access token).
+
+The workflow URL is only used as a pointer to the provider: it must exactly match {provider}/workflows/{id}.wdl for a
+service the registry lists as a workflow provider (bento.workflowProvider). The definition is then fetched by WES from
+that provider and used for everything, instead of the client's copy.
 """
 
-import asyncio
 import logging
 import re
 from dataclasses import dataclass
@@ -18,7 +19,7 @@ import httpx
 from bento_lib.service_info.manager import ServiceManager
 from bento_lib.workflows.models import WorkflowDefinition
 from fastapi import Depends, status
-from pydantic import ValidationError
+from pydantic import AnyUrl, ValidationError
 
 from .config import Settings, SettingsDep
 from .logger import LoggerDep
@@ -58,57 +59,61 @@ class WorkflowResolver:
         services = await self._service_manager.fetch_service_list()
         return [s["url"].rstrip("/") for s in services if s.get("bento", {}).get("workflowProvider") and s.get("url")]
 
-    async def _fetch_from_provider(
-        self, client: httpx.AsyncClient, provider_url: str, workflow_id: str
-    ) -> ResolvedWorkflow | None:
-        url = f"{provider_url}/workflows/{workflow_id}"
-        try:
-            res = await client.get(url)
-        except httpx.RequestError as e:
-            self._logger.warning("Could not reach workflow provider %s: %s", provider_url, e)
-            return None
-
-        if res.status_code == status.HTTP_404_NOT_FOUND:
-            return None
-        if res.status_code != status.HTTP_200_OK:
-            self._logger.warning("Workflow provider %s returned status %d for %s", provider_url, res.status_code, url)
-            return None
-
-        try:
-            definition = WorkflowDefinition.model_validate(res.json())
-        except (ValueError, ValidationError) as e:
-            self._logger.warning("Workflow provider %s returned an invalid definition for %s: %s", provider_url, url, e)
-            return None
-
-        return ResolvedWorkflow(definition=definition, wdl_url=f"{url}.wdl")
-
-    async def resolve(self, workflow_id: str) -> ResolvedWorkflow:
+    async def _find_provider(self, workflow_id: str, workflow_url: AnyUrl) -> str:
         """
-        Look up a workflow definition by ID across all Bento workflow providers.
-        :raises WorkflowResolutionError: if the ID is malformed, unknown, or provided by more than one service.
+        Find the registered workflow provider whose WDL URL for this workflow ID is exactly workflow_url.
+        Both sides are normalized through AnyUrl, so e.g. host casing doesn't matter, but scheme/port/path must match.
         """
-
-        if not WORKFLOW_ID_PATTERN.fullmatch(workflow_id):
-            raise WorkflowResolutionError(f"Invalid workflow ID: {workflow_id!r}")
+        if workflow_url.query or workflow_url.fragment:
+            raise WorkflowResolutionError("workflow_url must not include a query string or fragment")
 
         provider_urls = await self._get_provider_urls()
         if not provider_urls:
             raise WorkflowResolutionError("No workflow providers found in the service registry")
 
-        async with httpx.AsyncClient(verify=self._validate_ssl, timeout=WORKFLOW_FETCH_TIMEOUT) as client:
-            results = await asyncio.gather(*(self._fetch_from_provider(client, u, workflow_id) for u in provider_urls))
+        requested = str(workflow_url)
+        for provider_url in provider_urls:
+            if str(AnyUrl(f"{provider_url}/workflows/{workflow_id}.wdl")) == requested:
+                return provider_url
 
-        matches = [r for r in results if r is not None]
+        raise WorkflowResolutionError(
+            f"workflow_url {requested} is not a registered workflow provider's URL for workflow {workflow_id}"
+        )
 
-        if not matches:
+    async def _fetch_definition(self, provider_url: str, workflow_id: str) -> WorkflowDefinition:
+        url = f"{provider_url}/workflows/{workflow_id}"
+        try:
+            async with httpx.AsyncClient(verify=self._validate_ssl, timeout=WORKFLOW_FETCH_TIMEOUT) as client:
+                res = await client.get(url)
+        except httpx.RequestError as e:
+            self._logger.warning("Could not reach workflow provider %s: %s", provider_url, e)
+            raise WorkflowResolutionError(f"Could not reach workflow provider for {workflow_id}")
+
+        if res.status_code == status.HTTP_404_NOT_FOUND:
             raise WorkflowResolutionError(f"Unknown workflow ID: {workflow_id}")
-        if len(matches) > 1:
-            # Refuse to guess - otherwise, the permission/resource check could be done against the wrong definition.
-            raise WorkflowResolutionError(
-                f"Workflow ID {workflow_id} is provided by multiple services: {[m.wdl_url for m in matches]}"
-            )
+        if res.status_code != status.HTTP_200_OK:
+            self._logger.warning("Workflow provider %s returned status %d for %s", provider_url, res.status_code, url)
+            raise WorkflowResolutionError(f"Could not fetch workflow definition for {workflow_id}")
 
-        return matches[0]
+        try:
+            return WorkflowDefinition.model_validate(res.json())
+        except (ValueError, ValidationError) as e:
+            self._logger.warning("Workflow provider %s returned an invalid definition for %s: %s", provider_url, url, e)
+            raise WorkflowResolutionError(f"Invalid workflow definition for {workflow_id}")
+
+    async def resolve(self, workflow_id: str, workflow_url: AnyUrl) -> ResolvedWorkflow:
+        """
+        Fetch a workflow definition from the registered provider that workflow_url points to.
+        :raises WorkflowResolutionError: if the ID is malformed, workflow_url isn't a registered provider's WDL URL for
+                                         this ID, or the provider doesn't serve a valid definition for it.
+        """
+
+        if not WORKFLOW_ID_PATTERN.fullmatch(workflow_id):
+            raise WorkflowResolutionError(f"Invalid workflow ID: {workflow_id!r}")
+
+        provider_url = await self._find_provider(workflow_id, workflow_url)
+        definition = await self._fetch_definition(provider_url, workflow_id)
+        return ResolvedWorkflow(definition=definition, wdl_url=f"{provider_url}/workflows/{workflow_id}.wdl")
 
 
 def get_workflow_resolver(
