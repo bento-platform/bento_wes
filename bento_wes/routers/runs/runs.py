@@ -59,10 +59,6 @@ async def create_run(
     workflow_resolver: WorkflowResolverDep,
     workflow_attachment: list[UploadFile] | None = File(None),  # noqa: B008
 ) -> RunIDResponse:
-    # SECURITY: The client-supplied workflow definition (tags.workflow_metadata) cannot be trusted, since it decides
-    # which permission/resource is checked, which inputs the server injects, and which inputs receive secrets.
-    # workflow_url must point at a registered workflow provider; we fetch the definition from that provider and replace
-    # the client's copy BEFORE authz and before the run is saved (the runner reads the definition back from the DB.)
     try:
         resolved = await workflow_resolver.resolve(run.tags.workflow_id, run.workflow_url)
     except WorkflowResolutionError as e:
@@ -72,19 +68,16 @@ async def create_run(
     run.tags.workflow_metadata = resolved.definition
     run.workflow_url = AnyUrl(resolved.wdl_url)
 
-    # Note: with authz enabled, errors raised before authz_check(...) surface as 403s via the authz middleware.
     try:
         permission = run.get_workflow_permission()
         resources = run.get_authz_resources()
     except InvalidRunRequest as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    # Authz: check permission corresponding to the workflow definition, on every dataset it touches, before continuing
+    # Authz: check permission corresponding to the workflow definition before continuing
     for resource in resources:
         await authz_check(permission, resource)
 
-    # Only accept parameters for declared, user-settable inputs; server-injected inputs are always set below/in the
-    # runner. This also blocks overriding WDL inputs with defaults that the definition doesn't list (e.g. service URLs.)
     try:
         run.workflow_params = run.user_workflow_params()
     except InvalidRunRequest as e:
