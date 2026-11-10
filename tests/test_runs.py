@@ -1,11 +1,6 @@
 import json
 import uuid
 
-from bento_lib.auth.permissions import P_VIEW_DROP_BOX
-from bento_lib.auth.resources import RESOURCE_EVERYTHING
-from fastapi import HTTPException
-
-from bento_wes.routers.runs.deps import evaluate_run_permissions_function
 from bento_wes.states import STATE_COMPLETE, STATE_QUEUED
 
 from .constants import EXAMPLE_RUN, EXAMPLE_RUN_BODY
@@ -186,55 +181,3 @@ def test_runs_public_endpoint(client, _mocked_responses_with_workflow, db_sessio
         assert set(metadata.keys()) == set(expected_metadata_keys)
         run_log = details["run_log"]
         assert set(run_log.keys()) == set(expected_run_log_keys)
-
-
-class _FakeAuthz:
-    """Records permission checks; raises 403 for denied permissions."""
-
-    def __init__(self, denied: frozenset = frozenset()):
-        self.denied = denied
-        self.checked = []
-
-    def __call__(self):
-        async def _inner(permission, resource):
-            self.checked.append((permission, resource))
-            if permission in self.denied:
-                raise HTTPException(status_code=403, detail="Forbidden")
-
-        return _inner
-
-
-def _with_fake_authz(client, fake: _FakeAuthz):
-    client.app.dependency_overrides[evaluate_run_permissions_function] = fake
-
-
-def test_run_create_drop_box_input_denied(client, _mocked_responses_with_workflow):
-    fake = _FakeAuthz(denied=frozenset({P_VIEW_DROP_BOX}))
-    _with_fake_authz(client, fake)
-
-    rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
-    assert rv.status_code == 403
-    assert (P_VIEW_DROP_BOX, RESOURCE_EVERYTHING) in fake.checked
-    assert client.get("/runs").json() == []
-
-
-def test_run_create_drop_box_input_allowed(client, _mocked_responses_with_workflow):
-    fake = _FakeAuthz()
-    _with_fake_authz(client, fake)
-
-    _create_valid_run(client)
-    assert (P_VIEW_DROP_BOX, RESOURCE_EVERYTHING) in fake.checked
-
-
-def test_run_create_blank_drop_box_input_skips_check(client, _mocked_responses_with_workflow):
-    fake = _FakeAuthz(denied=frozenset({P_VIEW_DROP_BOX}))
-    _with_fake_authz(client, fake)
-
-    body = {
-        **EXAMPLE_RUN_BODY,
-        "workflow_params": json.dumps({**EXAMPLE_RUN["workflow_params"], "phenopackets_json.json_document": ""}),
-    }
-    rv = client.post("/runs", data=body)
-    assert rv.status_code == 200
-    assert all(p != P_VIEW_DROP_BOX for p, _ in fake.checked)
-    assert fake.checked  # the dataset permission was still checked

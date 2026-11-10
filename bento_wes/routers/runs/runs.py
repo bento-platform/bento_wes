@@ -83,8 +83,6 @@ async def create_run(
     except InvalidRunRequest as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    # The worker fetches drop-box inputs with the WES service token, which can read the whole drop box, so the
-    # caller must be able to view the drop box themselves. view:drop_box can only be granted instance-wide.
     if run.has_drop_box_inputs():
         await authz_check(P_VIEW_DROP_BOX, RESOURCE_EVERYTHING)
 
