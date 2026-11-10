@@ -5,7 +5,14 @@ from typing import Annotated, Literal
 
 from bento_lib.auth.permissions import P_ANALYZE_DATA, P_EXPORT_DATA, P_INGEST_DATA, Permission
 from bento_lib.auth.resources import RESOURCE_EVERYTHING, build_resource
-from bento_lib.workflows.models import WorkflowDefinition, WorkflowInjectedInput, WorkflowProjectDatasetInput
+from bento_lib.workflows.models import (
+    WorkflowDefinition,
+    WorkflowDirectoryInput,
+    WorkflowFileArrayInput,
+    WorkflowFileInput,
+    WorkflowInjectedInput,
+    WorkflowProjectDatasetInput,
+)
 from bento_lib.workflows.utils import namespaced_input
 from fastapi import Form
 from pydantic import AnyUrl, BaseModel, ConfigDict, Json
@@ -119,6 +126,23 @@ class RunRequest(BaseModel):
             raise InvalidRunRequest(f"Unexpected workflow parameters: {unexpected}")
 
         return {k: v for k, v in self.workflow_params.items() if k in user_keys}
+
+    def has_drop_box_inputs(self) -> bool:
+        """
+        Whether any file, file array or directory input (i.e., a path into the drop box) has a non-blank value.
+        Blank values (empty strings/lists) are skipped, since the backend never downloads anything for them.
+        """
+        wi, wm = self.tags.workflow_id, self.tags.workflow_metadata
+        for inp in wm.inputs:
+            if not isinstance(inp, (WorkflowFileInput, WorkflowFileArrayInput, WorkflowDirectoryInput)):
+                continue
+            val = self.workflow_params.get(namespaced_input(wi, inp.id))
+            if isinstance(val, list):
+                if any(v != "" for v in val):
+                    return True
+            elif val is not None and val != "":
+                return True
+        return False
 
     def get_workflow_permission(self) -> Permission:
         match self.tags.workflow_metadata.type:

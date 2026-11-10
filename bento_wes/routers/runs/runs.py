@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import Annotated
 
 import httpx
+from bento_lib.auth.permissions import P_VIEW_DROP_BOX
+from bento_lib.auth.resources import RESOURCE_EVERYTHING
 from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlInput
 from bento_lib.workflows.utils import namespaced_input
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -80,6 +82,11 @@ async def create_run(
         run.workflow_params = run.user_workflow_params()
     except InvalidRunRequest as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    # The worker fetches drop-box inputs with the WES service token, which can read the whole drop box, so the
+    # caller must be able to view the drop box themselves. view:drop_box can only be granted instance-wide.
+    if run.has_drop_box_inputs():
+        await authz_check(P_VIEW_DROP_BOX, RESOURCE_EVERYTHING)
 
     logger.info(f"Starting run creation for workflow {run.tags.workflow_id}")
 
