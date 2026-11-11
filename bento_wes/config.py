@@ -97,6 +97,8 @@ class Settings(BentoFastAPIBaseConfig):
     cromwell_location: Path = Path("/cromwell.jar")
     wom_tool_location: str | None = None
     workflow_host_allow_list: str | None = None
+    # WES spec workflow_attachment uploads; disabled by default since Bento workflows don't use them.
+    workflow_attachments_enabled: bool = Field(False, alias="WORKFLOW_ATTACHMENTS_ENABLED")
 
     # --- CORS ---
     cors_origins: tuple[str, ...] | Literal["*"] = "*"

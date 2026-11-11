@@ -5,7 +5,7 @@ from typing import Annotated
 import httpx
 from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlInput
 from bento_lib.workflows.utils import namespaced_input
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse
 from pydantic import AnyUrl, BaseModel
 
@@ -17,6 +17,7 @@ from bento_wes.models import InvalidRunRequest, RunRequest
 from bento_wes.runner import run_workflow
 from bento_wes.service_registry import ServiceManagerDep
 from bento_wes.types import AuthHeaderModel
+from bento_wes.utils import save_upload_files
 from bento_wes.workflow_resolver import WorkflowResolutionError, WorkflowResolverDep
 from bento_wes.workflows import (
     UnsupportedWorkflowType,
@@ -56,6 +57,7 @@ async def create_run(
     service_manager: ServiceManagerDep,
     workflow_manager: WorkflowManagerDep,
     workflow_resolver: WorkflowResolverDep,
+    workflow_attachment: list[UploadFile] | None = File(None),  # noqa: B008
 ) -> RunIDResponse:
     try:
         resolved = await workflow_resolver.resolve(run.tags.workflow_id, run.workflow_url)
@@ -75,6 +77,12 @@ async def create_run(
     # Authz: check permission corresponding to the workflow definition before continuing
     for resource in resources:
         await authz_check(permission, resource)
+
+    if workflow_attachment and not settings.workflow_attachments_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workflow attachments are disabled (WORKFLOW_ATTACHMENTS_ENABLED=false)",
+        )
 
     try:
         run.workflow_params = run.user_workflow_params()
@@ -103,6 +111,12 @@ async def create_run(
 
     run_dir: Path = settings.service_temp / str(run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
+
+    if workflow_attachment:
+        # Kept in a subdirectory so attachments can't collide with WES's own run files. They are never used as the
+        # workflow file, since workflow_url must point at a registered workflow provider.
+        response = await save_upload_files(workflow_attachment, run_dir / "attachments", logger)
+        logger.info("saved uploaded workflow attachments: %s", response)
 
     # Process parameters & inject non-secret values
     #  - Get injectable run config for processing inputs
