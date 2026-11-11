@@ -70,13 +70,13 @@ class RunRequest(BaseModel):
         )
 
     def get_authz_resource(self):
-        wi, wm = self.tags.workflow_id, self.tags.workflow_metadata
+        wf_id, wf_meta = self.tags.workflow_id, self.tags.workflow_metadata
         resource = RESOURCE_EVERYTHING
 
-        inp = next((i for i in wm.inputs if isinstance(i, WorkflowProjectDatasetInput)), None)
-        if inp and (val := self.workflow_params.get(namespaced_input(wi, inp.id))):
-            project, dataset = val.split(":")
-            resource = build_resource(project, dataset, data_type=wm.data_type)
+        wf_input = next((i for i in wf_meta.inputs if isinstance(i, WorkflowProjectDatasetInput)), None)
+        if wf_input and (value := self.workflow_params.get(namespaced_input(wf_id, wf_input.id))):
+            project, dataset = value.split(":")
+            resource = build_resource(project, dataset, data_type=wf_meta.data_type)
 
         return resource
 
@@ -87,20 +87,20 @@ class RunRequest(BaseModel):
         dataset the workflow touches gets checked.
         :raises InvalidRunRequest: if a project:dataset value is malformed, or a required one is missing.
         """
-        wi, wm = self.tags.workflow_id, self.tags.workflow_metadata
+        wf_id, wf_meta = self.tags.workflow_id, self.tags.workflow_metadata
         resources: list[dict] = []
 
-        for inp in wm.inputs:
-            if not isinstance(inp, WorkflowProjectDatasetInput):
+        for wf_input in wf_meta.inputs:
+            if not isinstance(wf_input, WorkflowProjectDatasetInput):
                 continue
-            key = namespaced_input(wi, inp.id)
-            val = self.workflow_params.get(key)
-            if val is None or val == "":
-                if inp.required:
-                    raise InvalidRunRequest(f"Missing required input: {key}")
+            param_key = namespaced_input(wf_id, wf_input.id)
+            value = self.workflow_params.get(param_key)
+            if value is None or value == "":
+                if wf_input.required:
+                    raise InvalidRunRequest(f"Missing required input: {param_key}")
                 continue
-            project, dataset = _parse_project_dataset(key, val)
-            resources.append(build_resource(project, dataset, data_type=wm.data_type))
+            project, dataset = _parse_project_dataset(param_key, value)
+            resources.append(build_resource(project, dataset, data_type=wf_meta.data_type))
 
         return resources or [RESOURCE_EVERYTHING]
 
@@ -111,14 +111,22 @@ class RunRequest(BaseModel):
         those itself.
         :raises InvalidRunRequest: if a parameter does not correspond to any input in the workflow definition.
         """
-        wi, wm = self.tags.workflow_id, self.tags.workflow_metadata
-        user_keys = {namespaced_input(wi, i.id) for i in wm.inputs if not isinstance(i, WorkflowInjectedInput)}
-        injected_keys = {namespaced_input(wi, i.id) for i in wm.inputs if isinstance(i, WorkflowInjectedInput)}
+        wf_id, wf_meta = self.tags.workflow_id, self.tags.workflow_metadata
+        user_keys = {
+            namespaced_input(wf_id, wf_input.id)
+            for wf_input in wf_meta.inputs
+            if not isinstance(wf_input, WorkflowInjectedInput)
+        }
+        injected_keys = {
+            namespaced_input(wf_id, wf_input.id)
+            for wf_input in wf_meta.inputs
+            if isinstance(wf_input, WorkflowInjectedInput)
+        }
 
         if unexpected := sorted(set(self.workflow_params) - user_keys - injected_keys):
             raise InvalidRunRequest(f"Unexpected workflow parameters: {unexpected}")
 
-        return {k: v for k, v in self.workflow_params.items() if k in user_keys}
+        return {key: value for key, value in self.workflow_params.items() if key in user_keys}
 
     def get_workflow_permission(self) -> Permission:
         match self.tags.workflow_metadata.type:

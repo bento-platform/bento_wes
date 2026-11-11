@@ -13,6 +13,7 @@ that provider and used for everything, instead of the client's copy.
 import logging
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Annotated
 
 import httpx
@@ -116,6 +117,7 @@ class WorkflowResolver:
         return ResolvedWorkflow(definition=definition, wdl_url=f"{provider_url}/workflows/{workflow_id}.wdl")
 
 
+@lru_cache
 def get_workflow_resolver(
     service_manager: ServiceManagerDep, settings: SettingsDep, logger: LoggerDep
 ) -> WorkflowResolver:
