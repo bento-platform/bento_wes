@@ -5,9 +5,29 @@ from bento_lib.service_info.manager import ServiceManagerError
 
 from bento_wes import workflow_resolver as wr
 
-from .constants import METADATA_URL, TEST_SERVICES
+from .constants import TEST_SERVICES, WORKFLOW_PROVIDER_URLS
 
 NEW_PROVIDER_URL = "http://new-provider.local"
+
+
+@pytest.mark.parametrize(
+    "bento, expected",
+    [
+        ({"workflowProvider": True}, True),
+        ({"dataService": True}, True),
+        ({"workflowProvider": True, "dataService": True}, True),
+        ({"workflowProvider": False, "dataService": False}, False),
+        ({}, False),
+    ],
+)
+def test_is_workflow_provider(bento, expected):
+    assert wr.is_workflow_provider({"url": "http://svc.local", "bento": bento}) is expected
+    assert wr.is_workflow_provider({"url": "http://svc.local"}) is False
+
+
+def test_provider_urls_include_data_services(resolver):
+    # katsu and gohan are data services, reference is a workflow provider, drop-box is neither
+    assert asyncio.run(resolver._get_provider_urls()) == WORKFLOW_PROVIDER_URLS
 
 
 class CountingServiceManager:
@@ -51,12 +71,12 @@ def resolver(sm, settings, logger):
 
 
 def test_provider_urls_cached_within_ttl(resolver, sm, clock):
-    assert asyncio.run(resolver._get_provider_urls()) == [METADATA_URL]
+    assert asyncio.run(resolver._get_provider_urls()) == WORKFLOW_PROVIDER_URLS
     assert sm.calls == [{"skip_cache": True}]
 
     clock.now += wr.PROVIDER_LIST_TTL - 1
     sm.services = [*sm.services, {"url": NEW_PROVIDER_URL, "bento": {"workflowProvider": True}}]
-    assert asyncio.run(resolver._get_provider_urls()) == [METADATA_URL]
+    assert asyncio.run(resolver._get_provider_urls()) == WORKFLOW_PROVIDER_URLS
     assert len(sm.calls) == 1
 
 
@@ -65,7 +85,7 @@ def test_provider_urls_refreshed_after_ttl(resolver, sm, clock):
 
     clock.now += wr.PROVIDER_LIST_TTL
     sm.services = [*sm.services, {"url": NEW_PROVIDER_URL, "bento": {"workflowProvider": True}}]
-    assert asyncio.run(resolver._get_provider_urls()) == [METADATA_URL, NEW_PROVIDER_URL]
+    assert asyncio.run(resolver._get_provider_urls()) == [*WORKFLOW_PROVIDER_URLS, NEW_PROVIDER_URL]
     assert sm.calls == [{"skip_cache": True}, {"skip_cache": True}]
 
 
@@ -74,7 +94,7 @@ def test_provider_urls_stale_fallback_on_registry_error(resolver, sm, clock):
 
     clock.now += wr.PROVIDER_LIST_TTL
     sm.fail = True
-    assert asyncio.run(resolver._get_provider_urls()) == [METADATA_URL]
+    assert asyncio.run(resolver._get_provider_urls()) == WORKFLOW_PROVIDER_URLS
 
     # A failed refresh doesn't reset the TTL, so the next call tries the registry again
     sm.fail = False

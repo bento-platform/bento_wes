@@ -6,11 +6,11 @@ workflow URL. The definition cannot be trusted: it decides which permission/reso
 are injected by the server, and which inputs receive secrets (e.g., the WES access token).
 
 The workflow URL is only used as a pointer to the provider: it must exactly match {provider}/workflows/{id}.wdl for a
-service the registry lists as a workflow provider (bento.workflowProvider). The definition is then fetched by WES from
-that provider and used for everything, instead of the client's copy.
+service the registry lists as a workflow provider (bento.workflowProvider or bento.dataService, matching the service
+registry's definition of a workflow-providing service). The definition is then fetched by WES from that provider and
+used for everything, instead of the client's copy.
 """
 
-import asyncio
 import logging
 import re
 import time
@@ -50,6 +50,15 @@ class WorkflowResolutionError(Exception):
     pass
 
 
+def is_workflow_provider(service: dict) -> bool:
+    """
+    Same rule the service registry uses to collect workflows: data services (e.g., katsu, gohan) serve workflows too,
+    not only services flagged as workflow providers (e.g., reference).
+    """
+    bento = service.get("bento", {})
+    return bool(bento.get("workflowProvider") or bento.get("dataService"))
+
+
 @dataclass(frozen=True)
 class ResolvedWorkflow:
     definition: WorkflowDefinition
@@ -73,18 +82,15 @@ class WorkflowResolver:
             return self._provider_urls
 
         try:
-            # skip_cache: ServiceManager otherwise caches the service list for the lifetime of the process.
             services = await self._service_manager.fetch_service_list(skip_cache=True)
-        except (ServiceManagerError, aiohttp.ClientError, asyncio.TimeoutError) as e:
+        except (TimeoutError, ServiceManagerError, aiohttp.ClientError) as e:
             if not self._provider_urls:
                 self._logger.warning("Could not fetch service list from the service registry: %s", e)
                 raise WorkflowResolutionError("Could not fetch workflow providers from the service registry")
             self._logger.warning("Could not refresh workflow providers, using the previous list: %s", e)
             return self._provider_urls
 
-        self._provider_urls = [
-            s["url"].rstrip("/") for s in services if s.get("bento", {}).get("workflowProvider") and s.get("url")
-        ]
+        self._provider_urls = [s["url"].rstrip("/") for s in services if is_workflow_provider(s) and s.get("url")]
         self._provider_urls_fetched_at = time.monotonic()
         return self._provider_urls
 
