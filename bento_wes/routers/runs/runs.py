@@ -7,17 +7,18 @@ from bento_lib.workflows.models import WorkflowConfigInput, WorkflowServiceUrlIn
 from bento_lib.workflows.utils import namespaced_input
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import AnyUrl, BaseModel
 
 from bento_wes import states
 from bento_wes.config import Settings, SettingsDep
 from bento_wes.db import DatabaseDep
 from bento_wes.logger import LoggerDep
-from bento_wes.models import RunRequest
+from bento_wes.models import InvalidRunRequest, RunRequest
 from bento_wes.runner import run_workflow
 from bento_wes.service_registry import ServiceManagerDep
 from bento_wes.types import AuthHeaderModel
 from bento_wes.utils import save_upload_files
+from bento_wes.workflow_resolver import WorkflowResolutionError, WorkflowResolverDep
 from bento_wes.workflows import (
     UnsupportedWorkflowType,
     WorkflowDownloadError,
@@ -55,10 +56,38 @@ async def create_run(
     logger: LoggerDep,
     service_manager: ServiceManagerDep,
     workflow_manager: WorkflowManagerDep,
+    workflow_resolver: WorkflowResolverDep,
     workflow_attachment: list[UploadFile] | None = File(None),  # noqa: B008
 ) -> RunIDResponse:
+    try:
+        resolved = await workflow_resolver.resolve(run.tags.workflow_id, run.workflow_url)
+    except WorkflowResolutionError as e:
+        logger.warning(f"Could not resolve workflow {run.tags.workflow_id!r}: {e}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    run.tags.workflow_metadata = resolved.definition
+    run.workflow_url = AnyUrl(resolved.wdl_url)
+
+    try:
+        permission = run.get_workflow_permission()
+        resources = run.get_authz_resources()
+    except InvalidRunRequest as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
     # Authz: check permission corresponding to the workflow definition before continuing
-    await authz_check(run.get_workflow_permission(), run.get_authz_resource())
+    for resource in resources:
+        await authz_check(permission, resource)
+
+    if workflow_attachment and not settings.workflow_attachments_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workflow attachments are disabled (WORKFLOW_ATTACHMENTS_ENABLED=false)",
+        )
+
+    try:
+        run.workflow_params = run.user_workflow_params()
+    except InvalidRunRequest as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     logger.info(f"Starting run creation for workflow {run.tags.workflow_id}")
 
@@ -84,16 +113,10 @@ async def create_run(
     run_dir.mkdir(parents=True, exist_ok=True)
 
     if workflow_attachment:
-        for file in workflow_attachment:
-            # TODO: Check and fix input if filename is non-secure
-            # TODO: Do we put these in a subdirectory?
-            # TODO: Support WDL uploads for workflows
-            logger.info("Received file: %s with size %d bytes", file.filename, file.size or -1)
-        # TODO: do something with these?
-        response = await save_upload_files(workflow_attachment, run_dir, logger)
+        # Kept in a subdirectory so attachments can't collide with WES's own run files. They are never used as the
+        # workflow file, since workflow_url must point at a registered workflow provider.
+        response = await save_upload_files(workflow_attachment, run_dir / "attachments", logger)
         logger.info("saved uploaded workflow attachments: %s", response)
-    else:
-        logger.info("No workflow attachments provided")
 
     # Process parameters & inject non-secret values
     #  - Get injectable run config for processing inputs

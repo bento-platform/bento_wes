@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import shutil
 from base64 import urlsafe_b64encode
 from pathlib import Path
 from typing import Annotated, NewType
@@ -10,7 +9,6 @@ import httpx
 from fastapi import Depends, status
 from pydantic import AnyUrl
 
-from bento_wes import states
 from bento_wes.config import Settings, SettingsDep
 from bento_wes.logger import LoggerDep
 
@@ -96,43 +94,43 @@ class WorkflowManager:
         ).replace("=", "")
         return self.tmp_dir / f"workflow_{workflow_name}.{WORKFLOW_EXTENSIONS[workflow_type]}"
 
+    def _host_allowed(self, workflow_uri: AnyUrl) -> bool:
+        if self.workflow_host_allow_list is None:
+            return True
+        # Allow-list entries may be a bare host (any port) or host:port
+        return (
+            workflow_uri.host in self.workflow_host_allow_list
+            or f"{workflow_uri.host}:{workflow_uri.port}" in self.workflow_host_allow_list
+        )
+
     async def download_or_copy_workflow(
         self,
         workflow_uri: AnyUrl,
         workflow_type: WorkflowType,
         auth_headers: dict,
-    ) -> str | None:
+    ) -> None:
         """
-        Given a URI, downloads the specified workflow via its URI, or copies it over if it's on the local
-        file system. # TODO: Local file system = security issue?
-        :param workflow_uri: The workflow URI to download/copy
+        Given an http(s) URI, downloads the specified workflow.
+        :param workflow_uri: The workflow URI to download
         :param workflow_type: The type of the workflow being downloaded
         :param auth_headers: Authorization headers to pass while requesting the workflow file.
+        :raises WorkflowDownloadError: if the URI's scheme or host is not allowed, or the download fails.
         """
-
-        # TODO: Handle references to attachments
 
         workflow_path = self.workflow_path(workflow_uri, workflow_type)
 
-        if workflow_uri.scheme not in ALLOWED_WORKFLOW_REQUEST_SCHEMES:  # file://
-            # TODO: Other else cases
-            # TODO: Handle exceptions
-            await asyncio.to_thread(shutil.copyfile, str(workflow_uri.path), workflow_path)
-            return None
+        if workflow_uri.scheme not in ALLOWED_WORKFLOW_REQUEST_SCHEMES:
+            self.logger.error("Dis-allowed workflow URL scheme: %s", workflow_uri.scheme)
+            raise WorkflowDownloadError(f"Dis-allowed workflow URL scheme: {workflow_uri.scheme}")
 
-        # We need to check that the workflow in question is from an allowed set of workflow hosts
-        if (
-            self.workflow_host_allow_list is not None
-            and workflow_uri.scheme != "file"
-            and workflow_uri.host not in self.workflow_host_allow_list
-        ):
-            # Dis-allowed workflow URL
+        if not self._host_allowed(workflow_uri):
             self.logger.error(
-                "Dis-allowed workflow host: %s (allow list: %s)",
+                "Dis-allowed workflow host: %s:%s (allow list: %s)",
                 workflow_uri.host,
+                workflow_uri.port,
                 str(self.workflow_host_allow_list),
             )
-            return states.STATE_EXECUTOR_ERROR
+            raise WorkflowDownloadError(f"Dis-allowed workflow host: {workflow_uri.host}")
 
         self.logger.info("Fetching workflow file from %s", workflow_uri)
 
@@ -164,7 +162,7 @@ class WorkflowManager:
                 )
         except httpx.RequestError:
             if workflow_path.exists():
-                return None
+                return
             raise  # re-raise
 
         content = await resp.aread()
@@ -186,8 +184,6 @@ class WorkflowManager:
                 resp.status_code,
             )
             raise WorkflowDownloadError(f"WorkflowDownloadError: {workflow_path} does not exist")
-
-        return None
 
 
 def get_workflow_manager(settings: SettingsDep, logger: LoggerDep) -> WorkflowManager:

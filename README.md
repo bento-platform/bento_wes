@@ -161,6 +161,13 @@ WOM_TOOL_LOCATION=/path/to/womtool.jar
 # from - prevents possibly insecure WDLs from being ran
 WORKFLOW_HOST_ALLOW_LIST=
 
+# Whether to accept WES spec workflow_attachment uploads (default: false).
+# - If false, run requests with attachments are rejected with a 400.
+# - If true, attachments are saved to the run's temporary directory; they are
+#   never executed as the workflow, since workflow_url must point at a
+#   registered workflow provider.
+WORKFLOW_ATTACHMENTS_ENABLED=false
+
 # Service URL configuration:
 BENTO_AUTHZ_SERVICE_URL=
 DRS_URL=https://portal.bentov2.local/api/drs

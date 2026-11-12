@@ -1,3 +1,5 @@
+import os
+import re
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from logging import Logger
@@ -13,6 +15,7 @@ __all__ = [
     "UploadFileResult",
     "iso_now",
     "save_upload_files",
+    "subprocess_env",
 ]
 
 
@@ -95,3 +98,14 @@ async def save_upload_files(
         )
 
     return results
+
+
+SENSITIVE_ENV_VAR_PATTERN = re.compile(r"SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|PRIVATE_KEY|API_KEY", re.IGNORECASE)
+
+
+def subprocess_env() -> dict[str, str]:
+    """
+    Environment for child processes (Cromwell, WOMtool). Workflow task commands run as shell processes under Cromwell
+    and inherit its environment, so strip anything that looks like a credential (e.g. WES_CLIENT_SECRET.)
+    """
+    return {k: v for k, v in os.environ.items() if not SENSITIVE_ENV_VAR_PATTERN.search(k)}

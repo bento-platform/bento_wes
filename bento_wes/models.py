@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 from bento_lib.auth.permissions import P_ANALYZE_DATA, P_EXPORT_DATA, P_INGEST_DATA, Permission
 from bento_lib.auth.resources import RESOURCE_EVERYTHING, build_resource
-from bento_lib.workflows.models import WorkflowDefinition, WorkflowProjectDatasetInput
+from bento_lib.workflows.models import WorkflowDefinition, WorkflowInjectedInput, WorkflowProjectDatasetInput
 from bento_lib.workflows.utils import namespaced_input
 from fastapi import Form
 from pydantic import AnyUrl, BaseModel, ConfigDict, Json
@@ -13,6 +13,7 @@ from pydantic import AnyUrl, BaseModel, ConfigDict, Json
 from .constants import PRIVATE_RUN_DETAILS_SHAPE, PUBLIC_RUN_DETAILS_SHAPE
 
 __all__ = [
+    "InvalidRunRequest",
     "BentoRunRequestTags",
     "RunRequest",
     "RunLog",
@@ -20,6 +21,18 @@ __all__ = [
     "RunWithDetails",
     "RunOutput",
 ]
+
+
+class InvalidRunRequest(Exception):
+    pass
+
+
+def _parse_project_dataset(input_key: str, value: object) -> tuple[str, str]:
+    if isinstance(value, str):
+        parts = value.split(":")
+        if len(parts) == 2 and all(parts):
+            return parts[0], parts[1]
+    raise InvalidRunRequest(f"Invalid value for {input_key}: expected 'project:dataset'")
 
 
 class BentoRunRequestTags(BaseModel):
@@ -57,15 +70,63 @@ class RunRequest(BaseModel):
         )
 
     def get_authz_resource(self):
-        wi, wm = self.tags.workflow_id, self.tags.workflow_metadata
+        wf_id, wf_meta = self.tags.workflow_id, self.tags.workflow_metadata
         resource = RESOURCE_EVERYTHING
 
-        inp = next((i for i in wm.inputs if isinstance(i, WorkflowProjectDatasetInput)), None)
-        if inp and (val := self.workflow_params.get(namespaced_input(wi, inp.id))):
-            project, dataset = val.split(":")
-            resource = build_resource(project, dataset, data_type=wm.data_type)
+        wf_input = next((i for i in wf_meta.inputs if isinstance(i, WorkflowProjectDatasetInput)), None)
+        if wf_input and (value := self.workflow_params.get(namespaced_input(wf_id, wf_input.id))):
+            project, dataset = value.split(":")
+            resource = build_resource(project, dataset, data_type=wf_meta.data_type)
 
         return resource
+
+    def get_authz_resources(self) -> list[dict]:
+        """
+        Strict version of get_authz_resource() for use at run creation, once tags.workflow_metadata has been replaced
+        with the server-resolved workflow definition. Returns one resource per project:dataset input, so that every
+        dataset the workflow touches gets checked.
+        :raises InvalidRunRequest: if a project:dataset value is malformed, or a required one is missing.
+        """
+        wf_id, wf_meta = self.tags.workflow_id, self.tags.workflow_metadata
+        resources: list[dict] = []
+
+        for wf_input in wf_meta.inputs:
+            if not isinstance(wf_input, WorkflowProjectDatasetInput):
+                continue
+            param_key = namespaced_input(wf_id, wf_input.id)
+            value = self.workflow_params.get(param_key)
+            if value is None or value == "":
+                if wf_input.required:
+                    raise InvalidRunRequest(f"Missing required input: {param_key}")
+                continue
+            project, dataset = _parse_project_dataset(param_key, value)
+            resources.append(build_resource(project, dataset, data_type=wf_meta.data_type))
+
+        return resources or [RESOURCE_EVERYTHING]
+
+    def user_workflow_params(self) -> dict[str, str | int | float | bool | list[str]]:
+        """
+        Filter workflow_params against the workflow definition: only declared, user-settable inputs are accepted.
+        Values for server-injected inputs (config, service URLs, secrets) are dropped, since the server always sets
+        those itself.
+        :raises InvalidRunRequest: if a parameter does not correspond to any input in the workflow definition.
+        """
+        wf_id, wf_meta = self.tags.workflow_id, self.tags.workflow_metadata
+        user_keys = {
+            namespaced_input(wf_id, wf_input.id)
+            for wf_input in wf_meta.inputs
+            if not isinstance(wf_input, WorkflowInjectedInput)
+        }
+        injected_keys = {
+            namespaced_input(wf_id, wf_input.id)
+            for wf_input in wf_meta.inputs
+            if isinstance(wf_input, WorkflowInjectedInput)
+        }
+
+        if unexpected := sorted(set(self.workflow_params) - user_keys - injected_keys):
+            raise InvalidRunRequest(f"Unexpected workflow parameters: {unexpected}")
+
+        return {key: value for key, value in self.workflow_params.items() if key in user_keys}
 
     def get_workflow_permission(self) -> Permission:
         match self.tags.workflow_metadata.type:
@@ -75,6 +136,8 @@ class RunRequest(BaseModel):
                 return P_ANALYZE_DATA
             case "export":
                 return P_EXPORT_DATA
+            case other:  # fail closed if bento_lib ever adds a workflow type we don't know how to authorize
+                raise InvalidRunRequest(f"Unsupported workflow type: {other}")
 
 
 class RunLog(BaseModel):

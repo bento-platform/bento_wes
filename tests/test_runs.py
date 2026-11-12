@@ -1,6 +1,8 @@
 import json
 import uuid
 
+import pytest
+
 from bento_wes.states import STATE_COMPLETE, STATE_QUEUED
 
 from .constants import EXAMPLE_RUN, EXAMPLE_RUN_BODY
@@ -181,3 +183,62 @@ def test_runs_public_endpoint(client, _mocked_responses_with_workflow, db_sessio
         assert set(metadata.keys()) == set(expected_metadata_keys)
         run_log = details["run_log"]
         assert set(run_log.keys()) == set(expected_run_log_keys)
+
+
+ATTACHMENT = ("workflow_attachment", ("evil.wdl", b"workflow evil {}", "text/plain"))
+
+
+@pytest.fixture
+def attachment_settings(client, settings_env, tmp_path, monkeypatch):
+    """Use tmp_path for run directories and stub out the Celery task, so these tests don't need Redis."""
+    from bento_wes.config import get_settings
+    from bento_wes.routers.runs import runs as runs_module
+
+    queued: list = []
+    monkeypatch.setattr(runs_module.run_workflow, "delay", queued.append)
+
+    def _set(enabled: bool):
+        s = settings_env.model_copy(update={"workflow_attachments_enabled": enabled, "service_temp": tmp_path})
+        client.app.dependency_overrides[get_settings] = lambda: s
+        return s
+
+    return _set, queued
+
+
+def test_run_with_attachment_rejected_when_disabled(client, _mocked_responses_with_workflow, attachment_settings):
+    set_settings, queued = attachment_settings
+    s = set_settings(False)
+
+    rv = client.post("/runs", data=EXAMPLE_RUN_BODY, files=[ATTACHMENT])
+    assert rv.status_code == 400
+    assert "WORKFLOW_ATTACHMENTS_ENABLED" in rv.json()["errors"][0]["message"]
+
+    # Nothing was created: no run in the database, no run directory, nothing queued
+    assert client.get("/runs").json() == []
+    assert list(s.service_temp.iterdir()) == []
+    assert queued == []
+
+
+def test_run_without_attachment_allowed_when_disabled(client, _mocked_responses_with_workflow, attachment_settings):
+    set_settings, queued = attachment_settings
+    set_settings(False)
+
+    rv = client.post("/runs", data=EXAMPLE_RUN_BODY)
+    assert rv.status_code == 200
+    assert queued == [uuid.UUID(rv.json()["run_id"])]
+
+
+def test_run_with_attachment_saved_when_enabled(client, _mocked_responses_with_workflow, attachment_settings):
+    set_settings, queued = attachment_settings
+    s = set_settings(True)
+
+    rv = client.post("/runs", data=EXAMPLE_RUN_BODY, files=[ATTACHMENT])
+    assert rv.status_code == 200
+    run_id = rv.json()["run_id"]
+    assert queued == [uuid.UUID(run_id)]
+
+    # Attachments go in their own subdirectory and are never used as the workflow file
+    attachments_dir = s.service_temp / run_id / "attachments"
+    assert (attachments_dir / "evil.wdl").read_bytes() == b"workflow evil {}"
+    run = client.get(f"/runs/{run_id}").json()
+    assert run["request"]["workflow_url"] == EXAMPLE_RUN["workflow_url"]
