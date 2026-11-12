@@ -10,14 +10,17 @@ service the registry lists as a workflow provider (bento.workflowProvider). The 
 that provider and used for everything, instead of the client's copy.
 """
 
+import asyncio
 import logging
 import re
+import time
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Annotated
 
+import aiohttp
 import httpx
-from bento_lib.service_info.manager import ServiceManager
+from bento_lib.service_info.manager import ServiceManager, ServiceManagerError
 from bento_lib.workflows.models import WorkflowDefinition
 from fastapi import Depends, status
 from pydantic import AnyUrl, ValidationError
@@ -39,6 +42,9 @@ WORKFLOW_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
 
 WORKFLOW_FETCH_TIMEOUT = 10  # seconds
 
+# How long the list of workflow providers is reused before the service registry is asked again.
+PROVIDER_LIST_TTL = 120  # seconds
+
 
 class WorkflowResolutionError(Exception):
     pass
@@ -55,10 +61,32 @@ class WorkflowResolver:
         self._service_manager = service_manager
         self._validate_ssl: bool = settings.bento_validate_ssl
         self._logger = logger
+        self._provider_urls: list[str] = []
+        self._provider_urls_fetched_at: float = float("-inf")
 
     async def _get_provider_urls(self) -> list[str]:
-        services = await self._service_manager.fetch_service_list()
-        return [s["url"].rstrip("/") for s in services if s.get("bento", {}).get("workflowProvider") and s.get("url")]
+        """
+        Get workflow provider URLs from the service registry, reusing the last list for up to PROVIDER_LIST_TTL seconds.
+        If the registry can't be reached, fall back to the last known list (if there is one).
+        """
+        if time.monotonic() - self._provider_urls_fetched_at < PROVIDER_LIST_TTL:
+            return self._provider_urls
+
+        try:
+            # skip_cache: ServiceManager otherwise caches the service list for the lifetime of the process.
+            services = await self._service_manager.fetch_service_list(skip_cache=True)
+        except (ServiceManagerError, aiohttp.ClientError, asyncio.TimeoutError) as e:
+            if not self._provider_urls:
+                self._logger.warning("Could not fetch service list from the service registry: %s", e)
+                raise WorkflowResolutionError("Could not fetch workflow providers from the service registry")
+            self._logger.warning("Could not refresh workflow providers, using the previous list: %s", e)
+            return self._provider_urls
+
+        self._provider_urls = [
+            s["url"].rstrip("/") for s in services if s.get("bento", {}).get("workflowProvider") and s.get("url")
+        ]
+        self._provider_urls_fetched_at = time.monotonic()
+        return self._provider_urls
 
     async def _find_provider(self, workflow_id: str, workflow_url: AnyUrl) -> str:
         """
